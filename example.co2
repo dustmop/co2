@@ -1,0 +1,170 @@
+# -*- mode: scheme; -*-
+;; co2 Copyright (C) 2016 Dave Griffiths
+;;
+;; This program is free software: you can redistribute it and/or modify
+;; it under the terms of the GNU Affero General Public License as
+;; published by the Free Software Foundation, either version 3 of the
+;; License, or (at your option) any later version.
+;;
+;; This program is distributed in the hope that it will be useful,
+;; but WITHOUT ANY WARRANTY; without even the implied warranty of
+;; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+;; GNU Affero General Public License for more details.
+;;
+;; You should have received a copy of the GNU Affero General Public License
+;; along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+(do
+
+ ;; NES header follows
+ (asm
+  ".byte \"NES\",$1a" ;; number of prg-rom blocks
+  ".byte $01" ;; number of chr-rom blocks
+  ".byte $01" ;; rom control bytes: horizontal mirroring, no sram or trainer, mapper #0
+  ".byte $00,$00" ;; filler
+  ".byte $00,$00,$00,$00,$00,$00,$00,$00")
+
+ (defconst sprite-data "$200") ;; where the sprite control data is
+ (defconst sprite-dma "#$2") ;; dma address is 100X this = $200
+
+ ;; code start
+ (org #xc000)
+
+ (defun (reset)
+   (asm "sei"
+        "cld")
+   (wait-vblank)
+   (wait-vblank)
+   (asm
+    ;; clear out ram.
+    "lda #$00"
+    "ldx #$00"
+    "- sta $000,x"
+    "sta $100,x"
+    "sta $200,x"
+    "sta $300,x"
+    "sta $400,x"
+    "sta $500,x"
+    "sta $600,x"
+    "sta $700,x"
+    "inx"
+    "bne -"
+    ;; reset the stack pointer.
+    "ldx #$ff"
+    "txs")
+
+   ;; disable all graphics.
+   (set! reg-ppu-ctl 0)
+   (set! reg-ppu-mask 0)
+   (init_graphics)
+   ;; set basic ppu registers.  load background from $0000,
+   ;; sprites from $1000, and the name table from $2000.
+   (set! reg-ppu-ctl #b10001000)
+   (set! reg-ppu-mask #b00011110)
+
+   ;; global frame counter
+   (defvar gframe 0)
+
+   (asm
+    "cli"
+    "loop: jmp loop"))
+
+ ;; transfer control to the vblank routines.
+
+ (defun (init_graphics)
+   (init_sprites)
+   (load_palette)
+   (set_background_tiles))
+
+ (defun (init_sprites)
+                                        ; clear page #2, which we'll use to hold sprite data
+   (memset sprite-data 0)
+   (defvar n 0)
+   (defvar address 0)
+   (loop n 0 16
+         (poke! sprite-data (+ address 0) (* n 10)) ;; y
+         (poke! sprite-data (+ address 1) n) ;; spr id
+         (poke! sprite-data (+ address 2) 0) ;; col
+         (poke! sprite-data (+ address 3) (* n 10)) ;; x
+         (set! address (+ address 4))
+         ))
+
+ (defun (load_palette)
+   (ppu-memcpy ppu-palette #x20 palette))
+
+ (defun (update_sprite)
+   (defvar nn 0)
+   (defvar naddress 0)
+
+   (poke! sprite-data 8 gframe)
+
+   ;;   (loop nn 0 4
+   ;;         (poke! sprite-data (+ naddress 0) gframe)
+   ;;         (set! naddress (+ naddress 4))
+   ;;       )
+
+   ;; sprite data dma
+   (set! reg-oam-dma sprite-dma)
+
+   )
+
+
+ (defvar tile-id 0)
+
+ (defun (set_background_tiles)
+   (set! tile-id 4)
+   ;; off by one so size #x0 wraps to mean #xff...
+   (ppu-memset ppu-name-table-1 #x0 tile-id)
+   (ppu-memset-carry-on #x0 (- tile-id 2))
+   (ppu-memset-carry-on #x0 (+ tile-id 1))
+   (ppu-memset-carry-on #xc3 tile-id)
+
+   (ppu-memset ppu-name-table-3 #x0 1)
+   (ppu-memset-carry-on #x0 6)
+   (ppu-memset-carry-on #x0 5)
+   (ppu-memset-carry-on #xc3 4))
+
+
+ (defvar snd 0)
+
+ (defint (vblank)
+   (update_sprite)
+   (set! reg-ppu-scroll gframe)
+   (set! reg-ppu-scroll gframe)
+   (set! reg-apu-channel #b00000011)
+   (inc snd)
+   (set! reg-apu-pulse1-control #b10011111)
+   (set! reg-apu-pulse1-ft snd)
+   (set! reg-apu-pulse1-ct #b11111000)
+   (inc gframe))
+
+ (defint (irq))
+
+ (asm "palette: .incbin \"example.pal\"")
+
+ (asm "bg:
+  ;; attribute table
+   .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+    .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+    .byte $00,$00,$00,$00,$00,$00,$00,$00,$f0,$f0,$f0,$f0,$f0,$f0,$f0,$f0
+    .byte $ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$0f,$0f,$0f,$0f,$0f,$0f,$0f,$0f
+    .pad $fffa")
+
+ (asm ".word vblank, reset, irq")
+
+ (asm ".incbin \"example.chr\"
+; fill the rest of the first chr-rom block with zeroes.
+.align $1000
+
+; here begins the second 4k block.  the sprites (all one of them) get their data
+; from this page.
+
+.byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00 ; character 0: blank
+.incbin \"example.chr\"
+.byte $18,$24,$66,$99,$99,$66,$24,$18,$00,$18,$18,$66,$66,$18,$18,$00 ; character 1: diamond sprite
+
+; fill the rest of the chr-rom block with zeroes, giving us exactly 8k of data, which
+; is what we want and need.
+.align $1000")
+
+ )
