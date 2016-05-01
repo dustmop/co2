@@ -6,6 +6,8 @@ A lisp for building NES/Famicom games.
 
 More impressive screenshots to follow.
 
+Generates assembly tested with ![asm6](https://github.com/freem/asm6f) and ![nestopia](http://nestopia.sourceforge.net/).
+
 More documentation to follow.
 
 See example.co2 for more info.
