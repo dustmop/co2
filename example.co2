@@ -1,4 +1,4 @@
-# -*- mode: scheme; -*-
+;; -*- mode: scheme; -*-
 ;; co2 Copyright (C) 2016 Dave Griffiths
 ;;
 ;; This program is free software: you can redistribute it and/or modify
@@ -101,7 +101,7 @@
  (defun (update_sprite)
 
    ;; wiggle a sprite position
-   (poke! sprite-data 8 gframe)
+   (poke! sprite-data 8 (+ (peek sprite-data 8) 1))
 
    ;;   (loop nn 0 4
    ;;         (poke! sprite-data (+ naddress 0) gframe)
