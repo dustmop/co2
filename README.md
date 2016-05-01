@@ -3,6 +3,9 @@
 A lisp for building NES/Famicom games.
 
 ![](shot.png)
+More impressive screenshots to follow.
+
+More documentation to follow.
 
 See example.co2 for more info.
 
