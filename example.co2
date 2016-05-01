@@ -31,12 +31,15 @@
  (org #xc000)
 
  (defun (reset)
+   ;; disable interrupts while we set stuff up
    (asm "sei"
+        ;; make sure we're not using decimal mode
         "cld")
+   ;; have to pause here
    (wait-vblank)
    (wait-vblank)
    (asm
-    ;; clear out ram.
+    ;; clear out all ram
     "lda #$00"
     "ldx #$00"
     "- sta $000,x"
@@ -62,14 +65,14 @@
    (set! reg-ppu-ctl #b10001000)
    (set! reg-ppu-mask #b00011110)
 
-   ;; global frame counter
+   ;; a global frame counter
    (defvar gframe 0)
 
    (asm
+    ;; restart interrupts again
     "cli"
+    ;; go into in infite loop - vblank interrupt takes over
     "loop: jmp loop"))
-
- ;; transfer control to the vblank routines.
 
  (defun (init_graphics)
    (init_sprites)
@@ -77,25 +80,27 @@
    (set_background_tiles))
 
  (defun (init_sprites)
-                                        ; clear page #2, which we'll use to hold sprite data
+   ;; clear page #2, which we'll use to hold sprite data
+   ;; (memset writes 256 bytes in one go)
    (memset sprite-data 0)
    (defvar n 0)
    (defvar address 0)
    (loop n 0 16
-         (poke! sprite-data (+ address 0) (* n 10)) ;; y
+         ;; set up 16 sprites
+         (poke! sprite-data (+ address 0) (* n 10)) ;; y pos
          (poke! sprite-data (+ address 1) n) ;; spr id
-         (poke! sprite-data (+ address 2) 0) ;; col
-         (poke! sprite-data (+ address 3) (* n 10)) ;; x
+         (poke! sprite-data (+ address 2) 0) ;; attributes
+         (poke! sprite-data (+ address 3) (* n 10)) ;; x pos
          (set! address (+ address 4))
          ))
 
  (defun (load_palette)
+   ;; copy 32 bytes of bg and sprite palette
    (ppu-memcpy ppu-palette #x20 palette))
 
  (defun (update_sprite)
-   (defvar nn 0)
-   (defvar naddress 0)
 
+   ;; wiggle a sprite position
    (poke! sprite-data 8 gframe)
 
    ;;   (loop nn 0 4
@@ -103,11 +108,9 @@
    ;;         (set! naddress (+ naddress 4))
    ;;       )
 
-   ;; sprite data dma
+   ;; start sprite data dma to the oam
    (set! reg-oam-dma sprite-dma)
-
    )
-
 
  (defvar tile-id 0)
 
@@ -124,13 +127,17 @@
    (ppu-memset-carry-on #x0 5)
    (ppu-memset-carry-on #xc3 4))
 
-
  (defvar snd 0)
 
  (defint (vblank)
+   ;; move a sprite or two
    (update_sprite)
+
+   ;; test scrolling
    (set! reg-ppu-scroll gframe)
    (set! reg-ppu-scroll gframe)
+
+   ;; do some stuff with sound
    (set! reg-apu-channel #b00000011)
    (inc snd)
    (set! reg-apu-pulse1-control #b10011111)
@@ -140,6 +147,9 @@
 
  (defint (irq))
 
+ ;; stuff still to tidy up follows...
+
+ ;; load palettes and most chr-rom from binary files
  (asm "palette: .incbin \"example.pal\"")
 
  (asm "bg:
