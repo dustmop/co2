@@ -98,10 +98,28 @@
    ;; copy 32 bytes of bg and sprite palette
    (ppu-memcpy ppu-palette #x20 palette))
 
+
+ (defvar joypad-index 0)
+ (defun (read_joypad)
+   (set! reg-joypad-0 1)
+   (set! reg-joypad-0 0)
+   (loop n 0 joypad-index
+         (peek reg-joypad-0 0)))
+
+
  (defun (update_sprite)
 
+   (defvar move-y-dir 0)
+   (defvar move-x-dir 0)
+
    ;; wiggle a sprite position
-   (poke! sprite-data 8 (+ (peek sprite-data 8) 1))
+   (set! joypad-index joypad-up)
+   (if (read_joypad)
+       (set! move-y-dir 1)
+       (set! move-y-dir 0))
+
+   (poke! sprite-data 8
+          (bitwise-and (+ (peek sprite-data 8) move-y-dir) #x1f))
 
    ;;   (loop nn 0 4
    ;;         (poke! sprite-data (+ naddress 0) gframe)
@@ -134,8 +152,8 @@
    (update_sprite)
 
    ;; test scrolling
-   (set! reg-ppu-scroll gframe)
-   (set! reg-ppu-scroll gframe)
+   ;;(set! reg-ppu-scroll gframe)
+   ;;(set! reg-ppu-scroll gframe)
 
    ;; do some stuff with sound
    (set! reg-apu-channel #b00000011)

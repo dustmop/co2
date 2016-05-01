@@ -55,7 +55,17 @@
     (ppu-palette      ("#$3f" "#$00"))
     (ppu-bg-palette   ("#$3f" "#$00"))
     (ppu-sprite-palette ("#$3f" "#$10"))
+    ;; how many times to read reg-joypad-x to get the button
+    (joypad-a "#1")
+    (joypad-b "#2")
+    (joypad-select "#3")
+    (joypad-start "#4")
+    (joypad-up "#5")
+    (joypad-down "#6")
+    (joypad-left "#7")
+    (joypad-right "#8")
     ))
+
 
 (define (reg-table-lookup x)
   (let ((lu (assoc x reg-table)))
@@ -296,10 +306,26 @@
      (emit "sta" (immediate-value (list-ref x 1)))
      (emit-label label)
      (emit-expr-list (cddddr x))
+     (emit "sta" working-reg) ;; store return in case we need it
      (emit "inc" (immediate-value (list-ref x 1)))
-     (emit "lda" (immediate-value (list-ref x 3)))
+     (emit-expr (list-ref x 3))
      (emit "cmp" (immediate-value (list-ref x 1)))
-     (emit "bcs" label))))
+     (emit "bcs" label)
+     (emit "lda" working-reg)))) ;; retrieve return
+
+;; (if pred then else)
+(define (emit-if x)
+  (let ((false-label (generate-label "iffalse"))
+        (end-label (generate-label "ifend")))
+    (append
+     (emit-expr (list-ref x 1))
+     (emit "cmp" "#1")
+     (emit "bne" false-label)
+     (emit-expr (list-ref x 2)) ;; true block
+     (emit "jmp" end-label)
+     (emit-label false-label)
+     (emit-expr (list-ref x 3)) ;; false block
+     (emit-label end-label))))
 
 (define (emit-mul x)
   (let ((label (generate-label "mul")))
@@ -371,7 +397,7 @@
       ((eq? (car x) 'defun) (emit-defun x))
       ((eq? (car x) 'defint) (emit-defint x))
       ((eq? (car x) 'defconst) (make-constant! (cadr x) (caddr x)) '())
-      ;;        ((eq? (car x) 'if) (emit-if x))
+      ((eq? (car x) 'if) (emit-if x))
       ;;        ((eq? (car x) 'when) (emit-when x))
       ((eq? (car x) 'loop) (emit-loop x))
       ((eq? (car x) 'do) (emit-expr-list (cdr x)))
