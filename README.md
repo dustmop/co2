@@ -2,6 +2,8 @@
 
 A lisp for building NES/Famicom games.
 
+![](shot.png)
+
 See example.co2 for more info.
 
 Commands:
