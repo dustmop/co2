@@ -118,7 +118,7 @@
 
    ;;(set! move-x-dir (if (read_joypad joypad-b) 10 11))
 
-   (poke! sprite-data 8 (read-joypad joypad-a))
+   (poke! sprite-data 8 (and (read-joypad joypad-a) 1))
 
    ;(poke! sprite-data 8
    ;       (and (+ (peek sprite-data 8) move-x-dir) #x1f))
