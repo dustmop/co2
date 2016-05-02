@@ -26,6 +26,8 @@
 
  (defconst sprite-data "$200") ;; where the sprite control data is
  (defconst sprite-dma "#$2") ;; dma address is 100X this = $200
+ (defconst pad-data "$300")
+
 
  ;; code start
  (org #xc000)
@@ -84,14 +86,12 @@
    ;; (memset writes 256 bytes in one go)
    (memset sprite-data 0)
    (defvar n 0)
-   (defvar address 0)
-   (loop n 0 16
+   (loop n 0 63
          ;; set up 16 sprites
-         (poke! sprite-data (+ address 0) (* n 10)) ;; y pos
-         (poke! sprite-data (+ address 1) n) ;; spr id
-         (poke! sprite-data (+ address 2) 0) ;; attributes
-         (poke! sprite-data (+ address 3) (* n 10)) ;; x pos
-         (set! address (+ address 4))
+         (set-sprite-x! n (* n 10)) ;; x pos
+         (set-sprite-y! n (* n 10)) ;; y pos
+         (set-sprite-id! n (+ (>> n 4) 2)) ;; spr id
+         (set-sprite-attr! n 0) ;; attributes
          ))
 
  (defun (load-palette)
@@ -99,44 +99,43 @@
    (ppu-memcpy ppu-palette #x20 palette))
 
 
- (defun (read-joypad button-type)
+ (defvar rnd-v 200)
+ (defun (rnd)
+   (set! rnd-v (>> (+ (* rnd-v 3) 5) 2))
+   rnd-v)
+
+ (defun (read-joypad)
    ;; need to 'strobe' register before reading
    (set! reg-joypad-0 1)
    (set! reg-joypad-0 0)
-   (loop n 0 button-type
-         (peek reg-joypad-0)))
+   (loop n 0 8
+         (poke! pad-data n (and (peek reg-joypad-0) #x1))))
 
+ (defun (pressed key)
+   (loop n 0 key
+         (peek pad-data n)))
 
  (defun (update-sprite)
-
-   (defvar move-y-dir 0)
-   (defvar move-x-dir 0)
-
-   (set! move-x-dir 10)
-
-   (cond ((and (read-joypad joypad-up) 1)
-          (set! move-y-dir -1))
-         ((and (read-joypad joypad-a) 1)
-          (set! move-y-dir 1))
-         (else
-          (set! move-y-dir 0)))
-
-
-   ;; wiggle a sprite position
-
-   ;;(set! move-x-dir (if (read_joypad joypad-b) 10 11))
-
-   (poke! sprite-data 8
-          (and (+ (peek sprite-data 8) move-y-dir) #x1f))
-
-   ;;   (loop nn 0 4
-   ;;         (poke! sprite-data (+ naddress 0) gframe)
-   ;;         (set! naddress (+ naddress 4))
-   ;;       )
-
    ;; start sprite data dma to the oam
    (set! reg-oam-dma sprite-dma)
-   )
+   (read-joypad)
+
+   (cond
+    ((pressed joypad-up) (sub-sprite-y! 0 1))
+    ((pressed joypad-down) (add-sprite-y! 0 2))
+    (else 0))
+
+   (cond
+    ((pressed joypad-left) (sub-sprite-x! 0 1))
+    ((pressed joypad-right) (add-sprite-x! 0 2))
+    (else 0))
+
+   (loop n 1 63
+         (add-sprite-x! n (>> (rnd) 4))
+         (add-sprite-y! n (>> (rnd) 4)))
+
+
+)
 
  (defvar tile-id 0)
 

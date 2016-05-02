@@ -59,14 +59,16 @@
     (ppu-bg-palette   ("#$3f" "#$00"))
     (ppu-sprite-palette ("#$3f" "#$10"))
     ;; how many times to read reg-joypad-x to get the button
-    (joypad-a "#1")
-    (joypad-b "#2")
-    (joypad-select "#3")
-    (joypad-start "#4")
-    (joypad-up "#5")
-    (joypad-down "#6")
-    (joypad-left "#7")
-    (joypad-right "#8")
+    (joypad-a "#0")
+    (joypad-b "#1")
+    (joypad-select "#2")
+    (joypad-start "#3")
+    (joypad-up "#4")
+    (joypad-down "#5")
+    (joypad-left "#6")
+    (joypad-right "#7")
+    ;; debug
+    (working-reg "$ff")
     ))
 
 (define (reg-table-lookup x)
@@ -382,6 +384,65 @@
    (emit "cpx" (immediate-value (list-ref x 2)))
    (emit "bne -")))
 
+;; optimised version of poke for sprites
+(define (emit-set-sprite! n x)
+  ;; address offset is optional
+  (append
+   (emit-expr (list-ref x 2)) ;; value
+   (emit "pha")
+   (emit-expr (list-ref x 1)) ;; sprite num offset
+   (emit "asl") ;; *2
+   (emit "asl") ;; *4
+   (emit "adc" (immediate-value n)) ;; byte offset
+   (emit "tay")
+   (emit "pla")
+   (emit "sta" "$200,y")))
+
+;; optimised version of peek for sprites
+(define (emit-get-sprite n x)
+  ;; address offset is optional
+  (append
+   (emit-expr (list-ref x 1)) ;; sprite num offset
+   (emit "asl") ;; *2
+   (emit "asl") ;; *4
+   (emit "adc" (immediate-value n)) ;; byte offset
+   (emit "tay")
+   (emit "lda" "$200,y")))
+
+;; optimised version of poke for sprites
+(define (emit-add-sprite! n x)
+  ;; address offset is optional
+  (append
+   (emit-expr (list-ref x 2)) ;; value
+   (emit "pha")
+   (emit-expr (list-ref x 1)) ;; sprite num offset
+   (emit "asl") ;; *2
+   (emit "asl") ;; *4
+   (emit "adc" (immediate-value n)) ;; byte offset
+   (emit "tay")
+   (emit "pla")
+   (emit "sta" working-reg)
+   (emit "lda" "$200,y")
+   (emit "adc" working-reg)
+   (emit "sta" "$200,y")))
+
+;; optimised version of poke for sprites
+(define (emit-sub-sprite! n x)
+  ;; address offset is optional
+  (append
+   (emit-expr (list-ref x 2)) ;; value
+   (emit "pha")
+   (emit-expr (list-ref x 1)) ;; sprite num offset
+   (emit "asl") ;; *2
+   (emit "asl") ;; *4
+   (emit "adc" (immediate-value n)) ;; byte offset
+   (emit "tay")
+   (emit "pla")
+   (emit "sta" working-reg)
+   (emit "lda" "$200,y")
+   (emit "sbc" working-reg)
+   (emit "sta" "$200,y")))
+
 ;; (loop var from to expr)
 (define (emit-loop x)
   (let ((label (generate-label "loop")))
@@ -485,6 +546,22 @@
      (emit "lda" "#1")
      (emit-label end-label))))
 
+(define (emit-left-shift x)
+  (append
+   (emit-expr (list-ref x 1))
+   (map append
+        (build-list
+         (list-ref x 2)
+         (lambda (i) "asl")))))
+
+(define (emit-right-shift x)
+  (append
+   (emit-expr (list-ref x 1))
+   (map append
+        (build-list
+         (list-ref x 2)
+         (lambda (i) "lsr")))))
+
 (define (emit-mul x)
   (let ((label (generate-label "mul")))
     (append
@@ -516,25 +593,56 @@
 
 (define (emit-procedure x)
   (cond
-    ((eq? (car x) '+) (binary-procedure "adc" x))
-    ((eq? (car x) '-) (binary-procedure "sbc" x))
-    ((eq? (car x) '*) (emit-mul x))
-    ((eq? (car x) 'and) (binary-procedure "and" x))
-    ((eq? (car x) 'or) (binary-procedure "or" x))
-    ((eq? (car x) 'xor) (binary-procedure "eor" x))
-    ((eq? (car x) 'inc) (emit "inc" (immediate-value (cadr x))))
-    ((eq? (car x) 'dec) (emit "dec" (immediate-value (cadr x))))
-    ((eq? (car x) 'wait-vblank)
-     (append (emit "- lda $2002")
-             (emit "bpl -")))
-    ((eq? (car x) 'org) (emit ".org" (immediate-value (cadr x))))
-    ((eq? (car x) 'memset) (emit-memset x))
-    ((eq? (car x) 'ppu-memset) (emit-ppu-memset x))
-    ((eq? (car x) 'ppu-memset-carry-on) (emit-ppu-memset-carry-on x))
-    ((eq? (car x) 'ppu-memcpy) (emit-ppu-memcpy x))
-    (else
-     (emit-fncall x)
-     )))
+   ((eq? (car x) 'asm) (emit-asm x))
+   ((eq? (car x) 'defvar) (emit-defvar x))
+   ((eq? (car x) 'defun) (emit-defun x))
+   ((eq? (car x) 'defint) (emit-defint x))
+   ((eq? (car x) 'defconst) (make-constant! (cadr x) (caddr x)) '())
+   ((eq? (car x) 'set!) (emit-set! x))
+   ;;        ((eq? (car x) 'let) (emit-let x))
+   ((eq? (car x) 'if) (emit-if x))
+   ((eq? (car x) 'when) (emit-when x))
+   ((eq? (car x) 'loop) (emit-loop x))
+   ((eq? (car x) 'do) (emit-expr-list (cdr x)))
+   ((eq? (car x) 'eq?) (emit-eq? x))
+   ((eq? (car x) '<) (emit-< x))
+   ((eq? (car x) '>) (emit-> x))
+   ((eq? (car x) 'not) (emit-not x))
+   ((eq? (car x) '+) (binary-procedure "adc" x))
+   ((eq? (car x) '-) (binary-procedure "sbc" x))
+   ((eq? (car x) '*) (emit-mul x))
+   ((eq? (car x) 'and) (binary-procedure "and" x))
+   ((eq? (car x) 'or) (binary-procedure "or" x))
+   ((eq? (car x) 'xor) (binary-procedure "eor" x))
+   ((eq? (car x) 'inc) (emit "inc" (immediate-value (cadr x))))
+   ((eq? (car x) 'dec) (emit "dec" (immediate-value (cadr x))))
+   ((eq? (car x) '<<) (emit-left-shift x))
+   ((eq? (car x) '>>) (emit-right-shift x))
+   ((eq? (car x) 'wait-vblank)
+    (append (emit "- lda $2002")
+            (emit "bpl -")))
+   ((eq? (car x) 'org) (emit ".org" (immediate-value (cadr x))))
+   ((eq? (car x) 'poke!) (emit-poke! x))
+   ((eq? (car x) 'peek) (emit-peek x))
+   ((eq? (car x) 'memset) (emit-memset x))
+   ((eq? (car x) 'ppu-memset) (emit-ppu-memset x))
+   ((eq? (car x) 'ppu-memset-carry-on) (emit-ppu-memset-carry-on x))
+   ((eq? (car x) 'ppu-memcpy) (emit-ppu-memcpy x))
+   ((eq? (car x) 'set-sprite-y!) (emit-set-sprite! 0 x))
+   ((eq? (car x) 'set-sprite-id!) (emit-set-sprite! 1 x))
+   ((eq? (car x) 'set-sprite-attr!) (emit-set-sprite! 2 x))
+   ((eq? (car x) 'set-sprite-x!) (emit-set-sprite! 3 x))
+   ((eq? (car x) 'get-sprite-y) (emit-get-sprite 0 x))
+   ((eq? (car x) 'get-sprite-id) (emit-get-sprite 1 x))
+   ((eq? (car x) 'get-sprite-attr) (emit-get-sprite 2 x))
+   ((eq? (car x) 'get-sprite-x) (emit-get-sprite 3 x))
+   ((eq? (car x) 'add-sprite-x!) (emit-add-sprite! 3 x))
+   ((eq? (car x) 'add-sprite-y!) (emit-add-sprite! 0 x))
+   ((eq? (car x) 'sub-sprite-x!) (emit-sub-sprite! 3 x))
+   ((eq? (car x) 'sub-sprite-y!) (emit-sub-sprite! 0 x))
+   (else
+    (emit-fncall x)
+    )))
 
 
 (define debug #t)
@@ -545,25 +653,7 @@
    ((primcall? x)
     (append
      (emit ";;" (symbol->string (car x)))
-     (cond
-      ((eq? (car x) 'asm) (emit-asm x))
-      ((eq? (car x) 'set!) (emit-set! x))
-      ((eq? (car x) 'poke!) (emit-poke! x))
-      ((eq? (car x) 'peek) (emit-peek x))
-      ;;        ((eq? (car x) 'let) (emit-let x))
-      ((eq? (car x) 'defvar) (emit-defvar x))
-      ((eq? (car x) 'defun) (emit-defun x))
-      ((eq? (car x) 'defint) (emit-defint x))
-      ((eq? (car x) 'defconst) (make-constant! (cadr x) (caddr x)) '())
-      ((eq? (car x) 'if) (emit-if x))
-      ((eq? (car x) 'when) (emit-when x))
-      ((eq? (car x) 'loop) (emit-loop x))
-      ((eq? (car x) 'do) (emit-expr-list (cdr x)))
-      ((eq? (car x) 'eq?) (emit-eq? x))
-      ((eq? (car x) '<) (emit-< x))
-      ((eq? (car x) '>) (emit-> x))
-      ((eq? (car x) 'not) (emit-not x))
-      (else (emit-procedure x)))
+     (emit-procedure x)
      (emit ";; ending " (symbol->string (car x)))
      ))
     (else
