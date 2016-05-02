@@ -17,6 +17,15 @@ a function, whereapon they become clobbered.
 The plan is to support a bunch of NES specific calls for sprites,
 backgrounds and sound.
 
+Small example code, for reading the joypad:
+
+    (defun (read-joypad button-type)
+      ;; need to 'strobe' register before reading
+      (set! reg-joypad-0 1)
+      (set! reg-joypad-0 0)
+      (loop n 0 button-type
+            (peek reg-joypad-0)))
+
 See example.co2 for more info.
 
 Commands:

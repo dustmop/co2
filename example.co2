@@ -100,6 +100,7 @@
 
 
  (defun (read-joypad button-type)
+   ;; need to 'strobe' register before reading
    (set! reg-joypad-0 1)
    (set! reg-joypad-0 0)
    (loop n 0 button-type
