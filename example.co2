@@ -59,7 +59,7 @@
    ;; disable all graphics.
    (set! reg-ppu-ctl 0)
    (set! reg-ppu-mask 0)
-   (init_graphics)
+   (init-graphics)
    ;; set basic ppu registers.  load background from $0000,
    ;; sprites from $1000, and the name table from $2000.
    (set! reg-ppu-ctl #b10001000)
@@ -74,12 +74,12 @@
     ;; go into in infite loop - vblank interrupt takes over
     "loop: jmp loop"))
 
- (defun (init_graphics)
-   (init_sprites)
-   (load_palette)
-   (set_background_tiles))
+ (defun (init-graphics)
+   (init-sprites)
+   (load-palette)
+   (set-background-tiles))
 
- (defun (init_sprites)
+ (defun (init-sprites)
    ;; clear page #2, which we'll use to hold sprite data
    ;; (memset writes 256 bytes in one go)
    (memset sprite-data 0)
@@ -94,32 +94,34 @@
          (set! address (+ address 4))
          ))
 
- (defun (load_palette)
+ (defun (load-palette)
    ;; copy 32 bytes of bg and sprite palette
    (ppu-memcpy ppu-palette #x20 palette))
 
 
- (defvar joypad-index 0)
- (defun (read_joypad)
+ (defun (read-joypad button-type)
    (set! reg-joypad-0 1)
    (set! reg-joypad-0 0)
-   (loop n 0 joypad-index
-         (peek reg-joypad-0 0)))
+   (loop n 0 button-type
+         (peek reg-joypad-0)))
 
 
- (defun (update_sprite)
+ (defun (update-sprite)
 
    (defvar move-y-dir 0)
    (defvar move-x-dir 0)
 
-   ;; wiggle a sprite position
-   (set! joypad-index joypad-up)
-   (if (read_joypad)
-       (set! move-y-dir 1)
-       (set! move-y-dir 0))
+   (set! move-x-dir 10)
 
-   (poke! sprite-data 8
-          (bitwise-and (+ (peek sprite-data 8) move-y-dir) #x1f))
+
+   ;; wiggle a sprite position
+
+   ;;(set! move-x-dir (if (read_joypad joypad-b) 10 11))
+
+   (poke! sprite-data 8 (read-joypad joypad-a))
+
+   ;(poke! sprite-data 8
+   ;       (and (+ (peek sprite-data 8) move-x-dir) #x1f))
 
    ;;   (loop nn 0 4
    ;;         (poke! sprite-data (+ naddress 0) gframe)
@@ -132,7 +134,7 @@
 
  (defvar tile-id 0)
 
- (defun (set_background_tiles)
+ (defun (set-background-tiles)
    (set! tile-id 4)
    ;; off by one so size #x0 wraps to mean #xff...
    (ppu-memset ppu-name-table-1 #x0 tile-id)
@@ -149,18 +151,18 @@
 
  (defint (vblank)
    ;; move a sprite or two
-   (update_sprite)
+   (update-sprite)
 
    ;; test scrolling
    ;;(set! reg-ppu-scroll gframe)
    ;;(set! reg-ppu-scroll gframe)
 
    ;; do some stuff with sound
-   (set! reg-apu-channel #b00000011)
-   (inc snd)
-   (set! reg-apu-pulse1-control #b10011111)
-   (set! reg-apu-pulse1-ft snd)
-   (set! reg-apu-pulse1-ct #b11111000)
+ ;  (set! reg-apu-channel #b00000011)
+ ;  (inc snd)
+ ;  (set! reg-apu-pulse1-control #b10011111)
+ ;  (set! reg-apu-pulse1-ft snd)
+ ;  (set! reg-apu-pulse1-ct #b11111000)
    (inc gframe))
 
  (defint (irq))
