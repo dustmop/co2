@@ -113,11 +113,12 @@
 
    (set! move-x-dir 10)
 
-   (when (and (read-joypad joypad-up) 1)
-         (set! move-y-dir -1))
-
-   (when (and (read-joypad joypad-a) 1)
-         (set! move-y-dir 1))
+   (cond ((and (read-joypad joypad-up) 1)
+          (set! move-y-dir -1))
+         ((and (read-joypad joypad-a) 1)
+          (set! move-y-dir 1))
+         (else
+          (set! move-y-dir 0)))
 
 
    ;; wiggle a sprite position

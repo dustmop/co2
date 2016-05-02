@@ -6,9 +6,16 @@ A lisp for building NES/Famicom games.
 
 More impressive screenshots to follow.
 
-Generates assembly tested with ![asm6](https://github.com/freem/asm6f) and ![nestopia](http://nestopia.sourceforge.net/).
+Generates 6502 assembly tested with ![asm6](https://github.com/freem/asm6f) and ![nestopia](http://nestopia.sourceforge.net/).
 
 More documentation to follow.
+
+Supports rough function calling (proper call stack considered too
+bloaty!) so arguments work as expected until you call a function within
+a function, whereapon they become clobbered.
+
+The plan is to support a bunch of NES specific calls for sprites,
+backgrounds and sound.
 
 See example.co2 for more info.
 
@@ -18,6 +25,13 @@ Commands:
 - defun
 - defint (interrupt)
 - defconst 
+- if
+- when
+- cond
+- eq?
+- <
+- >
+- not
 - loop
 - do
 - asm
@@ -27,9 +41,9 @@ Commands:
 - +
 - -
 - *
-- bitwise-and
-- bitwise-or
-- bitwise-eor
+- and
+- or
+- xor
 - inc
 - dec
 - wait-vblank
