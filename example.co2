@@ -113,15 +113,19 @@
 
    (set! move-x-dir 10)
 
+   (when (and (read-joypad joypad-up) 1)
+         (set! move-y-dir -1))
+
+   (when (and (read-joypad joypad-a) 1)
+         (set! move-y-dir 1))
+
 
    ;; wiggle a sprite position
 
    ;;(set! move-x-dir (if (read_joypad joypad-b) 10 11))
 
-   (poke! sprite-data 8 (and (read-joypad joypad-a) 1))
-
-   ;(poke! sprite-data 8
-   ;       (and (+ (peek sprite-data 8) move-x-dir) #x1f))
+   (poke! sprite-data 8
+          (and (+ (peek sprite-data 8) move-y-dir) #x1f))
 
    ;;   (loop nn 0 4
    ;;         (poke! sprite-data (+ naddress 0) gframe)

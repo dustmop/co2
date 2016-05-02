@@ -411,6 +411,14 @@
      (emit-expr (list-ref x 3)) ;; false block
      (emit-label end-label))))
 
+(define (emit-when x)
+  (let ((end-label (generate-label "when_end")))
+    (append
+     (emit-expr (list-ref x 1))
+     (emit "cmp" "#1")
+     (emit "bne" end-label)
+     (emit-expr (list-ref x 2)) ;; true block
+     (emit-label end-label))))
 
 ;; predicate stuff, I think these are stupidly long
 
@@ -548,7 +556,7 @@
       ((eq? (car x) 'defint) (emit-defint x))
       ((eq? (car x) 'defconst) (make-constant! (cadr x) (caddr x)) '())
       ((eq? (car x) 'if) (emit-if x))
-      ;;        ((eq? (car x) 'when) (emit-when x))
+      ((eq? (car x) 'when) (emit-when x))
       ((eq? (car x) 'loop) (emit-loop x))
       ((eq? (car x) 'do) (emit-expr-list (cdr x)))
       ((eq? (car x) 'eq?) (emit-eq? x))
