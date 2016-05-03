@@ -57,9 +57,16 @@ Commands:
 - xor
 - inc
 - dec
+- <<
+- >>
 - wait-vblank
 - org
 - memset
 - ppu-memset
 - ppu-memset-carry-on
 - ppu-memcpy
+- set-sprite-x!
+- set-sprite-y!
+- set-sprite-id!
+- set-sprite-attr!
+

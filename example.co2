@@ -90,7 +90,7 @@
          ;; set up 16 sprites
          (set-sprite-x! n (* n 10)) ;; x pos
          (set-sprite-y! n (* n 10)) ;; y pos
-         (set-sprite-id! n (+ (>> n 4) 2)) ;; spr id
+         (set-sprite-id! n (+ n 2)) ;; spr id
          (set-sprite-attr! n 0) ;; attributes
          ))
 
@@ -101,8 +101,11 @@
 
  (defvar rnd-v 200)
  (defun (rnd)
-   (set! rnd-v (>> (+ (* rnd-v 3) 5) 2))
+   (set! rnd-v (+ (xor rnd-v 103) 5))
    rnd-v)
+ ;; (defun (rnd)
+ ;;   (set! rnd-v (>> (+ (* rnd-v 3) 5) 2))
+ ;;   rnd-v)
 
  (defun (read-joypad)
    ;; need to 'strobe' register before reading
@@ -115,9 +118,16 @@
    (loop n 0 key
          (peek pad-data n)))
 
+ (defvar sx 0)
+ (defvar sy 0)
+
  (defun (update-sprite)
    ;; start sprite data dma to the oam
    (set! reg-oam-dma sprite-dma)
+   (set! sx (+ sx (>> (rnd) 5)))
+   (set! sy (+ sy (>> (rnd) 5)))
+   (set! reg-ppu-scroll sx)
+   (set! reg-ppu-scroll sy)
    (read-joypad)
 
    (cond
@@ -130,12 +140,26 @@
     ((pressed joypad-right) (add-sprite-x! 0 2))
     (else 0))
 
-   (loop n 1 63
-         (add-sprite-x! n (>> (rnd) 4))
-         (add-sprite-y! n (>> (rnd) 4)))
+   (loop n
+         (and gframe #x3f)
+         (and (+ gframe 12) #x3f)
+         (if (< (rnd) 127)
+             (add-sprite-x! n (>> (rnd) 4))
+             (sub-sprite-x! n (>> (rnd) 4)))
+         )
+   (loop n
+         (and (+ gframe 7) #x3f)
+         (and (+ gframe 22) #x3f)
+         (if (< (rnd) 127)
+             (add-sprite-y! n (>> (rnd) 4))
+             (sub-sprite-y! n (>> (rnd) 4)))
+         )
 
+   (ppu-memset ppu-name-table-1 (rnd) (rnd))
 
-)
+   (ppu-memcpy ppu-palette #x20 palette)
+
+   )
 
  (defvar tile-id 0)
 
@@ -143,14 +167,14 @@
    (set! tile-id 4)
    ;; off by one so size #x0 wraps to mean #xff...
    (ppu-memset ppu-name-table-1 #x0 tile-id)
-   (ppu-memset-carry-on #x0 (- tile-id 2))
-   (ppu-memset-carry-on #x0 (+ tile-id 1))
+   (ppu-memset-carry-on #x0 (- tile-id 20))
+   (ppu-memset-carry-on #x0 (+ tile-id 10))
    (ppu-memset-carry-on #xc3 tile-id)
 
-   (ppu-memset ppu-name-table-3 #x0 1)
-   (ppu-memset-carry-on #x0 6)
-   (ppu-memset-carry-on #x0 5)
-   (ppu-memset-carry-on #xc3 4))
+   (ppu-memset ppu-name-table-3 #x0 10)
+   (ppu-memset-carry-on #x0 60)
+   (ppu-memset-carry-on #x0 50)
+   (ppu-memset-carry-on #xc3 40))
 
  (defvar snd 0)
 
@@ -163,11 +187,25 @@
    ;;(set! reg-ppu-scroll gframe)
 
    ;; do some stuff with sound
- ;  (set! reg-apu-channel #b00000011)
- ;  (inc snd)
- ;  (set! reg-apu-pulse1-control #b10011111)
- ;  (set! reg-apu-pulse1-ft snd)
- ;  (set! reg-apu-pulse1-ct #b11111000)
+   (set! reg-apu-channel (xor (rnd) 123))
+
+   (set! reg-apu-pulse1-control #b10011111)
+   (set! reg-apu-pulse1-ft (>> (rnd) 5))
+   (set! reg-apu-pulse1-ramp (<< (rnd) 5))
+   (set! reg-apu-pulse1-ct #b11111000)
+   (set! reg-apu-pulse2-control #b10011111)
+   (set! reg-apu-pulse2-ft (>> (rnd) 4))
+   (set! reg-apu-pulse2-ct #b11111000)
+   (set! reg-apu-tri-control (xor (rnd) 321))
+   (set! reg-apu-tri-ft (xor (rnd) 244))
+   (set! reg-apu-tri-ct (xor (rnd) 82))
+   (set! reg-apu-noise-env (xor (rnd) 321))
+   (set! reg-apu-noise-ft (xor (rnd) 323))
+   (set! reg-apu-noise-ct (xor (rnd) 21))
+   (set! reg-apu-dmc-control (xor (rnd) 22))
+   (set! reg-apu-dmc-dac (xor (rnd) 22))
+   (set! reg-apu-dmc-addr (xor (rnd) 22))
+   (set! reg-apu-dmc-size (xor (rnd) 22))
    (inc gframe))
 
  (defint (irq))
@@ -187,7 +225,7 @@
 
  (asm ".word vblank, reset, irq")
 
- (asm ".incbin \"example.chr\"
+ (asm ".incbin \"binary/sprites.chr\"
 ; fill the rest of the first chr-rom block with zeroes.
 .align $1000
 
@@ -195,7 +233,7 @@
 ; from this page.
 
 .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00 ; character 0: blank
-.incbin \"example.chr\"
+.incbin \"binary/sprites.chr\"
 .byte $18,$24,$66,$99,$99,$66,$24,$18,$00,$18,$18,$66,$66,$18,$18,$00 ; character 1: diamond sprite
 
 ; fill the rest of the chr-rom block with zeroes, giving us exactly 8k of data, which

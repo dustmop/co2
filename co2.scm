@@ -39,8 +39,15 @@
     (reg-apu-pulse2-ft        "$4006")
     (reg-apu-pulse2-ct        "$4007")
     (reg-apu-tri-control      "$4008")
-    (reg-apu-noise            "$400c")
-    (reg-apu-dcm              "$4010")
+    (reg-apu-tri-ft           "$400a")
+    (reg-apu-tri-ct           "$400b")
+    (reg-apu-noise-env        "$400c")
+    (reg-apu-noise-ft         "$400e")
+    (reg-apu-noise-ct         "$400f")
+    (reg-apu-dmc-control      "$4010")
+    (reg-apu-dmc-dac          "$4011")
+    (reg-apu-dmc-addr         "$4012")
+    (reg-apu-dmc-size         "$4013")
     (reg-oam-dma              "$4014")
     (reg-apu-channel          "$4015")
     ;; input
@@ -472,6 +479,7 @@
      (emit-expr (list-ref x 3)) ;; false block
      (emit-label end-label))))
 
+;; (when pred then)
 (define (emit-when x)
   (let ((end-label (generate-label "when_end")))
     (append
@@ -480,6 +488,16 @@
      (emit "bne" end-label)
      (emit-expr (list-ref x 2)) ;; true block
      (emit-label end-label))))
+
+;; (while pred then)
+(define (emit-while x)
+  (let ((loop-label (generate-label "while_loop")))
+    (append
+     (emit-label loop-label)
+     (emit-expr (list-ref x 2)) ;; loop block
+     (emit-expr (list-ref x 1)) ;; predicate
+     (emit "cmp" "#1")
+     (emit "bne" loop-label))))
 
 ;; predicate stuff, I think these are stupidly long
 
@@ -602,6 +620,7 @@
    ;;        ((eq? (car x) 'let) (emit-let x))
    ((eq? (car x) 'if) (emit-if x))
    ((eq? (car x) 'when) (emit-when x))
+   ((eq? (car x) 'while) (emit-while x))
    ((eq? (car x) 'loop) (emit-loop x))
    ((eq? (car x) 'do) (emit-expr-list (cdr x)))
    ((eq? (car x) 'eq?) (emit-eq? x))
@@ -652,7 +671,7 @@
    ((immediate? x) (emit-load-immediate x))
    ((primcall? x)
     (append
-     (emit ";;" (symbol->string (car x)))
+     (emit ";; starting " (symbol->string (car x)))
      (emit-procedure x)
      (emit ";; ending " (symbol->string (car x)))
      ))
