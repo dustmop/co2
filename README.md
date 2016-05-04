@@ -8,39 +8,57 @@ More impressive screenshots to follow.
 
 Generates 6502 assembly tested with ![asm6](https://github.com/freem/asm6f) and ![nestopia](http://nestopia.sourceforge.net/).
 
-More documentation to follow.
 
-Supports rough function calling (proper call stack considered too
-bloaty!) so arguments work as expected until you call a function within
-a function, whereapon they become clobbered. [todo: fix this]
+Everything 8 bit currently, 16bit base addresses specified via
+constantsor predefined registers. No garbage collection, variables and
+direct memory peek/poke only.
 
-No garbage collection, variables and direct memory peek/poke!
+Supports rough function calling so arguments work as expected until you
+call a function within a function, whereapon they become
+clobbered. [this will be fixed]
 
-Everything 8 bit at the moment.
-
-The plan is to support a bunch of NES specific calls for sprites,
-backgrounds and sound.
+The plan is to eventually provide a bunch of NES specific calls for
+sprites, backgrounds and sound. All experimental for now.
 
 Small example code, for reading the joypad button state:
 
-    (defun (read-joypad button-type)
+    (defun (read-joypad)
       ;; need to 'strobe' register before reading
       (set! reg-joypad-0 1)
       (set! reg-joypad-0 0)
-      ;; read multiple times until we get to the button we want
-      ;; function returns the result of the last expression
-      (loop n 0 button-type
-            (peek reg-joypad-0)))
+      ;; need to read multiple times until we get to the button we want
+      ;; functions implicitly return the result of the last expression
+      (loop n 0 8
+         (poke! pad-data n (and (peek reg-joypad-0) #x1))))
+
+    (defun (pressed key)
+      (loop n 0 key
+         (peek pad-data n)))
+
+    (defun (update-sprite)
+      ;; start sprite data dma to the oam
+      (set! reg-oam-dma sprite-dma)
+
+      (read-joypad)
+
+      ;; control a range of sprites with the joypad
+      (cond
+       ((pressed joypad-up) (sub-sprites-y! 0 4 1))
+       ((pressed joypad-down) (add-sprites-y! 0 4 1))
+       ((pressed joypad-left) (sub-sprites-x! 0 4 1))
+       ((pressed joypad-right) (add-sprites-x! 0 4 1))
+       (else 0))
             
-See example.co2 for more info.
+See example.co2 for more of this.
 
-Memory use
+## Memory use
 
-    $00 - $ef : defvar reserves addresses here
-    $f0 - $fe : function arguments
-    $ff       : compiler working register
-    $200 - $300 : sprite control data
-    $300 - $7ff? : user data
+    $00 - $ef : defvar reserves it's addresses here
+    $f0 - $fe : function arguments stored here
+    $ff       : a compiler specific working register
+    $200 - $2ff : sprite control data
+    $300 - $31f : processed joypad data
+    $320 - ...  : yours
 
 ## Fundamental stuff
 
@@ -320,12 +338,12 @@ off. allows you to write more than 256 bytes.
 
 ## (ppu-memcpy dstaddr length sourceaddr)
 
-copy a load of cpu bytes to the ppu dst and src addresses need to be 16bit constants/registers.
+copy a load of cpu bytes to the ppu. dst and src addresses need to be 16bit constants/registers.
 
     ;; load a palette
     (asm "palette: .incbin \"example.pal\"")
     ...
-    ;; copy it into the ppu
+    ;; copy all 32bytes of bg/sprite palette into the ppu
     (ppu-memcpy ppu-palette #x20 palette))
 
 ## OAM commands
@@ -348,7 +366,7 @@ sprites: still working on the best way to do these...
 
 # registers
 
-these are defined as constants
+these are defined as constants for your convenience and enjoyment.
 
 ## ppu/oam registers
 
