@@ -59,9 +59,9 @@ See example.co2 for more of this.
 
 ## Fundamental stuff
 
-General purpose 6502 code. All numbers follow racket conventions in
-terms of representation: `38` is decimal, `#xff` is hex, `#b11011011` is
-binary.
+General purpose 6502 code (so might work on c64 etc?). All numbers
+follow racket conventions in terms of representation: `38` is decimal,
+`#xff` is hex, `#b11011011` is binary.
 
 ### (defvar name value)
 
