@@ -44,6 +44,9 @@ Memory use
 
 ## Fundamental stuff
 
+All numbers follow racket conventions in terms of representation: `38`
+is decimal, `#xff` is hex, `#b11011011` is binary.
+
 ### (defvar name value)
 
 define and initialise a variable:
@@ -186,34 +189,148 @@ assignments
 
 ### (poke! base-addr [offset] value)
 
-write to memory. base address is 
- 
-- peek
-- +
-- -
-- *
-- and
-- or
-- xor
-- inc
-- dec
-- <<
-- >>
-- wait-vblank
-- org
-- memset (block writes entire page - 256 bytes)
+write to memory. base address can be a const or register 16bit address,
+offset and value are normal 8 bit expressions. offset is optional,
+reduces instruction count if you don't need it.
+
+     ;; store button status
+     (loop n 0 8
+         (poke! pad-data n (and (peek reg-joypad-0) #x1))
+
+### (peek base-addr [offset])
+
+returns the contents of memory at the specified address. offset is optional, reduces instruction count if you don't need it.
+
+     ;; store button status
+     (loop n 0 8
+         (poke! pad-data n (and (peek reg-joypad-0) #x1))
+
+### (+ a b)
+
+8 bit addition with carry
+
+    (+ (- 1 2) (* 2 3) 8)
+
+### (- a b)
+
+8 bit subtraction
+
+    (+ (- 1 2) (* 2 3) 8)
+
+### (* a b)
+
+8 bit multiplication
+
+    (+ (- 1 2) (* 2 3) 8)
+
+### (and a b)
+
+8 bit and - can be used for masking or logical operations.
+
+    (when (and (peek reg-joypad-0) #x1)
+        (do-something))
+
+### (or a b)
+
+8 bit or - can be used for masking or logical operations.
+
+    (when (or (pressed joypad-a) (pressed joypad-b))
+        (do-something))
+
+### (xor a b)
+
+8 bit xor (eor in asm) - can be used for bit flipping, eg:
+
+    (define (toggle-bit-zero a)
+        (xor a #b00000001))
+
+### (inc a)
+
+increment a variable by one - maps to a single instruction
+
+    (defvar n 0)
+    (while (< n 10)
+        (set-sprite-x! n (* n 10))
+        (inc n))
+    
+
+## (dec a)
+
+decrement a variable by one - maps to a single instruction
+
+    (defvar n 20)
+    (while (> n 10)
+        (set-sprite-x! n (* n 10))
+        (dec n))
+
+## (<< a num-bits)
+
+8 bit left shift
+
+    (defvar num-poodles 1)
+    (set! num-poodles (<< num-poodles 2)) ;; = 1*4
+
+## (>> a num-bits)
+
+8 bit right shift
+
+    (defvar num-poodles 10)
+    (set! num-poodles (>> num-poodles 1)) ;; = 10/2
 
 # Experimental
 
-while I figure out how the architecture works
+NES/Famicom specific commands. These are subject to much change, while
+we figure out how the architecture works and the best approach to game
+programming.
 
-## PPU commands
+## (wait-vblank)
 
-- ppu-memset
-- ppu-memset-carry-on
-- ppu-memcpy
+delay for a vblank
+
+    (wait-vblank)
+
+## (org addr)
+
+set location of following code/data
+
+    (org #xc000)
+
+## (memset address value)
+
+block writes an entire page - 256 bytes to a 16bit address
+
+    ;; clear sprite data
+    (memset sprite-data 0)
+
+
+## (ppu-memset addr length value)
+
+block writes value into ppu memory from address 
+
+    ;; write a load of tile ids to background memory
+    (ppu-memset ppu-name-table-1 #xff tile-id)
+
+## (ppu-memset-carry-on length value)
+
+contiues block writing from where the previous ppu-memset/carry-on left
+off. allows you to write more than 256 bytes.
+
+    (ppu-memset ppu-name-table-1 #xff tile-id)
+    (ppu-memset-carry-on #xff (+ tile-id 1))
+
+## (ppu-memcpy dstaddr length sourceaddr)
+
+copy a load of cpu bytes to the ppu dst and src addresses need to be 16bit constants/registers.
+
+    ;; load a palette
+    (asm "palette: .incbin \"example.pal\"")
+    ...
+    ;; copy it into the ppu
+    (ppu-memcpy ppu-palette #x20 palette))
 
 ## OAM commands
+
+sprites: still working on the best way to do these...
 
 - set-sprite-x!
 - set-sprite-y!
@@ -228,4 +345,70 @@ while I figure out how the architecture works
 - sub-sprite-x!
 - sub-sprite-y!
 - or-sprite-attr!
+
+# registers
+
+these are defined as constants
+
+## ppu/oam registers
+
+- reg-ppu-ctl              
+- reg-ppu-mask             
+- reg-ppu-status           
+- reg-oam-addr             
+- reg-oam-data             
+- reg-ppu-scroll           
+- reg-ppu-addr             
+- reg-ppu-data             
+- reg-oam-dma 
+
+### apu registers
+
+- reg-apu-pulse1-control   
+- reg-apu-pulse1-ramp      
+- reg-apu-pulse1-ft        
+- reg-apu-pulse1-ct        
+- reg-apu-pulse2-control   
+- reg-apu-pulse2-ramp      
+- reg-apu-pulse2-ft        
+- reg-apu-pulse2-ct        
+- reg-apu-tri-control      
+- reg-apu-tri-ft           
+- reg-apu-tri-ct           
+- reg-apu-noise-env        
+- reg-apu-noise-ft         
+- reg-apu-noise-ct         
+- reg-apu-dmc-control      
+- reg-apu-dmc-dac          
+- reg-apu-dmc-addr         
+- reg-apu-dmc-size         
+- reg-apu-channel          
+
+### input
+
+- reg-joypad-0             
+- reg-joypad-1 
+
+- joypad-a 
+- joypad-b 
+- joypad-select 
+- joypad-start 
+- joypad-up 
+- joypad-down 
+- joypad-left
+- joypad-right
+            
+### ppu vram addresses
+
+- ppu-name-table-0  
+- ppu-attr-table-0  
+- ppu-name-table-1  
+- ppu-attr-table-1  
+- ppu-name-table-2  
+- ppu-attr-table-2  
+- ppu-name-table-3  
+- ppu-attr-table-3  
+- ppu-palette       
+- ppu-bg-palette    
+- ppu-sprite-palette 
 
