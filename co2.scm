@@ -450,6 +450,54 @@
    (emit "sbc" working-reg)
    (emit "sta" "$200,y")))
 
+;; optimised version of poke for sprites
+(define (emit-or-sprite! n x)
+  ;; address offset is optional
+  (append
+   (emit-expr (list-ref x 2)) ;; value
+   (emit "pha")
+   (emit-expr (list-ref x 1)) ;; sprite num offset
+   (emit "asl") ;; *2
+   (emit "asl") ;; *4
+   (emit "adc" (immediate-value n)) ;; byte offset
+   (emit "tay")
+   (emit "pla")
+   (emit "sta" working-reg)
+   (emit "lda" "$200,y")
+   (emit "eor" working-reg)
+   (emit "sta" "$200,y")))
+
+;; optimised version of poke for sprites
+(define (emit-zzz-sprites! n zzz x)
+  (let ((label (generate-label "sprite_range")))
+    (append
+     (emit-expr (list-ref x 3)) ;; value
+     (emit "pha")
+     (emit-expr (list-ref x 2)) ;; sprite count
+     (emit "pha")
+     (emit-expr (list-ref x 1)) ;; sprite num offset
+     (emit "asl") ;; *2
+     (emit "asl") ;; *4
+     (emit "adc" (immediate-value n)) ;; byte offset
+     (emit "tay") ;; put offset in y
+     (emit "pla") ;; pull count out
+     (emit "tax") ;; put sprite count in x
+     (emit "pla") ;; value
+     (emit "sta" working-reg)
+     (emit-label label)
+     (emit "lda" "$200,y") ;; load previous
+     (emit "clc")
+     (emit zzz working-reg)
+     (emit "sta" "$200,y")
+     (emit "iny") ;; skip
+     (emit "iny") ;; to
+     (emit "iny") ;; the next
+     (emit "iny") ;; sprite
+     (emit "dex")
+     (emit "bne" label))))
+
+
+
 ;; (loop var from to expr)
 (define (emit-loop x)
   (let ((label (generate-label "loop")))
@@ -657,8 +705,15 @@
    ((eq? (car x) 'get-sprite-x) (emit-get-sprite 3 x))
    ((eq? (car x) 'add-sprite-x!) (emit-add-sprite! 3 x))
    ((eq? (car x) 'add-sprite-y!) (emit-add-sprite! 0 x))
+
+   ((eq? (car x) 'add-sprites-x!) (emit-zzz-sprites! 3 "adc" x))
+   ((eq? (car x) 'add-sprites-y!) (emit-zzz-sprites! 0 "adc" x))
+   ((eq? (car x) 'sub-sprites-x!) (emit-zzz-sprites! 3 "sbc" x))
+   ((eq? (car x) 'sub-sprites-y!) (emit-zzz-sprites! 0 "sbc" x))
+
    ((eq? (car x) 'sub-sprite-x!) (emit-sub-sprite! 3 x))
    ((eq? (car x) 'sub-sprite-y!) (emit-sub-sprite! 0 x))
+   ((eq? (car x) 'or-sprite-attr!) (emit-or-sprite! 2 x))
    (else
     (emit-fncall x)
     )))
@@ -666,17 +721,36 @@
 
 (define debug #t)
 
+(define histogram '())
+
+(define (add-histogram name count hist)
+  (cond
+   ((null? hist) (list (list name count)))
+   ((eq? (car (car hist)) name)
+    (cons (list name (+ (cadr (car hist)) count)) (cdr hist)))
+   (else
+    (cons (car hist) (add-histogram name count (cdr hist))))))
+
+(define (histogram-print histogram)
+  (for-each
+   (lambda (h)
+     (display (car h))(display ": ")(display (cadr h))(newline))
+   histogram))
+
 (define (emit-expr x)
   (cond
-   ((immediate? x) (emit-load-immediate x))
+   ((immediate? x)
+    (emit-load-immediate x))
    ((primcall? x)
-    (append
-     (emit ";; starting " (symbol->string (car x)))
-     (emit-procedure x)
-     (emit ";; ending " (symbol->string (car x)))
-     ))
-    (else
-     (display "don't understand ")(display x)(newline) '())))
+    (let ((r (emit-procedure x)))
+      (set! histogram (add-histogram (car x) (length r) histogram))
+      (append
+       (emit ";; starting " (symbol->string (car x)))
+       r
+       (emit ";; ending " (symbol->string (car x)))
+       )))
+   (else
+    (display "don't understand ")(display x)(newline) '())))
 
 ;----------------------------------------------------------------
 
@@ -689,6 +763,19 @@
                   (_ (cdr l))))))
   (_ (cdr x)))
 
+;; (get-sprite-vflip sprite-num)
+(define (preprocess-get-sprite-vflip x)
+  (list '>> (list 'get-sprite-attr (cadr x)) 7))
+
+(define (preprocess-get-sprite-hflip x)
+  (list 'and (list '>> (list 'get-sprite-attr (cadr x)) 6) #x01))
+
+(define (preprocess-set-sprite-vflip! x)
+  (list 'or-sprite-attr! (list-ref x 1) (list '<< (list-ref x 2) 6)))
+
+(define (preprocess-set-sprite-hflip! x)
+  (list 'or-sprite-attr! (list-ref x 1) (list '<< (list-ref x 2) 7)))
+
 ;; basically diy-macro from the main tinyscheme stuff
 (define (pre-process s)
   (cond
@@ -700,6 +787,10 @@
             ;; dispatch to macro processors
             (cond
              ((eq? (car i) 'cond) (preprocess-cond-to-if i))
+             ((eq? (car i) 'get-sprite-vflip) (preprocess-get-sprite-vflip i))
+             ((eq? (car i) 'get-sprite-hflip) (preprocess-get-sprite-hflip i))
+             ((eq? (car i) 'set-sprite-vflip!) (preprocess-set-sprite-vflip! i))
+             ((eq? (car i) 'set-sprite-hflip!) (preprocess-set-sprite-hflip! i))
              (else (pre-process i)))
             (pre-process i)))
       s))
@@ -716,7 +807,9 @@
      (lambda (line)
        (display line f)(newline f))
      (compile-program x))
-    (close-output-port f)))
+    (close-output-port f)
+    ;;(histogram-print histogram)
+    ))
 
 (define (assert fn x)
   (when (not x)
