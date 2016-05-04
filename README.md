@@ -11,14 +11,11 @@ Generates 6502 assembly tested with ![asm6](https://github.com/freem/asm6f) and 
 
 Everything 8 bit currently, 16bit base addresses specified via
 constantsor predefined registers. No garbage collection, variables and
-direct memory peek/poke only.
-
-Supports rough function calling so arguments work as expected until you
-call a function within a function, whereapon they become
-clobbered. [this will be fixed]
-
-The plan is to eventually provide a bunch of NES specific calls for
-sprites, backgrounds and sound. All experimental for now.
+direct memory peek/poke only. Supports rough function calling so
+arguments work as expected until you call a function within a function,
+whereapon they become clobbered. [this will now be fixed!] The plan is
+to eventually provide a bunch of NES specific calls for sprites,
+backgrounds and sound. All that is experimental for now.
 
 Small example code, for reading the joypad button state:
 
