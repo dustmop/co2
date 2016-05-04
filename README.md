@@ -62,14 +62,15 @@ See example.co2 for more of this.
 
 ## Fundamental stuff
 
-All numbers follow racket conventions in terms of representation: `38`
-is decimal, `#xff` is hex, `#b11011011` is binary.
+General purpose 6502 code. All numbers follow racket conventions in
+terms of representation: `38` is decimal, `#xff` is hex, `#b11011011` is
+binary.
 
 ### (defvar name value)
 
 define and initialise a variable:
 
-    (defvar num-trees 45)
+    (defvar num-poodles 45)
 
 ### (defun (name args ...) code)
 
@@ -285,15 +286,15 @@ decrement a variable by one - maps to a single instruction
 
 8 bit left shift
 
-    (defvar num-poodles 1)
-    (set! num-poodles (<< num-poodles 2)) ;; = 1*4
+    (defvar num-poodles 10)
+    (set! num-poodles (<< num-poodles 2)) ;; 40 = 10*4
 
 ## (>> a num-bits)
 
 8 bit right shift
 
     (defvar num-poodles 10)
-    (set! num-poodles (>> num-poodles 1)) ;; = 10/2
+    (set! num-poodles (>> num-poodles 1)) ;; 5 = 10/2
 
 # Experimental
 
@@ -430,3 +431,22 @@ these are defined as constants for your convenience and enjoyment.
 - ppu-bg-palette    
 - ppu-sprite-palette 
 
+# program structure
+
+follows normal NES/Famicom behaviour
+
+    (do
+      NES header stuff...
+      (org #xc000) ;; code start
+      (defun ...)
+      (defun ...)
+      ...
+      (defint (vblank) ...)
+      (defint (reset) ...)
+      (defint (irq) ...)
+      data
+      ;; set up the interrupt vectors
+      (asm ".word vblank, reset, irq")
+      more data
+      )
+      
