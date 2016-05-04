@@ -29,8 +29,7 @@ Small example code, for reading the joypad button state:
          (poke! pad-data n (and (peek reg-joypad-0) #x1))))
 
     (defun (pressed key)
-      (loop n 0 key
-         (peek pad-data n)))
+      (peek pad-data (+ n key)))
 
     (defun (update-sprite)
       ;; start sprite data dma to the oam
