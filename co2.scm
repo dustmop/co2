@@ -278,6 +278,7 @@
    (emit "rti")))
 
 (define (emit-fncall x)
+  (define count -1) ;; sigh
   (if (> (length x) max-fnargs)
       (begin
         (display "too many function arguments in ")
@@ -286,10 +287,11 @@
       (append
        (foldl
         (lambda (arg r)
+          (set! count (+ count 1))
           (append
            r
            (emit-expr arg)
-           (emit "sta" (fnarg (length r)))))
+           (emit "sta" (fnarg count))))
         '()
         (cdr x))
        (emit "jsr" (dash->underscore (symbol->string (car x)))))))
@@ -417,57 +419,6 @@
    (emit "lda" "$200,y")))
 
 ;; optimised version of poke for sprites
-(define (emit-add-sprite! n x)
-  ;; address offset is optional
-  (append
-   (emit-expr (list-ref x 2)) ;; value
-   (emit "pha")
-   (emit-expr (list-ref x 1)) ;; sprite num offset
-   (emit "asl") ;; *2
-   (emit "asl") ;; *4
-   (emit "adc" (immediate-value n)) ;; byte offset
-   (emit "tay")
-   (emit "pla")
-   (emit "sta" working-reg)
-   (emit "lda" "$200,y")
-   (emit "adc" working-reg)
-   (emit "sta" "$200,y")))
-
-;; optimised version of poke for sprites
-(define (emit-sub-sprite! n x)
-  ;; address offset is optional
-  (append
-   (emit-expr (list-ref x 2)) ;; value
-   (emit "pha")
-   (emit-expr (list-ref x 1)) ;; sprite num offset
-   (emit "asl") ;; *2
-   (emit "asl") ;; *4
-   (emit "adc" (immediate-value n)) ;; byte offset
-   (emit "tay")
-   (emit "pla")
-   (emit "sta" working-reg)
-   (emit "lda" "$200,y")
-   (emit "sbc" working-reg)
-   (emit "sta" "$200,y")))
-
-;; optimised version of poke for sprites
-(define (emit-or-sprite! n x)
-  ;; address offset is optional
-  (append
-   (emit-expr (list-ref x 2)) ;; value
-   (emit "pha")
-   (emit-expr (list-ref x 1)) ;; sprite num offset
-   (emit "asl") ;; *2
-   (emit "asl") ;; *4
-   (emit "adc" (immediate-value n)) ;; byte offset
-   (emit "tay")
-   (emit "pla")
-   (emit "sta" working-reg)
-   (emit "lda" "$200,y")
-   (emit "eor" working-reg)
-   (emit "sta" "$200,y")))
-
-;; optimised version of poke for sprites
 (define (emit-zzz-sprites! n zzz x)
   (let ((label (generate-label "sprite_range")))
     (append
@@ -496,6 +447,24 @@
      (emit "dex")
      (emit "bne" label))))
 
+;; optimised version of poke for sprites
+(define (emit-animate-sprites-2x2! x)
+  (append
+   (emit-expr (list-ref x 2)) ;; value
+   (emit "pha")
+   (emit-expr (list-ref x 1)) ;; sprite num offset
+   (emit "asl") ;; *2
+   (emit "asl") ;; *4
+   (emit "tay") ;; put offset in y
+   (emit "iny") ;; id byte offset
+   (emit "pla") ;; value
+   (emit "sta" "$200,y") ;; sprite 1
+   (emit "adc" "#$01")
+   (emit "sta" "$204,y") ;; sprite 2
+   (emit "adc" "#$0f")
+   (emit "sta" "$208,y") ;; sprite 3
+   (emit "adc" "#$01")
+   (emit "sta" "$20c,y"))) ;; sprite 4
 
 
 ;; (loop var from to expr)
@@ -519,8 +488,8 @@
         (end-label (generate-label "if_end")))
     (append
      (emit-expr (list-ref x 1))
-     (emit "cmp" "#1")
-     (emit "bne" false-label)
+     (emit "cmp" "#0")
+     (emit "beq" false-label)
      (emit-expr (list-ref x 2)) ;; true block
      (emit "jmp" end-label)
      (emit-label false-label)
@@ -675,9 +644,9 @@
    ((eq? (car x) '<) (emit-< x))
    ((eq? (car x) '>) (emit-> x))
    ((eq? (car x) 'not) (emit-not x))
-   ((eq? (car x) '+) (binary-procedure "adc" x))
-   ((eq? (car x) '-) (binary-procedure "sbc" x))
-   ((eq? (car x) '*) (emit-mul x))
+   ((eq? (car x) '+) (append (emit "clc") (binary-procedure "adc" x)))
+   ((eq? (car x) '-) (append (emit "clc") (binary-procedure "sbc" x)))
+   ((eq? (car x) '*) (append (emit "clc") (emit-mul x)))
    ((eq? (car x) 'and) (binary-procedure "and" x))
    ((eq? (car x) 'or) (binary-procedure "or" x))
    ((eq? (car x) 'xor) (binary-procedure "eor" x))
@@ -703,17 +672,15 @@
    ((eq? (car x) 'get-sprite-id) (emit-get-sprite 1 x))
    ((eq? (car x) 'get-sprite-attr) (emit-get-sprite 2 x))
    ((eq? (car x) 'get-sprite-x) (emit-get-sprite 3 x))
-   ((eq? (car x) 'add-sprite-x!) (emit-add-sprite! 3 x))
-   ((eq? (car x) 'add-sprite-y!) (emit-add-sprite! 0 x))
 
    ((eq? (car x) 'add-sprites-x!) (emit-zzz-sprites! 3 "adc" x))
    ((eq? (car x) 'add-sprites-y!) (emit-zzz-sprites! 0 "adc" x))
    ((eq? (car x) 'sub-sprites-x!) (emit-zzz-sprites! 3 "sbc" x))
    ((eq? (car x) 'sub-sprites-y!) (emit-zzz-sprites! 0 "sbc" x))
+   ((eq? (car x) 'or-sprites-attr!) (emit-zzz-sprites! 2 "eor" x))
 
-   ((eq? (car x) 'sub-sprite-x!) (emit-sub-sprite! 3 x))
-   ((eq? (car x) 'sub-sprite-y!) (emit-sub-sprite! 0 x))
-   ((eq? (car x) 'or-sprite-attr!) (emit-or-sprite! 2 x))
+   ((eq? (car x) 'animate-sprites-2x2!) (emit-animate-sprites-2x2! x))
+
    (else
     (emit-fncall x)
     )))
