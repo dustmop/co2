@@ -1,0 +1,257 @@
+;; -*- mode: scheme; -*-
+;; co2 Copyright (C) 2016 Dave Griffiths
+;;
+;; This program is free software: you can redistribute it and/or modify
+;; it under the terms of the GNU Affero General Public License as
+;; published by the Free Software Foundation, either version 3 of the
+;; License, or (at your option) any later version.
+;;
+;; This program is distributed in the hope that it will be useful,
+;; but WITHOUT ANY WARRANTY; without even the implied warranty of
+;; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+;; GNU Affero General Public License for more details.
+;;
+;; You should have received a copy of the GNU Affero General Public License
+;; along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+(do
+
+ ;; NES header follows
+ (asm
+  ".byte \"NES\",$1a" ;; number of prg-rom blocks
+  ".byte $01" ;; number of chr-rom blocks
+  ".byte $01" ;; rom control bytes: horizontal mirroring, no sram or trainer, mapper #0
+  ".byte $00,$00" ;; filler
+  ".byte $00,$00,$00,$00,$00,$00,$00,$00")
+
+ (defconst sprite-data "$200") ;; where the sprite control data is
+ (defconst sprite-dma "#$2") ;; dma address is 100X this = $200
+ (defconst pad-data "$300")
+
+
+ ;; code start
+ (org #xc000)
+
+ (defun (reset)
+   ;; disable interrupts while we set stuff up
+   (asm "sei"
+        ;; make sure we're not using decimal mode
+        "cld")
+   ;; have to pause here
+   (wait-vblank)
+   (wait-vblank)
+   (asm
+    ;; clear out all ram
+    "lda #$00"
+    "ldx #$00"
+    "- sta $000,x"
+    "sta $100,x"
+    "sta $200,x"
+    "sta $300,x"
+    "sta $400,x"
+    "sta $500,x"
+    "sta $600,x"
+    "sta $700,x"
+    "inx"
+    "bne -"
+    ;; reset the stack pointer.
+    "ldx #$ff"
+    "txs")
+
+   ;; disable all graphics.
+   (set! reg-ppu-ctl 0)
+   (set! reg-ppu-mask 0)
+   (init-graphics)
+   ;; set basic ppu registers.  load background from $0000,
+   ;; sprites from $1000, and the name table from $2000.
+   (set! reg-ppu-ctl #b10001000)
+   (set! reg-ppu-mask #b00011110)
+
+   ;; a global frame counter
+   (defvar gframe 0)
+   (defvar n 0)
+   (defvar rnd-v 200)
+
+   (asm
+    ;; restart interrupts again
+    "cli"
+    ;; go into in infite loop - vblank interrupt takes over
+    "loop: jmp loop"))
+
+ (defun (init-graphics)
+   (init-sprites)
+   (load-palette)
+   (set-background-tiles))
+
+ (defun (setup-character block id)
+   (set-sprite-x! id 0)
+   (set-sprite-y! id 0)
+   (set-sprite-id! id (+ 1 block))
+
+   (set-sprite-x! (+ 1 id) 8)
+   (set-sprite-y! (+ 1 id) 0)
+   (set-sprite-id! (+ 1 id) (+ 2 block))
+
+   (set-sprite-x! (+ 2 id) 0)
+   (set-sprite-y! (+ 2 id) 8)
+   (set-sprite-id! (+ 2 id) (+ 17 block))
+
+   (set-sprite-x! (+ 3 id) 8)
+   (set-sprite-y! (+ 3 id) 8)
+   (set-sprite-id! (+ 3 id) (+ 18 block)))
+
+ (defun (init-sprites)
+   ;; clear page #2, which we'll use to hold sprite data
+   ;; (memset writes 256 bytes in one go)
+   (memset sprite-data 0)
+
+   (setup-character #x0 0)
+
+   (setup-character #x0 4)
+   (add-sprites-x! 4 4 100)
+   (add-sprites-y! 4 4 100)
+   (or-sprites-attr! 4 4 10)
+
+   (setup-character #x70 8)
+   (add-sprites-x! 8 4 130)
+   (add-sprites-y! 8 4 80)
+   (or-sprites-attr! 8 4 11)
+
+   (setup-character #x50 12)
+   (add-sprites-x! 12 4 70)
+   (add-sprites-y! 12 4 120)
+   (or-sprites-attr! 12 4 01)
+
+   (defvar direction 1)
+   )
+
+
+
+ (defun (load-palette)
+   ;; copy 32 bytes of bg and sprite palette
+   (ppu-memcpy ppu-palette #x20 palette))
+
+ (defun (rnd)
+   (set! rnd-v (+ (xor rnd-v 103) 5))
+   rnd-v)
+
+ (defun (read-joypad)
+   ;; need to 'strobe' register before reading
+   (set! reg-joypad-0 1)
+   (set! reg-joypad-0 0)
+   (loop n 0 8
+         (poke! pad-data n (and (peek reg-joypad-0) #x1))))
+
+ (defun (pressed key)
+   (peek pad-data key))
+
+ (defun (update-sprite)
+   ;; start sprite data dma to the oam
+   (set! reg-oam-dma sprite-dma)
+
+   ;; reads the joypad state into memory to save time
+   ;; probably premature optimisation
+   (read-joypad)
+
+   ;; is the player character moving?
+   (defvar running 1)
+
+   (cond
+    ((pressed joypad-up)
+     ;; set direction to be the sprite offset for the
+     ;; (2 frame) animation start facing in this direction
+     (set! direction 5)
+     ;; move the 4 sprites a bit
+     (sub-sprites-y! 0 4 1))
+    ((pressed joypad-down)
+     (set! direction 1)
+     (add-sprites-y! 0 4 1))
+    ((pressed joypad-left)
+     (set! direction 9)
+     (sub-sprites-x! 0 4 1))
+    ((pressed joypad-right)
+     (set! direction 13)
+     (add-sprites-x! 0 4 1))
+    (else
+     ;; we are not moving
+     (set! running 0)))
+
+   ;; player character
+   (if (and running (>> (and gframe #x08) 3))
+       (animate-sprites-2x2! 0 direction)
+       (animate-sprites-2x2! 0 (+ 2 direction)))
+
+   ;; the NPC's
+   (if (and gframe #x08) ;; animation speed
+       ;; offset to sprite, offset to pattern
+       (animate-sprites-2x2! 4 #x51)
+       (animate-sprites-2x2! 4 #x53))
+
+   (if (and gframe #x10) ;; try different speeds
+       (animate-sprites-2x2! 8 #x71)
+       (animate-sprites-2x2! 8 #x73))
+
+   (if (and gframe #x20)
+       (animate-sprites-2x2! 12 #x51)
+       (animate-sprites-2x2! 12 #x53))
+
+
+   )
+
+ (defvar tile-id 0)
+
+ (defun (set-background-tiles)
+   (set! tile-id 58)
+   ;; off by one so size #x0 wraps to mean #xff...
+   (ppu-memset ppu-name-table-1 #x0 tile-id)
+   (ppu-memset-carry-on #x0 tile-id)
+   (ppu-memset-carry-on #x0 tile-id)
+   (ppu-memset-carry-on #xc0 tile-id))
+
+ (defvar snd 0)
+
+ (defint (vblank)
+   ;; move a sprite or two
+   (update-sprite)
+   (inc gframe))
+
+ (defint (irq))
+
+ ;; stuff still to tidy up follows...
+
+
+
+ ;; load palettes and most chr-rom from binary files
+; (asm "palette: .incbin \"example.pal\"")
+ (asm
+  "palette:"
+  ".byte $01,$02,$01,$04,$05,$06,$07,$08,$09,$0a,$0b,$0c,$01,$10,$39,$10"
+  ".byte $11,$18,$28,$38,$0c,$1c,$2c,$3c,$03,$13,$23,$33,$09,$19,$29,$39")
+
+
+ (asm "bg:
+  ;; attribute table
+   .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+    .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+    .byte $00,$00,$00,$00,$00,$00,$00,$00,$f0,$f0,$f0,$f0,$f0,$f0,$f0,$f0
+    .byte $ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$0f,$0f,$0f,$0f,$0f,$0f,$0f,$0f
+    .pad $fffa")
+
+ (asm ".word vblank, reset, irq")
+
+ (asm ".incbin \"binary/sprites.chr\"
+; fill the rest of the first chr-rom block with zeroes.
+.align $1000
+
+; here begins the second 4k block.  the sprites (all one of them) get their data
+; from this page.
+
+.byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00 ; character 0: blank
+.incbin \"binary/sprites.chr\"
+.byte $18,$24,$66,$99,$99,$66,$24,$18,$00,$18,$18,$66,$66,$18,$18,$00 ; character 1: diamond sprite
+
+; fill the rest of the chr-rom block with zeroes, giving us exactly 8k of data, which
+; is what we want and need.
+.align $1000")
+
+ )

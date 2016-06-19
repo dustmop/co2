@@ -437,7 +437,10 @@
      (emit "sta" working-reg)
      (emit-label label)
      (emit "lda" "$200,y") ;; load previous
-     (emit "clc")
+     (cond
+      ((equal? zzz "adc") (emit "clc")) ;; clear carry
+      ((equal? zzz "sbc") (emit "sec")) ;; set carry
+      (else '()))
      (emit zzz working-reg)
      (emit "sta" "$200,y")
      (emit "iny") ;; skip
@@ -465,6 +468,26 @@
    (emit "sta" "$208,y") ;; sprite 3
    (emit "adc" "#$01")
    (emit "sta" "$20c,y"))) ;; sprite 4
+
+;; ;; (sprite-check-collide-1x1v1x1 a b)
+;; (define (emit-sprite-check-collide x)
+;;   (append
+;;    (emit-expr (list-ref x 2)) ;; sprite b
+;;    (emit "pha")
+;;    (emit-expr (list-ref x 1)) ;; sprite a num offset
+;;    (emit "asl") ;; *2
+;;    (emit "asl") ;; *4
+;;    (emit "tax") ;; put offset in x
+;;    (emit "pla") ;; load sprite b offset
+;;    (emit "asl") ;; *2
+;;    (emit "asl") ;; *4
+;;    (emit "tay") ;; put offset in y
+;;    ;; check x
+;;    (emit "lda" "$203,x") ;; sprite 1 x coord
+;;    (emit "sta" working-reg)
+;;    (emit "lda" "$203,y") ;; sprite 2 x coord
+
+
 
 
 ;; (loop var from to expr)
@@ -645,10 +668,10 @@
    ((eq? (car x) '>) (emit-> x))
    ((eq? (car x) 'not) (emit-not x))
    ((eq? (car x) '+) (append (emit "clc") (binary-procedure "adc" x)))
-   ((eq? (car x) '-) (append (emit "clc") (binary-procedure "sbc" x)))
+   ((eq? (car x) '-) (append (emit "sec") (binary-procedure "sbc" x)))
    ((eq? (car x) '*) (append (emit "clc") (emit-mul x)))
    ((eq? (car x) 'and) (binary-procedure "and" x))
-   ((eq? (car x) 'or) (binary-procedure "or" x))
+   ((eq? (car x) 'or) (binary-procedure "ora" x))
    ((eq? (car x) 'xor) (binary-procedure "eor" x))
    ((eq? (car x) 'inc) (emit "inc" (immediate-value (cadr x))))
    ((eq? (car x) 'dec) (emit "dec" (immediate-value (cadr x))))
