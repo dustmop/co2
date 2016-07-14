@@ -1,0 +1,215 @@
+;; -*- mode: lisp; -*-
+;; What Remains 
+;; Copyright (C) 2016 What Remains Entertainment Consortium
+;;
+;; Licence TBD
+
+(do
+
+ ;; NES header follows
+ (asm
+  ".byte \"NES\",$1a" ;; number of prg-rom blocks
+  ".byte $01" ;; number of chr-rom blocks
+  ".byte $01" ;; rom control bytes: horizontal mirroring, no sram or trainer, mapper #0
+  ".byte $00,$00" ;; filler
+  ".byte $00,$00,$00,$00,$00,$00,$00,$00")
+
+    ;; our memory layout
+ (defconst sprite-data "$200") ;; where the sprite control data is
+ (defconst sprite-dma "#$2") ;; dma address is 100X this = $200
+ (defconst screen-data-a "$300") ;; store cpu mem representation
+ (defconst screen-data-b "$400") ;; of the screen tiles
+ (defconst screen-data-c "$500")
+ (defconst screen-data-d "$600")
+ (defconst pad-data "$700") ;; cache of the current pad state
+
+ ;; code start
+ (org #xc000)
+
+ ;; globals that will be removed - honest gov
+ (defvar gframe 0)
+ (defvar n 0)
+ (defvar rnd-v 200)
+ (defvar text-pos 0)
+ (defvar text-time 0)
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; library code follows
+
+ ;; really crappy random number generator
+ (defun (rnd)
+   (set! rnd-v (+ (xor rnd-v 103) 5))
+   rnd-v)
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; input stuff
+
+ (defun (read-joypad)
+   ;; need to 'strobe' register before reading
+   (set! reg-joypad-0 1)
+   (set! reg-joypad-0 0)
+   (loop n 0 8
+         (poke! pad-data n (and (peek reg-joypad-0) #x1))))
+
+ (defun (pressed key)
+   (peek pad-data key))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; ppu transfers
+
+ ;; dmas data from main mem tile ids to ppu screen area
+ (defun (load-screen)
+   ;; need to turn off rendering 
+   ;; seems like this is needed even in vblank?
+   ;; todo - fix glitch
+   (set! reg-ppu-ctl 0)
+   (set! reg-ppu-mask 0)
+   (ppu-memcpy ppu-name-table-1 256 screen-data-a)   
+   (ppu-memcpy-more 256 screen-data-b)   
+   (ppu-memcpy-more 256 screen-data-c)
+   (ppu-memcpy-more 192 screen-data-d)
+   (set! reg-ppu-ctl #b10001000)
+   (set! reg-ppu-mask #b00011110))
+
+ (defun (load-palette)
+   ;; copy 32 bytes of bg and sprite palette
+   (ppu-memcpy ppu-palette #x20 palette))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; text display
+
+ (defun (update-text)
+   (inc text-time)
+   (when (> text-time 10)
+     (do (poke! screen-data-a text-pos (peek mystring text-pos))
+	 (inc text-pos)
+         (set! text-time 0)))
+   (when (> text-pos 32)
+     (do 
+	 (set! text-pos 0)
+	 (loop n 0 32
+	       (poke! screen-data-a n 0)))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+ ;; sprite stuff
+ 
+ ;; 2x2 block sprites
+ (defun (setup-character block id)
+   (set-sprite-x! id 0)
+   (set-sprite-y! id 0)
+   (set-sprite-id! id (+ 1 block))
+
+   (set-sprite-x! (+ 1 id) 8)
+   (set-sprite-y! (+ 1 id) 0)
+   (set-sprite-id! (+ 1 id) (+ 2 block))
+
+   (set-sprite-x! (+ 2 id) 0)
+   (set-sprite-y! (+ 2 id) 8)
+   (set-sprite-id! (+ 2 id) (+ 17 block))
+
+   (set-sprite-x! (+ 3 id) 8)
+   (set-sprite-y! (+ 3 id) 8)
+   (set-sprite-id! (+ 3 id) (+ 18 block)))
+
+ (defun (init-sprites)
+   ;; clear page #2, which we'll use to hold sprite data
+   ;; (memset writes 256 bytes in one go)
+   (memset sprite-data 0))
+
+ (defun (update-sprite)
+   ;; start sprite data dma to the oam
+   (set! reg-oam-dma sprite-dma)
+   ;; do sprite stuff here.
+   )
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; interrupts
+
+ (defint (reset)
+   ;; disable interrupts while we set stuff up
+   (asm "sei"
+        ;; make sure we're not using decimal mode
+        "cld")
+   ;; have to pause here
+   (wait-vblank)
+   (wait-vblank)
+   (asm
+    ;; clear out all ram
+    "lda #$00"
+    "ldx #$00"
+    "- sta $000,x"
+    "sta $100,x"
+    "sta $200,x"
+    "sta $300,x"
+    "sta $400,x"
+    "sta $500,x"
+    "sta $600,x"
+    "sta $700,x"
+    "inx"
+    "bne -"
+    ;; reset the stack pointer.
+    "ldx #$ff"
+    "txs")
+
+   ;; disable all graphics.
+   (set! reg-ppu-ctl 0)
+   (set! reg-ppu-mask 0)
+   ;; send stuff to the ppu here...
+   (load-palette)
+   ;; set basic ppu registers.  load background from $0000,
+   ;; sprites from $1000, and the name table from $2000.
+   (set! reg-ppu-ctl #b10001000)
+   (set! reg-ppu-mask #b00011110)
+   (asm
+    ;; restart interrupts again
+    "cli"
+    ;; go into in infite loop - vblank interrupt takes over
+    "loop: jmp loop"))
+
+
+ ;; main loop is here
+ (defint (vblank)
+   ;; move a sprite or two
+   (update-sprite)
+   (update-text)
+   (load-screen)
+   ;; reads the joypad state into memory to save time
+   ;; probably premature optimisation
+   (read-joypad)
+   (inc gframe))
+
+ (defint (irq))
+ 
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; data follows
+
+ (asm 
+  "mystring:"
+  ".byte \" What remains? 1234567890123456\""
+  )
+ ;; stuff still to tidy up follows...
+
+ (asm
+  "palette:"
+  ".byte $01,$01,$01,$01,$01,$06,$07,$08,$09,$0a,$0b,$0c,$01,$10,$39,$01"
+  ".byte $11,$18,$28,$38,$0c,$1c,$2c,$3c,$03,$13,$23,$33,$09,$19,$29,$39")
+
+ (asm "bg:
+  ;; attribute table
+   .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+    .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
+    .byte $00,$00,$00,$00,$00,$00,$00,$00,$f0,$f0,$f0,$f0,$f0,$f0,$f0,$f0
+    .byte $ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$0f,$0f,$0f,$0f,$0f,$0f,$0f,$0f
+    .pad $fffa")
+
+;; interrupt vectors (addresses for functions)
+ (asm ".word vblank, reset, irq")
+
+ ;; finally all the chr data
+ (asm ".incbin \"binary/tiles.chr\"
+.align $1000
+.incbin \"binary/sprites.chr\"
+.align $1000")
+ 
+ )

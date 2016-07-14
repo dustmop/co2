@@ -372,7 +372,7 @@
    (emit "dex")
    (emit "bne -")))
 
-(define (emit-ppu-memset-carry-on x)
+(define (emit-ppu-memset-more x)
   (append
    (emit-expr (list-ref x 2))
    (emit "ldx" (immediate-value (list-ref x 1)))
@@ -391,6 +391,15 @@
    (emit "sta" (reg-table-lookup 'reg-ppu-data))
    (emit "inx")
    (emit "cpx" (immediate-value (list-ref x 2)))
+   (emit "bne -")))
+
+(define (emit-ppu-memcpy-more x)
+  (append
+   (emit "ldx" "#0")
+   (emit "- lda" (immediate-value (list-ref x 2)) ",x")
+   (emit "sta" (reg-table-lookup 'reg-ppu-data))
+   (emit "inx")
+   (emit "cpx" (immediate-value (list-ref x 1)))
    (emit "bne -")))
 
 ;; optimised version of poke for sprites
@@ -685,8 +694,9 @@
    ((eq? (car x) 'peek) (emit-peek x))
    ((eq? (car x) 'memset) (emit-memset x))
    ((eq? (car x) 'ppu-memset) (emit-ppu-memset x))
-   ((eq? (car x) 'ppu-memset-carry-on) (emit-ppu-memset-carry-on x))
+   ((eq? (car x) 'ppu-memset-more) (emit-ppu-memset-more x))
    ((eq? (car x) 'ppu-memcpy) (emit-ppu-memcpy x))
+   ((eq? (car x) 'ppu-memcpy-more) (emit-ppu-memcpy-more x))
    ((eq? (car x) 'set-sprite-y!) (emit-set-sprite! 0 x))
    ((eq? (car x) 'set-sprite-id!) (emit-set-sprite! 1 x))
    ((eq? (car x) 'set-sprite-attr!) (emit-set-sprite! 2 x))
