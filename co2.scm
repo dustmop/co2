@@ -535,7 +535,7 @@
      (emit-expr (list-ref x 1))
      (emit "cmp" "#1")
      (emit "bne" end-label)
-     (emit-expr (list-ref x 2)) ;; true block
+     (emit-expr-list (cddr x)) ;; true block
      (emit-label end-label))))
 
 ;; (while pred then)

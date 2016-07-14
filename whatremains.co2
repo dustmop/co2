@@ -81,14 +81,13 @@
  (defun (update-text)
    (inc text-time)
    (when (> text-time 10)
-     (do (poke! screen-data-a text-pos (peek mystring text-pos))
-	 (inc text-pos)
-         (set! text-time 0)))
+     (poke! screen-data-a text-pos (peek mystring text-pos))
+     (inc text-pos)
+     (set! text-time 0))
    (when (> text-pos 32)
-     (do 
-	 (set! text-pos 0)
-	 (loop n 0 32
-	       (poke! screen-data-a n 0)))))
+     (set! text-pos 0)
+     (loop n 0 32
+	   (poke! screen-data-a n 0))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
  ;; sprite stuff
