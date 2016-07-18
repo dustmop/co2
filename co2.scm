@@ -402,6 +402,51 @@
    (emit "cpx" (immediate-value (list-ref x 1)))
    (emit "bne -")))
 
+; (memcpy2 base-symbol high-offset low-offset prg-end prg-base prg-start)
+(define (emit-ppu-memcpy2 x)
+  (append
+   (emit-expr (list-ref x 2)) ;; dest offset high
+   (emit "adc" (car (immediate-value (list-ref x 1))))
+   (emit "sta" (reg-table-lookup 'reg-ppu-addr))
+   (emit-expr (list-ref x 3)) ;; dest offset low
+   (emit "adc" (cadr (immediate-value (list-ref x 1))))
+   (emit "sta" (reg-table-lookup 'reg-ppu-addr))
+   (emit "ldx" (immediate-value (list-ref x 6))) ;; start addr
+   (emit "- lda" (immediate-value (list-ref x 5)) ",x") ;; base addr
+   (emit "sta" (reg-table-lookup 'reg-ppu-data))
+   (emit "inx")
+   (emit "cpx" (immediate-value (list-ref x 4))) ;; end addr
+   (emit "bne -")
+   ;; reset ppu addr
+   (emit "lda" "#$00")
+   (emit "sta" (reg-table-lookup 'reg-ppu-addr))
+   (emit "lda" "#$00")
+   (emit "sta" (reg-table-lookup 'reg-ppu-addr))))
+
+; (memset2 base-symbol high-offset low-offset length value)
+(define (emit-ppu-memset2 x)
+  (append
+   (emit-expr (list-ref x 2)) ;; dest offset high
+   (emit "adc" (car (immediate-value (list-ref x 1))))
+   (emit "sta" (reg-table-lookup 'reg-ppu-addr))
+   (emit-expr (list-ref x 3)) ;; dest offset low
+   (emit "adc" (cadr (immediate-value (list-ref x 1))))
+   (emit "sta" (reg-table-lookup 'reg-ppu-addr))
+   (emit-expr (list-ref x 5)) ;; value
+   (emit "pha")
+   (emit-expr (list-ref x 4)) ;; length
+   (emit "tax")
+   (emit "pla")
+   (emit "- sta" (reg-table-lookup 'reg-ppu-data))
+   (emit "dex")
+   (emit "bne -")
+   ;; reset ppu addr
+   (emit "lda" "#$00")
+   (emit "sta" (reg-table-lookup 'reg-ppu-addr))
+   (emit "lda" "#$00")
+   (emit "sta" (reg-table-lookup 'reg-ppu-addr))))
+
+
 ;; optimised version of poke for sprites
 (define (emit-set-sprite! n x)
   ;; address offset is optional
@@ -543,9 +588,8 @@
   (let ((loop-label (generate-label "while_loop")))
     (append
      (emit-label loop-label)
-     (emit-expr (list-ref x 2)) ;; loop block
+     (emit-expr-list (cddr x)) ;; loop block
      (emit-expr (list-ref x 1)) ;; predicate
-     (emit "cmp" "#1")
      (emit "bne" loop-label))))
 
 ;; predicate stuff, I think these are stupidly long
@@ -567,7 +611,27 @@
      (emit "lda" "#1")
      (emit-label end-label))))
 
+;; correct, but hella slow
 (define (emit-< x)
+  (let ((true-label (generate-label "gt_true"))
+        (end-label (generate-label "gt_end")))
+    (append
+     (emit-expr (list-ref x 1))
+     (emit "pha")
+     (emit-expr (list-ref x 2))
+     (emit "sta" working-reg)
+     (emit "pla")
+     (emit "adc" "#1")
+     (emit "sbc" working-reg)
+     (emit "bmi" true-label) ;; branch on minus
+     (emit "lda" "#0")
+     (emit "jmp" end-label)
+     (emit-label true-label)
+     (emit "lda" "#1")
+     (emit-label end-label))))
+
+;; correct, but hella slow
+(define (emit-<= x)
   (let ((true-label (generate-label "gt_true"))
         (end-label (generate-label "gt_end")))
     (append
@@ -661,6 +725,8 @@
 (define (emit-procedure x)
   (cond
    ((eq? (car x) 'asm) (emit-asm x))
+   ((eq? (car x) 'byte) (list (string-append ".byte " (cadr x) "\n")))
+   ((eq? (car x) 'text) (list (string-append ".byte \"" (cadr x) "\"\n")))
    ((eq? (car x) 'defvar) (emit-defvar x))
    ((eq? (car x) 'defun) (emit-defun x))
    ((eq? (car x) 'defint) (emit-defint x))
@@ -674,6 +740,7 @@
    ((eq? (car x) 'do) (emit-expr-list (cdr x)))
    ((eq? (car x) 'eq?) (emit-eq? x))
    ((eq? (car x) '<) (emit-< x))
+   ((eq? (car x) '<=) (emit-<= x))
    ((eq? (car x) '>) (emit-> x))
    ((eq? (car x) 'not) (emit-not x))
    ((eq? (car x) '+) (append (emit "clc") (binary-procedure "adc" x)))
@@ -694,9 +761,11 @@
    ((eq? (car x) 'peek) (emit-peek x))
    ((eq? (car x) 'memset) (emit-memset x))
    ((eq? (car x) 'ppu-memset) (emit-ppu-memset x))
+   ((eq? (car x) 'ppu-memset2) (emit-ppu-memset2 x))
    ((eq? (car x) 'ppu-memset-more) (emit-ppu-memset-more x))
    ((eq? (car x) 'ppu-memcpy) (emit-ppu-memcpy x))
    ((eq? (car x) 'ppu-memcpy-more) (emit-ppu-memcpy-more x))
+   ((eq? (car x) 'ppu-memcpy2) (emit-ppu-memcpy2 x))
    ((eq? (car x) 'set-sprite-y!) (emit-set-sprite! 0 x))
    ((eq? (car x) 'set-sprite-id!) (emit-set-sprite! 1 x))
    ((eq? (car x) 'set-sprite-attr!) (emit-set-sprite! 2 x))

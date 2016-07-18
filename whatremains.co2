@@ -15,24 +15,127 @@
   ".byte $00,$00,$00,$00,$00,$00,$00,$00")
 
     ;; our memory layout
- (defconst sprite-data "$200") ;; where the sprite control data is
- (defconst sprite-dma "#$2") ;; dma address is 100X this = $200
- (defconst screen-data-a "$300") ;; store cpu mem representation
- (defconst screen-data-b "$400") ;; of the screen tiles
- (defconst screen-data-c "$500")
- (defconst screen-data-d "$600")
- (defconst pad-data "$700") ;; cache of the current pad state
+ (defconst sprite-data  "$200") ;; where the sprite control data is
+ (defconst sprite-dma   "#$2") ;; dma address is 100X this = $200
+ (defconst display-list "$300")
+ (defconst tile-data "$400") 
+ (defconst pad-data     "$500") ;; cache of the current pad state
+
+ ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+ ;; display primitives
+ ;; ------------------
+ ;;
+ ;; tile-data display primitive: [list of bytes to copy as tile ids]
+ (defconst prim-tile-data "#$01")
+ ;; tile-value display primitive: [length tile-id] 
+ ;; (for clearing screen etc) 
+ (defconst prim-tile-value "#$02")
+
+ (defconst rom-images "$80")
 
  ;; code start
  (org #xc000)
 
  ;; globals that will be removed - honest gov
  (defvar gframe 0)
- (defvar n 0)
  (defvar rnd-v 200)
  (defvar text-pos 0)
  (defvar text-time 0)
 
+ ;; the current display list index 
+ (defvar display-list-index 0)
+
+ ;; for use as temporaries (careful not to use them over fncalls
+ ;; as they will get clobbered)
+ (defvar n 0)
+ (defvar i 0)
+ (defvar j 0)
+ (defvar k 0)
+ (defvar l 0)
+ (defvar start 0)
+ (defvar end 0)
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; display list
+
+;(defun (add-tiles-to-display-list x y w h data)
+;  )
+
+;; adds a strip of tiles to the display list
+;; x/y is screen position
+;; chr-begin is the offset into CHR ROM, w in tiles
+
+(defun (display-list-add-byte data)
+  (poke! display-list display-list-index data) 
+  (inc display-list-index))
+
+(defun (display-list-end-packet prim-id x y nbytes)
+  (poke! display-list display-list-index prim-id) 
+  (inc display-list-index)
+  (poke! display-list display-list-index x)
+  (inc display-list-index)
+  (poke! display-list display-list-index y)
+  (inc display-list-index)
+  ;; last byte needs to be size for all primitives
+  (poke! display-list display-list-index nbytes) 
+  (inc display-list-index))
+
+(defun (display-list-execute)
+  ;; is there anything in the queue
+  (if (eq? display-list-index 0) 0 ;; early out (avoid long branch)
+    (do
+     ;; reverse to read info (lifo for ease/speed)
+     (set! display-list-index (- display-list-index 4))
+
+     (set! n (peek display-list (+ display-list-index 3))) ;; store nbytes
+
+     (when (eq? (peek display-list display-list-index) prim-tile-data) 
+       (set! start (- display-list-index n))
+       (set! end display-list-index)
+       (ppu-memcpy2 ppu-name-table-0 ;; deal with this later
+		    (peek display-list (+ display-list-index 1)) ;; x
+		    (peek display-list (+ display-list-index 2)) ;; y
+		    end ;; w
+		    display-list
+		    start)) ;; start
+
+     (when (eq? (peek display-list display-list-index) prim-tile-value) ;; tileset
+       (set! start (- display-list-index n))
+       (ppu-memset2 ppu-name-table-0 ;; deal with this later
+		    (peek display-list (+ display-list-index 1)) ;; x
+		    (peek display-list (+ display-list-index 2)) ;; y
+		    (peek display-list start) ;; length
+		    (peek display-list (+ start 1)))) ;; tile id
+     (set! display-list-index (- display-list-index n)))))
+
+(defun (clear-tiles)
+  ;;(ppu-memset ppu-name-table-0 256 0)
+  ;;(ppu-memset ppu-name-table-1 256 0)
+  (display-list-add-byte 255)
+  (display-list-add-byte 0)
+  (display-list-end-packet prim-tile-value 0 0 2)
+  (display-list-add-byte 25)
+  (display-list-add-byte 0)
+  (display-list-end-packet prim-tile-value 0 200 2)
+
+
+
+  (set! reg-ppu-addr 0)
+  (set! reg-ppu-addr 0)
+
+  )
+
+(defun (display-8x4-image x y loc)
+  (set! j loc) (set! k x) (set! l y) ;; store to prevent clobbering
+  (set! i 0)
+  (while (< i 4)
+    (set! start (<< i 4)) ;; * 16
+    (set! end (+ start 7))
+    (loop n start end (display-list-add-byte (+ j n)))
+    (display-list-end-packet prim-tile-data k (+ l (<< i 5)) 8) ;; * 32
+    (inc i)))
+
+  
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; library code follows
 
@@ -57,37 +160,27 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; ppu transfers
 
- ;; dmas data from main mem tile ids to ppu screen area
- (defun (load-screen)
-   ;; need to turn off rendering 
-   ;; seems like this is needed even in vblank?
-   ;; todo - fix glitch
-   (set! reg-ppu-ctl 0)
-   (set! reg-ppu-mask 0)
-   (ppu-memcpy ppu-name-table-1 256 screen-data-a)   
-   (ppu-memcpy-more 256 screen-data-b)   
-   (ppu-memcpy-more 256 screen-data-c)
-   (ppu-memcpy-more 192 screen-data-d)
-   (set! reg-ppu-ctl #b10001000)
-   (set! reg-ppu-mask #b00011110))
-
  (defun (load-palette)
    ;; copy 32 bytes of bg and sprite palette
    (ppu-memcpy ppu-palette #x20 palette))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; image display
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; text display
 
- (defun (update-text)
-   (inc text-time)
-   (when (> text-time 10)
-     (poke! screen-data-a text-pos (peek mystring text-pos))
-     (inc text-pos)
-     (set! text-time 0))
-   (when (> text-pos 32)
-     (set! text-pos 0)
-     (loop n 0 32
-	   (poke! screen-data-a n 0))))
+ ;; (defun (update-text)
+ ;;   (inc text-time)
+ ;;   (when (> text-time 10)
+ ;;     (poke! tile-data text-pos (peek mystring text-pos))
+ ;;     (inc text-pos)
+ ;;     (set! text-time 0))
+ ;;   ;; reset
+ ;;   (when (> text-pos 32)
+ ;;     (set! text-pos 0)
+ ;;     (loop n 0 32
+ ;; 	   (poke! tile-data n 0))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
  ;; sprite stuff
@@ -153,16 +246,45 @@
    ;; disable all graphics.
    (set! reg-ppu-ctl 0)
    (set! reg-ppu-mask 0)
+   (set! reg-ppu-scroll 0)
+   (set! reg-ppu-scroll 0)
    ;; send stuff to the ppu here...
+
+
    (load-palette)
+
    ;; set basic ppu registers.  load background from $0000,
    ;; sprites from $1000, and the name table from $2000.
    (set! reg-ppu-ctl #b10001000)
    (set! reg-ppu-mask #b00011110)
+
+   ;; (set! i 0)
+   ;; (while (< i 4)
+   ;;   (set! start (<< i 4)) ;; * 16
+   ;;   (set! end (+ start 7))
+   ;;   (loop n start end (display-list-add-byte (+ #x80 n)))
+   ;;   (display-list-end-packet #x01 0 (+ 2 (<< i 5)) 8) ;; * 32
+   ;;   (inc i))
+   
+   ;; (loop n 0 15 (display-list-add-byte (+ #x80 n)))
+   ;; (display-list-end-packet #x01 0 0 8)
+   ;; (loop n 16 23 (display-list-add-byte (+ #x80 n)))
+   ;; (display-list-end-packet #x01 0 32 8)
+   ;; (loop n 32 39 (display-list-add-byte (+ #x80 n)))
+   ;; (display-list-end-packet #x01 0 64 8)
+   ;; (loop n 48 55 (display-list-add-byte (+ #x80 n)))
+   ;; (display-list-end-packet #x01 0 96 8)
+
+   (display-8x4-image 0 0 #x80)
+   (display-8x4-image 0 16 #x88)
+   (display-8x4-image 1 0 #xc0)
+   (display-8x4-image 1 16 #xc8)
+   (clear-tiles)
+
    (asm
     ;; restart interrupts again
     "cli"
-    ;; go into in infite loop - vblank interrupt takes over
+    ;; go into in infinite loop - vblank interrupt takes over
     "loop: jmp loop"))
 
 
@@ -170,8 +292,8 @@
  (defint (vblank)
    ;; move a sprite or two
    (update-sprite)
-   (update-text)
-   (load-screen)
+   (display-list-execute)
+   ;;(update-text)
    ;; reads the joypad state into memory to save time
    ;; probably premature optimisation
    (read-joypad)
@@ -183,32 +305,31 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; data follows
 
- (asm 
-  "mystring:"
-  ".byte \" What remains? 1234567890123456\""
-  )
+ (asm "mystring:")
+ (text " What remains? 1234567890123456")
+ 
  ;; stuff still to tidy up follows...
 
- (asm
-  "palette:"
-  ".byte $01,$01,$01,$01,$01,$06,$07,$08,$09,$0a,$0b,$0c,$01,$10,$39,$01"
-  ".byte $11,$18,$28,$38,$0c,$1c,$2c,$3c,$03,$13,$23,$33,$09,$19,$29,$39")
+ (asm "palette:")
+ (byte "$38,$00,$00,$00,$00,$02,$03,$04,$01,$02,$03,$0c,$38,$27,$17,$0d")
+ (byte "$38,$18,$28,$38,$0c,$1c,$2c,$3c,$03,$13,$23,$33,$09,$19,$29,$39")
 
- (asm "bg:
+ (asm "bg:")
   ;; attribute table
-   .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
-    .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
-    .byte $00,$00,$00,$00,$00,$00,$00,$00,$f0,$f0,$f0,$f0,$f0,$f0,$f0,$f0
-    .byte $ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$0f,$0f,$0f,$0f,$0f,$0f,$0f,$0f
-    .pad $fffa")
+ (byte "$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00")
+ (byte "$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00")
+ (byte "$00,$00,$00,$00,$00,$00,$00,$00,$f0,$f0,$f0,$f0,$f0,$f0,$f0,$f0")
+ (byte "$ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$0f,$0f,$0f,$0f,$0f,$0f,$0f,$0f")
+ (asm ".pad $fffa")
 
 ;; interrupt vectors (addresses for functions)
  (asm ".word vblank, reset, irq")
 
  ;; finally all the chr data
- (asm ".incbin \"binary/tiles.chr\"
-.align $1000
-.incbin \"binary/sprites.chr\"
-.align $1000")
+ (asm 
+  ".incbin \"binary/tiles.bin\""
+  ".align $1000"
+  ".incbin \"binary/sprites.chr\""
+  ".align $1000")
  
  )
