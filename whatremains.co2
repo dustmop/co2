@@ -28,7 +28,7 @@
  ;; tile-data display primitive: [list of bytes to copy as tile ids]
  (defconst prim-tile-data "#$01")
  ;; tile-value display primitive: [length tile-id] 
- ;; (for clearing screen etc) 
+ ;; for clearing screen etc - 128 long is about max for timing
  (defconst prim-tile-value "#$02")
 
  (defconst rom-images "$80")
@@ -58,13 +58,6 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; display list
 
-;(defun (add-tiles-to-display-list x y w h data)
-;  )
-
-;; adds a strip of tiles to the display list
-;; x/y is screen position
-;; chr-begin is the offset into CHR ROM, w in tiles
-
 (defun (display-list-add-byte data)
   (poke! display-list display-list-index data) 
   (inc display-list-index))
@@ -81,7 +74,7 @@
   (inc display-list-index))
 
 (defun (display-list-execute)
-  ;; is there anything in the queue
+  ;; is there anything in the queue?
   (if (eq? display-list-index 0) 0 ;; early out (avoid long branch)
     (do
      ;; reverse to read info (lifo for ease/speed)
@@ -92,7 +85,7 @@
      (when (eq? (peek display-list display-list-index) prim-tile-data) 
        (set! start (- display-list-index n))
        (set! end display-list-index)
-       (ppu-memcpy2 ppu-name-table-0 ;; deal with this later
+       (ppu-memcpy2 ppu-name-table-0 
 		    (peek display-list (+ display-list-index 1)) ;; x
 		    (peek display-list (+ display-list-index 2)) ;; y
 		    end ;; w
@@ -101,7 +94,7 @@
 
      (when (eq? (peek display-list display-list-index) prim-tile-value) ;; tileset
        (set! start (- display-list-index n))
-       (ppu-memset2 ppu-name-table-0 ;; deal with this later
+       (ppu-memset2 ppu-name-table-0 
 		    (peek display-list (+ display-list-index 1)) ;; x
 		    (peek display-list (+ display-list-index 2)) ;; y
 		    (peek display-list start) ;; length
@@ -109,21 +102,32 @@
      (set! display-list-index (- display-list-index n)))))
 
 (defun (clear-tiles)
-  ;;(ppu-memset ppu-name-table-0 256 0)
-  ;;(ppu-memset ppu-name-table-1 256 0)
-  (display-list-add-byte 255)
+  ; nametable 1
+  (display-list-add-byte 128)
   (display-list-add-byte 0)
   (display-list-end-packet prim-tile-value 0 0 2)
-  (display-list-add-byte 25)
+  (display-list-add-byte 128)
   (display-list-add-byte 0)
-  (display-list-end-packet prim-tile-value 0 200 2)
-
-
-
-  (set! reg-ppu-addr 0)
-  (set! reg-ppu-addr 0)
-
-  )
+  (display-list-end-packet prim-tile-value 0 128 2)
+  (display-list-add-byte 128)
+  (display-list-add-byte 0)
+  (display-list-end-packet prim-tile-value 1 0 2)
+  (display-list-add-byte 128)
+  (display-list-add-byte 0)
+  (display-list-end-packet prim-tile-value 1 128 2)
+  ; nametable 2
+  (display-list-add-byte 128)
+  (display-list-add-byte 0)
+  (display-list-end-packet prim-tile-value 2 0 2)
+  (display-list-add-byte 128)
+  (display-list-add-byte 0)
+  (display-list-end-packet prim-tile-value 2 128 2)
+  (display-list-add-byte 128)
+  (display-list-add-byte 0)
+  (display-list-end-packet prim-tile-value 3 0 2)
+  (display-list-add-byte 64)
+  (display-list-add-byte 0)
+  (display-list-end-packet prim-tile-value 3 128 2))
 
 (defun (display-8x4-image x y loc)
   (set! j loc) (set! k x) (set! l y) ;; store to prevent clobbering
@@ -141,8 +145,7 @@
 
  ;; really crappy random number generator
  (defun (rnd)
-   (set! rnd-v (+ (xor rnd-v 103) 5))
-   rnd-v)
+   (_rnd))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; input stuff
@@ -210,9 +213,24 @@
 
  (defun (update-sprite)
    ;; start sprite data dma to the oam
-   (set! reg-oam-dma sprite-dma)
+   ;;(set! reg-oam-dma sprite-dma)
    ;; do sprite stuff here.
    )
+
+(defun (random-image)
+  (if (not (eq? gframe 100)) 0
+    (do
+     ;; test some text
+     (loop n 0 31 (display-list-add-byte (peek mystring n)))
+     (display-list-end-packet prim-tile-data 1 168 32)
+
+     (set! n (and (_rnd) #x03))
+     (cond
+      ((eq? n 0) (display-8x4-image 2 20 #x80))
+      ((eq? n 1) (display-8x4-image 2 2 #x88))
+      ((eq? n 2) (display-8x4-image 2 71 #xc0))
+      (else (display-8x4-image 2 13 #xc8))))))
+
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; interrupts
@@ -275,12 +293,13 @@
    ;; (loop n 48 55 (display-list-add-byte (+ #x80 n)))
    ;; (display-list-end-packet #x01 0 96 8)
 
-   (display-8x4-image 0 0 #x80)
-   (display-8x4-image 0 16 #x88)
-   (display-8x4-image 1 0 #xc0)
-   (display-8x4-image 1 16 #xc8)
-   (clear-tiles)
+   (display-8x4-image 0 34 #x80)
+   (display-8x4-image 0 51 #x88)
+   (display-8x4-image 1 2 #xc0)
+   (display-8x4-image 1 11 #xc8)
 
+   (clear-tiles)
+   (set! rnd-reg 123)
    (asm
     ;; restart interrupts again
     "cli"
@@ -293,6 +312,9 @@
    ;; move a sprite or two
    (update-sprite)
    (display-list-execute)
+
+   (random-image)
+
    ;;(update-text)
    ;; reads the joypad state into memory to save time
    ;; probably premature optimisation
@@ -306,7 +328,8 @@
 ;; data follows
 
  (asm "mystring:")
- (text " What remains? 1234567890123456")
+;       xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+ (text " What remains? TESTING text 1234")
  
  ;; stuff still to tidy up follows...
 

@@ -18,6 +18,7 @@
 
 ;; internal compiler register on zero page
 (define working-reg "$ff")
+(define rnd-reg "$fe")
 
 (define reg-table
   ;; ppu registers
@@ -76,6 +77,7 @@
     (joypad-right "#7")
     ;; debug
     (working-reg "$ff")
+    (rnd-reg "$fe")
     ))
 
 (define (reg-table-lookup x)
@@ -130,7 +132,7 @@
 ;; calls within function calls - beware...
 
 (define fnargs-start #xf0)
-(define max-fnargs 15)
+(define max-fnargs 14)
 
 (define (fnarg index)
   (string-append (number->string (+ fnargs-start index))))
@@ -708,6 +710,16 @@
      (emit "dex")
      (emit "bne" label))))
 
+(define (emit-rnd x)
+  (let ((label (generate-label "rnd")))
+    (append
+     (emit "lda" rnd-reg)
+     (emit "asl")
+     (emit "bcc" label)
+     (emit "eor" "#$1d")
+     (emit-label label)
+     (emit "sta" rnd-reg))))
+
 (define (unary-procedure proc x)
   (append
    (emit-expr (cadr x))
@@ -753,6 +765,7 @@
    ((eq? (car x) 'dec) (emit "dec" (immediate-value (cadr x))))
    ((eq? (car x) '<<) (emit-left-shift x))
    ((eq? (car x) '>>) (emit-right-shift x))
+   ((eq? (car x) '_rnd) (emit-rnd x))
    ((eq? (car x) 'wait-vblank)
     (append (emit "- lda $2002")
             (emit "bpl -")))
