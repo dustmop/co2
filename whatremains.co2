@@ -5,7 +5,6 @@
 ;; Licence TBD
 
 (do
-
  ;; NES header follows
  (asm
   ".byte \"NES\",$1a" ;; number of prg-rom blocks
@@ -15,32 +14,28 @@
   ".byte $00,$00,$00,$00,$00,$00,$00,$00")
 
     ;; our memory layout
- (defconst sprite-data  "$200") ;; where the sprite control data is
+ (defconst sprite-shadow  "$200") ;; where the sprite control data is
  (defconst sprite-dma   "#$2") ;; dma address is 100X this = $200
- (defconst display-list "$300")
- (defconst tile-data "$400") 
- (defconst pad-data     "$500") ;; cache of the current pad state
+ (defconst display-list "$300") ;; the display list
+ (defconst pad-data     "$400") ;; cache of the current pad state
+ (defconst music-data "$500")
 
  ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
  ;; display primitives
  ;; ------------------
  ;;
+ ;; 
  ;; tile-data display primitive: [list of bytes to copy as tile ids]
  (defconst prim-tile-data "#$01")
  ;; tile-value display primitive: [length tile-id] 
  ;; for clearing screen etc - 128 long is about max for timing
  (defconst prim-tile-value "#$02")
 
- (defconst rom-images "$80")
-
  ;; code start
  (org #xc000)
 
  ;; globals that will be removed - honest gov
  (defvar gframe 0)
- (defvar rnd-v 200)
- (defvar text-pos 0)
- (defvar text-time 0)
 
  ;; the current display list index 
  (defvar display-list-index 0)
@@ -54,6 +49,73 @@
  (defvar l 0)
  (defvar start 0)
  (defvar end 0)
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; library code follows
+
+ ;; really crappy random number generator
+ (defun (rnd) (_rnd))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; sound
+
+(defun (init-sound)
+  (set! reg-apu-channel #b00011111)
+
+  (poke! music-data 0 #b11111101)
+  (poke! music-data 2 #b11111110)
+  (poke! music-data 5 #b11101110)
+  (poke! music-data 10 #b11101010)
+  (poke! music-data 12 #b11101010)
+  (poke! music-data 14 #b11001010)
+  (poke! music-data 15 #b11101011)
+
+  (loop n 0 8 (poke! music-data (+ 16 (<< n 1)) #b00001111))
+  )
+
+(defun (play-p2 note)
+  (set! reg-apu-pulse2-control #b10011111)
+  (set! reg-apu-pulse2-ft note)
+  (set! reg-apu-pulse2-ct #b11111000))
+
+(defun (play-p1 note)
+  (set! reg-apu-pulse1-control #b10011111)
+  (set! reg-apu-pulse1-ft note)
+  (set! reg-apu-pulse1-ct #b11111000))
+
+(defun (play-n note)
+  (set! reg-apu-noise-env #b10111111)
+  (set! reg-apu-noise-ft note)
+  (set! reg-apu-noise-ct #b00000000))
+
+(defun (update-music)
+  (when (and (>> gframe 3) 1)
+    (play-p2 (peek music-data (and (>> gframe 4) #x0f)))
+    (play-n (peek music-data (+ 16 (and (>> gframe 4) #x0f))))
+    ;; don't play the same thing twice
+    ;;(poke! music-data (and (>> gframe 4) #x0f) (rnd))
+    ;(poke! music-data (+ 16 (and (>> gframe 4) #x0f) (rnd)))
+    ))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; input stuff
+
+ (defun (read-joypad)
+   ;; need to 'strobe' register before reading
+   (set! reg-joypad-0 1)
+   (set! reg-joypad-0 0)
+   (loop n 0 8
+         (poke! pad-data n (and (peek reg-joypad-0) #x1))))
+
+ (defun (pressed key)
+   (peek pad-data key))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; ppu transfers
+
+ (defun (load-palette)
+   ;; copy 32 bytes of bg and sprite palette
+   (ppu-memcpy ppu-palette #x20 palette))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; display list
@@ -82,6 +144,7 @@
 
      (set! n (peek display-list (+ display-list-index 3))) ;; store nbytes
 
+     ;; update tile data
      (when (eq? (peek display-list display-list-index) prim-tile-data) 
        (set! start (- display-list-index n))
        (set! end display-list-index)
@@ -92,6 +155,7 @@
 		    display-list
 		    start)) ;; start
 
+     ;; update arbitrary length strips of one value (RLE)
      (when (eq? (peek display-list display-list-index) prim-tile-value) ;; tileset
        (set! start (- display-list-index n))
        (ppu-memset2 ppu-name-table-0 
@@ -139,34 +203,7 @@
     (display-list-end-packet prim-tile-data k (+ l (<< i 5)) 8) ;; * 32
     (inc i)))
 
-  
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; library code follows
-
- ;; really crappy random number generator
- (defun (rnd)
-   (_rnd))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; input stuff
-
- (defun (read-joypad)
-   ;; need to 'strobe' register before reading
-   (set! reg-joypad-0 1)
-   (set! reg-joypad-0 0)
-   (loop n 0 8
-         (poke! pad-data n (and (peek reg-joypad-0) #x1))))
-
- (defun (pressed key)
-   (peek pad-data key))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; ppu transfers
-
- (defun (load-palette)
-   ;; copy 32 bytes of bg and sprite palette
-   (ppu-memcpy ppu-palette #x20 palette))
-
+ 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; image display
 
@@ -209,27 +246,92 @@
  (defun (init-sprites)
    ;; clear page #2, which we'll use to hold sprite data
    ;; (memset writes 256 bytes in one go)
-   (memset sprite-data 0))
+   (memset sprite-shadow #xfe)
+
+   (setup-character #x0 0)
+
+   (setup-character #x0 4)
+   (add-sprites-x! 4 4 100)
+   (add-sprites-y! 4 4 100)
+   (or-sprites-attr! 4 4 10)
+
+   (setup-character #x70 8)
+   (add-sprites-x! 8 4 130)
+   (add-sprites-y! 8 4 80)
+   (or-sprites-attr! 8 4 11)
+
+   (setup-character #x50 12)
+   (add-sprites-x! 12 4 70)
+   (add-sprites-y! 12 4 120)
+   (or-sprites-attr! 12 4 01)
+
+   (defvar direction 1)
+   
+   )
 
  (defun (update-sprite)
-   ;; start sprite data dma to the oam
-   ;;(set! reg-oam-dma sprite-dma)
    ;; do sprite stuff here.
+   ;; reads the joypad state into memory to save time
+   ;; probably premature optimisation
+   (read-joypad)
+
+   ;; is the player character moving?
+   (defvar running 1)
+
+   (cond
+    ((pressed joypad-up)
+     ;; set direction to be the sprite offset for the
+     ;; (2 frame) animation start facing in this direction
+     (set! direction 5)
+     ;; move the 4 sprites a bit
+     (sub-sprites-y! 0 4 1))
+    ((pressed joypad-down)
+     (set! direction 1)
+     (add-sprites-y! 0 4 1))
+    ((pressed joypad-left)
+     (set! direction 9)
+     (sub-sprites-x! 0 4 1))
+    ((pressed joypad-right)
+     (set! direction 13)
+     (add-sprites-x! 0 4 1))
+    (else
+     ;; we are not moving
+     (set! running 0)))
+
+   ;; player character
+   (if (and running (>> (and gframe #x08) 3))
+       (animate-sprites-2x2! 0 direction)
+       (animate-sprites-2x2! 0 (+ 2 direction)))
+
+   ;; the NPC's
+   (if (and gframe #x08) ;; animation speed
+       ;; offset to sprite, offset to pattern
+       (animate-sprites-2x2! 4 #x51)
+       (animate-sprites-2x2! 4 #x53))
+
+   (if (and gframe #x10) ;; try different speeds
+       (animate-sprites-2x2! 8 #x71)
+       (animate-sprites-2x2! 8 #x73))
+
+   (if (and gframe #x20)
+       (animate-sprites-2x2! 12 #x51)
+       (animate-sprites-2x2! 12 #x53))
+
    )
 
 (defun (random-image)
-  (if (not (eq? gframe 100)) 0
+  (if (not (eq? (<< gframe 2) 100)) 0
     (do
      ;; test some text
-     (loop n 0 31 (display-list-add-byte (peek mystring n)))
-     (display-list-end-packet prim-tile-data 1 168 32)
+     (loop n 0 12 (display-list-add-byte (peek mystring n)))
+     (display-list-end-packet prim-tile-data 2 (rnd) 13)
 
-     (set! n (and (_rnd) #x03))
+     (set! n (and (rnd) #x03))
      (cond
-      ((eq? n 0) (display-8x4-image 2 20 #x80))
-      ((eq? n 1) (display-8x4-image 2 2 #x88))
-      ((eq? n 2) (display-8x4-image 2 71 #xc0))
-      (else (display-8x4-image 2 13 #xc8))))))
+      ((eq? n 0) (display-8x4-image 2 (rnd) #x80))
+      ((eq? n 1) (display-8x4-image 2 (rnd) #x88))
+      ((eq? n 2) (display-8x4-image 2 (rnd) #xc0))
+      (else (display-8x4-image 2 (rnd) #xc8))))))
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -260,6 +362,8 @@
     ;; reset the stack pointer.
     "ldx #$ff"
     "txs")
+
+   (init-sound)
 
    ;; disable all graphics.
    (set! reg-ppu-ctl 0)
@@ -293,13 +397,18 @@
    ;; (loop n 48 55 (display-list-add-byte (+ #x80 n)))
    ;; (display-list-end-packet #x01 0 96 8)
 
+
    (display-8x4-image 0 34 #x80)
    (display-8x4-image 0 51 #x88)
    (display-8x4-image 1 2 #xc0)
    (display-8x4-image 1 11 #xc8)
 
    (clear-tiles)
+
    (set! rnd-reg 123)
+
+   (init-sprites)
+
    (asm
     ;; restart interrupts again
     "cli"
@@ -309,16 +418,22 @@
 
  ;; main loop is here
  (defint (vblank)
-   ;; move a sprite or two
-   (update-sprite)
+   ;; these need to go first!
+   ;; start sprite data dma to the oam
+   (set! reg-oam-dma sprite-dma)
    (display-list-execute)
 
+   ;; now we're safe...
+   (update-sprite)
    (random-image)
 
    ;;(update-text)
    ;; reads the joypad state into memory to save time
    ;; probably premature optimisation
    (read-joypad)
+
+   (update-music)
+
    (inc gframe))
 
  (defint (irq))
@@ -350,8 +465,9 @@
 
  ;; finally all the chr data
  (asm 
-  ".incbin \"binary/tiles.bin\""
+  ".incbin \"binary/tiles.chr\""
   ".align $1000"
+  ".byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00" ; character 0: blank
   ".incbin \"binary/sprites.chr\""
   ".align $1000")
  
