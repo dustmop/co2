@@ -18,7 +18,10 @@
 
 ;; internal compiler register on zero page
 (define working-reg "$ff")
-(define rnd-reg "$fe")
+(define retval-reg "$fe")
+(define spare-reg-h "$fd")
+(define spare-reg "$fc")
+(define rnd-reg "$fb")
 
 (define reg-table
   ;; ppu registers
@@ -76,8 +79,8 @@
     (joypad-left "#6")
     (joypad-right "#7")
     ;; debug
-    (working-reg "$ff")
-    (rnd-reg "$fe")
+    (spare-reg-h "$fd")
+    (rnd-reg "$fb")
     ))
 
 (define (reg-table-lookup x)
@@ -131,8 +134,18 @@
 ;; (considered far too bloaty!), so these get clobbered with function
 ;; calls within function calls - beware...
 
-(define fnargs-start #xf0)
-(define max-fnargs 14)
+(define fnargs-start #x1)
+(define max-fnargs 13)
+
+(define (emit-push-argstack)
+  (append
+   (emit "lda" (fnarg 0))
+   (emit "pha")))
+
+(define (emit-pop-argstack)
+  (append
+   (emit "pla")
+   (emit "sta" (fnarg 0))))
 
 (define (fnarg index)
   (string-append (number->string (+ fnargs-start index))))
@@ -141,12 +154,12 @@
 
 (define (set-fnarg-mapping! args)
   (set! fnarg-mapping
-        (foldl
-         (lambda (arg r)
-           ;; map the argument name to the address
-           (cons (list arg (fnarg (length r))) r))
-         '()
-         args)))
+	(foldl
+	 (lambda (arg r)
+	   ;; map the argument name to the address
+	   (cons (list arg (fnarg (length r))) r))
+	 '()
+	 args)))
 
 (define (clear-fnarg-mapping!)
   (set! fnarg-mapping '()))
@@ -155,6 +168,17 @@
   (let ((t (assoc name fnarg-mapping)))
     (if t (cadr t) #f)))
 
+;; -----------------------
+
+(define (is-fnarg? name)
+  (let ((t (assoc name fnarg-mapping)))
+    (if t #t #f)))
+
+(define (emit-load-fnarg name)
+  (append
+   (emit "ldy" (string-append "#" (fnarg-lookup name)))
+   (emit "lda" (string-append "(" spare-reg "),y"))))
+  
 ;;----------------------------------------------------------------
 
 ;; lookup a symbol everywhere, in order...
@@ -165,11 +189,8 @@
         ;; then constants
         (let ((const (constant-lookup name)))
           (if const const
-              ;; then function arguments
-              (let ((fnarg (fnarg-lookup name)))
-                (if fnarg fnarg
-                    ;; finally variables
-                    (variable-lookup name))))))))
+	      ;; finally variables
+	      (variable-lookup name))))))
 
 ;;----------------------------------------------------------------
 
@@ -247,7 +268,9 @@
   (emit (string-append label ":")))
 
 (define (emit-load-variable x)
-  (emit "lda" (immediate-value x)))
+  (if (is-fnarg? x)
+      (emit-load-fnarg x)
+      (emit "lda" (immediate-value x))))
 
 (define (emit-load-immediate x)
   (cond
@@ -269,7 +292,9 @@
                     (symbol->string (car (cadr x)))) ":"))
             (emit-expr-list (cddr x))
             (emit "rts"))))
-    (clear-fnarg-mapping!) r))
+    (clear-fnarg-mapping!) 
+    r)) 
+      
 
 (define (emit-defint x)
   (append
@@ -279,6 +304,32 @@
    (emit-expr-list (cddr x))
    (emit "rti")))
 
+;; (define (emit-fncall x)
+;;   (cond 
+;;    ((> (length x) max-fnargs)
+;;     (display "too many function arguments in ")
+;;     (display (car x))(newline)
+;;     '())
+;;    (else
+;;     (define count -1) ;; sigh
+;;     (append
+;;      ;; store the current arg values
+;;      ;;(emit-push-argstack)
+;;      (foldl
+;;       (lambda (arg r)
+;; 	(set! count (+ count 1))
+;; 	(append
+;; 	 r
+;; 	 (emit-expr arg)
+;; 	 (emit "sta" (fnarg count))))
+;;       '() 
+;;       (cdr x))
+;;      (emit "jsr" (dash->underscore (symbol->string (car x))))
+;;      (emit "pha")
+;;      ;;(emit-pop-argstack)
+;;      (emit "pla")
+;;      ))))
+
 (define (emit-fncall x)
   (define count -1) ;; sigh
   (if (> (length x) max-fnargs)
@@ -287,21 +338,46 @@
         (display (car x))(newline)
         '())
       (append
+       ;;(emit-push-argstack)
+       (emit "lda" spare-reg) ;; previous stack location
+       (emit "pha")
        (foldl
         (lambda (arg r)
-          (set! count (+ count 1))
           (append
            r
            (emit-expr arg)
-           (emit "sta" (fnarg count))))
+           ;;(emit "sta" (fnarg count))))
+	   (emit "pha")))
+        '()
+        (reverse (cdr x)))
+       (emit "tsx")
+       (emit "stx" spare-reg)
+       (emit "jsr" (dash->underscore (symbol->string (car x))))
+       (emit "sta" retval-reg)
+       (foldl
+        (lambda (arg r)
+          (append
+           r
+	   (emit "pla")))
         '()
         (cdr x))
-       (emit "jsr" (dash->underscore (symbol->string (car x)))))))
+       (emit "pla")
+       (emit "sta" spare-reg) ;; reinstate previous
+
+       ;;(emit "nop")
+       ;;(emit-pop-argstack)
+       (emit "lda" retval-reg)
+       )))
 
 (define (emit-set! x)
-  (append
-   (emit-expr (caddr x))
-   (emit "sta" (immediate-value (cadr x)))))
+  (if (is-fnarg? (cadr x))
+      (append
+       (emit-expr (caddr x))
+       (emit "ldy" (string-append "#" (fnarg-lookup (cadr x))))
+       (emit "sta" (string-append "(" spare-reg "),y")))
+      (append
+       (emit-expr (caddr x))
+       (emit "sta" (immediate-value (cadr x))))))
 
 (define (emit-write! x)
   (append
@@ -408,9 +484,11 @@
 (define (emit-ppu-memcpy2 x)
   (append
    (emit-expr (list-ref x 2)) ;; dest offset high
+   (emit "clc")
    (emit "adc" (car (immediate-value (list-ref x 1))))
    (emit "sta" (reg-table-lookup 'reg-ppu-addr))
    (emit-expr (list-ref x 3)) ;; dest offset low
+   (emit "clc")
    (emit "adc" (cadr (immediate-value (list-ref x 1))))
    (emit "sta" (reg-table-lookup 'reg-ppu-addr))
    (emit "ldx" (immediate-value (list-ref x 6))) ;; start addr
@@ -429,9 +507,11 @@
 (define (emit-ppu-memset2 x)
   (append
    (emit-expr (list-ref x 2)) ;; dest offset high
+   (emit "clc")
    (emit "adc" (car (immediate-value (list-ref x 1))))
    (emit "sta" (reg-table-lookup 'reg-ppu-addr))
    (emit-expr (list-ref x 3)) ;; dest offset low
+   (emit "clc")
    (emit "adc" (cadr (immediate-value (list-ref x 1))))
    (emit "sta" (reg-table-lookup 'reg-ppu-addr))
    (emit-expr (list-ref x 5)) ;; value
@@ -458,6 +538,7 @@
    (emit-expr (list-ref x 1)) ;; sprite num offset
    (emit "asl") ;; *2
    (emit "asl") ;; *4
+   (emit "clc")
    (emit "adc" (immediate-value n)) ;; byte offset
    (emit "tay")
    (emit "pla")
@@ -470,6 +551,7 @@
    (emit-expr (list-ref x 1)) ;; sprite num offset
    (emit "asl") ;; *2
    (emit "asl") ;; *4
+   (emit "clc")
    (emit "adc" (immediate-value n)) ;; byte offset
    (emit "tay")
    (emit "lda" "$200,y")))
@@ -485,6 +567,7 @@
      (emit-expr (list-ref x 1)) ;; sprite num offset
      (emit "asl") ;; *2
      (emit "asl") ;; *4
+     (emit "clc")
      (emit "adc" (immediate-value n)) ;; byte offset
      (emit "tay") ;; put offset in y
      (emit "pla") ;; pull count out
@@ -518,6 +601,7 @@
    (emit "iny") ;; id byte offset
    (emit "pla") ;; value
    (emit "sta" "$200,y") ;; sprite 1
+   (emit "clc")
    (emit "adc" "#$01")
    (emit "sta" "$204,y") ;; sprite 2
    (emit "adc" "#$0f")
@@ -577,22 +661,31 @@
 
 ;; (when pred then)
 (define (emit-when x)
-  (let ((end-label (generate-label "when_end")))
+  (let ((end-label (generate-label "when_end"))
+	(do-label (generate-label "when_do")))
     (append
      (emit-expr (list-ref x 1))
-     (emit "cmp" "#1")
-     (emit "bne" end-label)
+     (emit "cmp" "#0")
+     (emit "bne" do-label)
+     (emit "jmp" end-label)
+     (emit-label do-label)
      (emit-expr-list (cddr x)) ;; true block
      (emit-label end-label))))
 
 ;; (while pred then)
 (define (emit-while x)
-  (let ((loop-label (generate-label "while_loop")))
+  (let ((loop-label (generate-label "while_loop"))
+	(end-label (generate-label "while_loop_end"))
+	(next-label (generate-label "while_loop_next")))
     (append
      (emit-label loop-label)
      (emit-expr-list (cddr x)) ;; loop block
      (emit-expr (list-ref x 1)) ;; predicate
-     (emit "bne" loop-label))))
+     (emit "bne" next-label)
+     (emit "jmp" end-label)
+     (emit-label next-label)
+     (emit "jmp" loop-label)
+     (emit-label end-label))))
 
 ;; predicate stuff, I think these are stupidly long
 
@@ -623,6 +716,7 @@
      (emit-expr (list-ref x 2))
      (emit "sta" working-reg)
      (emit "pla")
+     (emit "clc")
      (emit "adc" "#1")
      (emit "sbc" working-reg)
      (emit "bmi" true-label) ;; branch on minus
@@ -702,6 +796,7 @@
      (emit "pha")
      (emit-expr (caddr x))
      (emit "sta" working-reg)
+     (emit "dec" working-reg)
      (emit "pla")
      (emit "tax")
      (emit-label label)
@@ -795,6 +890,36 @@
    ((eq? (car x) 'or-sprites-attr!) (emit-zzz-sprites! 2 "eor" x))
 
    ((eq? (car x) 'animate-sprites-2x2!) (emit-animate-sprites-2x2! x))
+   ((eq? (car x) 'init-system)
+    (append
+     ;; disable interrupts while we set stuff up
+     (emit "sei")
+     ;; make sure we're not using decimal mode
+     (emit "cld")     
+     ;; wait for 2 vblanks
+     (emit "- lda $2002")
+     (emit "bpl -")
+     (emit "- lda $2002")
+     (emit "bpl -")
+     ;; clear out all ram
+     (emit "lda #$00")
+     (emit "ldx #$00")
+     (emit "- sta $000,x")
+     (emit "sta $100,x")
+     (emit "sta $200,x")
+     (emit "sta $300,x")
+     (emit "sta $400,x")
+     (emit "sta $500,x")
+     (emit "sta $600,x")
+     (emit "sta $700,x")
+     (emit "inx")
+     (emit "bne -")
+     ;; reset the stack pointer.
+     (emit "ldx #$ff")
+     (emit "txs")
+     ;; setup fnarg stack address pointer high byte
+     (emit "lda #1")
+     (emit "sta" spare-reg-h)))
 
    (else
     (emit-fncall x)
@@ -911,9 +1036,9 @@
           (equal? (emit-load-variable 'poodle) (list "lda $00")))
   (assert "emit-load-immediate 1"
           (equal? (emit-load-immediate 'reg-oam-dma) (list "lda $4014")))
-  (assert "emit-load-immediate 2"
-          (equal? (emit-load-immediate 'poodle) (list "lda $00")))
-  (assert "emit-defvar" (equal? (emit-defvar '(defvar poodle2 30)) '("lda #30" "sta $01")))
+  ;;(assert "emit-load-immediate 2"
+  ;;        (equal? (emit-load-immediate 'poodle) (list "lda $00")))
+  ;;(assert "emit-defvar" (equal? (emit-defvar '(defvar poodle2 30)) '("lda #30" "sta $01")))
   )
 
 (test)

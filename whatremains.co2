@@ -90,6 +90,7 @@
 
 (defun (update-music)
   (when (and (>> gframe 3) 1)
+    (play-p1 (peek music-data (+ 8 (and (>> gframe 4) #x0f))))
     (play-p2 (peek music-data (and (>> gframe 4) #x0f)))
     (play-n (peek music-data (+ 16 (and (>> gframe 4) #x0f))))
     ;; don't play the same thing twice
@@ -338,30 +339,7 @@
 ;; interrupts
 
  (defint (reset)
-   ;; disable interrupts while we set stuff up
-   (asm "sei"
-        ;; make sure we're not using decimal mode
-        "cld")
-   ;; have to pause here
-   (wait-vblank)
-   (wait-vblank)
-   (asm
-    ;; clear out all ram
-    "lda #$00"
-    "ldx #$00"
-    "- sta $000,x"
-    "sta $100,x"
-    "sta $200,x"
-    "sta $300,x"
-    "sta $400,x"
-    "sta $500,x"
-    "sta $600,x"
-    "sta $700,x"
-    "inx"
-    "bne -"
-    ;; reset the stack pointer.
-    "ldx #$ff"
-    "txs")
+   (init-system)
 
    (init-sound)
 
