@@ -18,10 +18,9 @@
 
 ;; internal compiler register on zero page
 (define working-reg "$ff")
-(define retval-reg "$fe")
-(define spare-reg-h "$fd")
-(define spare-reg "$fc")
-(define rnd-reg "$fb")
+(define stack-frame-h "$fe")
+(define stack-frame-l "$fd")
+(define rnd-reg "$fc")
 
 (define reg-table
   ;; ppu registers
@@ -79,7 +78,6 @@
     (joypad-left "#6")
     (joypad-right "#7")
     ;; debug
-    (spare-reg-h "$fd")
     (rnd-reg "$fb")
     ))
 
@@ -177,7 +175,7 @@
 (define (emit-load-fnarg name)
   (append
    (emit "ldy" (string-append "#" (fnarg-lookup name)))
-   (emit "lda" (string-append "(" spare-reg "),y"))))
+   (emit "lda" (string-append "(" stack-frame-l "),y"))))
   
 ;;----------------------------------------------------------------
 
@@ -338,8 +336,7 @@
         (display (car x))(newline)
         '())
       (append
-       ;;(emit-push-argstack)
-       (emit "lda" spare-reg) ;; previous stack location
+       (emit "lda" stack-frame-l) ;; previous stack location
        (emit "pha")
        (foldl
         (lambda (arg r)
@@ -351,9 +348,9 @@
         '()
         (reverse (cdr x)))
        (emit "tsx")
-       (emit "stx" spare-reg)
+       (emit "stx" stack-frame-l)
        (emit "jsr" (dash->underscore (symbol->string (car x))))
-       (emit "sta" retval-reg)
+       (emit "sta" working-reg)
        (foldl
         (lambda (arg r)
           (append
@@ -362,11 +359,8 @@
         '()
         (cdr x))
        (emit "pla")
-       (emit "sta" spare-reg) ;; reinstate previous
-
-       ;;(emit "nop")
-       ;;(emit-pop-argstack)
-       (emit "lda" retval-reg)
+       (emit "sta" stack-frame-l) ;; reinstate previous
+       (emit "lda" working-reg)
        )))
 
 (define (emit-set! x)
@@ -374,7 +368,7 @@
       (append
        (emit-expr (caddr x))
        (emit "ldy" (string-append "#" (fnarg-lookup (cadr x))))
-       (emit "sta" (string-append "(" spare-reg "),y")))
+       (emit "sta" (string-append "(" stack-frame-l "),y")))
       (append
        (emit-expr (caddr x))
        (emit "sta" (immediate-value (cadr x))))))
@@ -420,91 +414,8 @@
    (emit "inx")
    (emit "bne -")))
 
-;; writes ppu data in blocks of 256 bytes
-;; (ppu-write expr-high expr-low value-count expr-value)
-;; (define (emit-ppu-memset x)
-;;   (append
-;;    (emit-expr (list-ref x 1))
-;;    (emit "sta" (reg-table-lookup 'reg-ppu-addr))
-;;    (emit-expr (list-ref x 2))
-;;    (emit "sta" (reg-table-lookup 'reg-ppu-addr))
-;;    (emit "ldy" "#$00")
-;;    (emit "ldx" (immediate-value (list-ref x 3)))
-;;    (emit-expr (list-ref x 4))
-;;    (emit "- sta" (reg-table-lookup 'reg-ppu-data))
-;;    (emit "iny")
-;;    (emit "bne -")
-;;    (emit "dex")
-;;    (emit "bne -")))
-
+; (memset base-symbol high-offset low-offset length value)
 (define (emit-ppu-memset x)
-  (append
-   (emit-expr (list-ref x 2))
-   (emit "tax")
-   (emit "lda" (car (immediate-value (list-ref x 1))))
-   (emit "sta" (reg-table-lookup 'reg-ppu-addr))
-   (emit "lda" (cadr (immediate-value (list-ref x 1))))
-   (emit "sta" (reg-table-lookup 'reg-ppu-addr))
-   (emit-expr (list-ref x 3))
-   (emit "- sta" (reg-table-lookup 'reg-ppu-data))
-   (emit "dex")
-   (emit "bne -")))
-
-(define (emit-ppu-memset-more x)
-  (append
-   (emit-expr (list-ref x 2))
-   (emit "ldx" (immediate-value (list-ref x 1)))
-   (emit "- sta" (reg-table-lookup 'reg-ppu-data))
-   (emit "dex")
-   (emit "bne -")))
-
-(define (emit-ppu-memcpy x)
-  (append
-   (emit "lda" (car (immediate-value (list-ref x 1))))
-   (emit "sta" (reg-table-lookup 'reg-ppu-addr))
-   (emit "lda" (cadr (immediate-value (list-ref x 1))))
-   (emit "sta" (reg-table-lookup 'reg-ppu-addr))
-   (emit "ldx" "#0")
-   (emit "- lda" (immediate-value (list-ref x 3)) ",x")
-   (emit "sta" (reg-table-lookup 'reg-ppu-data))
-   (emit "inx")
-   (emit "cpx" (immediate-value (list-ref x 2)))
-   (emit "bne -")))
-
-(define (emit-ppu-memcpy-more x)
-  (append
-   (emit "ldx" "#0")
-   (emit "- lda" (immediate-value (list-ref x 2)) ",x")
-   (emit "sta" (reg-table-lookup 'reg-ppu-data))
-   (emit "inx")
-   (emit "cpx" (immediate-value (list-ref x 1)))
-   (emit "bne -")))
-
-; (memcpy2 base-symbol high-offset low-offset prg-end prg-base prg-start)
-(define (emit-ppu-memcpy2 x)
-  (append
-   (emit-expr (list-ref x 2)) ;; dest offset high
-   (emit "clc")
-   (emit "adc" (car (immediate-value (list-ref x 1))))
-   (emit "sta" (reg-table-lookup 'reg-ppu-addr))
-   (emit-expr (list-ref x 3)) ;; dest offset low
-   (emit "clc")
-   (emit "adc" (cadr (immediate-value (list-ref x 1))))
-   (emit "sta" (reg-table-lookup 'reg-ppu-addr))
-   (emit "ldx" (immediate-value (list-ref x 6))) ;; start addr
-   (emit "- lda" (immediate-value (list-ref x 5)) ",x") ;; base addr
-   (emit "sta" (reg-table-lookup 'reg-ppu-data))
-   (emit "inx")
-   (emit "cpx" (immediate-value (list-ref x 4))) ;; end addr
-   (emit "bne -")
-   ;; reset ppu addr
-   (emit "lda" "#$00")
-   (emit "sta" (reg-table-lookup 'reg-ppu-addr))
-   (emit "lda" "#$00")
-   (emit "sta" (reg-table-lookup 'reg-ppu-addr))))
-
-; (memset2 base-symbol high-offset low-offset length value)
-(define (emit-ppu-memset2 x)
   (append
    (emit-expr (list-ref x 2)) ;; dest offset high
    (emit "clc")
@@ -521,6 +432,30 @@
    (emit "pla")
    (emit "- sta" (reg-table-lookup 'reg-ppu-data))
    (emit "dex")
+   (emit "bne -")
+   ;; reset ppu addr
+   (emit "lda" "#$00")
+   (emit "sta" (reg-table-lookup 'reg-ppu-addr))
+   (emit "lda" "#$00")
+   (emit "sta" (reg-table-lookup 'reg-ppu-addr))))
+
+
+; (memcpy base-symbol high-offset low-offset prg-end prg-base prg-start)
+(define (emit-ppu-memcpy x)
+  (append
+   (emit-expr (list-ref x 2)) ;; dest offset high
+   (emit "clc")
+   (emit "adc" (car (immediate-value (list-ref x 1))))
+   (emit "sta" (reg-table-lookup 'reg-ppu-addr))
+   (emit-expr (list-ref x 3)) ;; dest offset low
+   (emit "clc")
+   (emit "adc" (cadr (immediate-value (list-ref x 1))))
+   (emit "sta" (reg-table-lookup 'reg-ppu-addr))
+   (emit "ldx" (immediate-value (list-ref x 6))) ;; start addr
+   (emit "- lda" (immediate-value (list-ref x 5)) ",x") ;; base addr
+   (emit "sta" (reg-table-lookup 'reg-ppu-data))
+   (emit "inx")
+   (emit "cpx" (immediate-value (list-ref x 4))) ;; end addr
    (emit "bne -")
    ;; reset ppu addr
    (emit "lda" "#$00")
@@ -869,11 +804,7 @@
    ((eq? (car x) 'peek) (emit-peek x))
    ((eq? (car x) 'memset) (emit-memset x))
    ((eq? (car x) 'ppu-memset) (emit-ppu-memset x))
-   ((eq? (car x) 'ppu-memset2) (emit-ppu-memset2 x))
-   ((eq? (car x) 'ppu-memset-more) (emit-ppu-memset-more x))
    ((eq? (car x) 'ppu-memcpy) (emit-ppu-memcpy x))
-   ((eq? (car x) 'ppu-memcpy-more) (emit-ppu-memcpy-more x))
-   ((eq? (car x) 'ppu-memcpy2) (emit-ppu-memcpy2 x))
    ((eq? (car x) 'set-sprite-y!) (emit-set-sprite! 0 x))
    ((eq? (car x) 'set-sprite-id!) (emit-set-sprite! 1 x))
    ((eq? (car x) 'set-sprite-attr!) (emit-set-sprite! 2 x))
@@ -882,7 +813,6 @@
    ((eq? (car x) 'get-sprite-id) (emit-get-sprite 1 x))
    ((eq? (car x) 'get-sprite-attr) (emit-get-sprite 2 x))
    ((eq? (car x) 'get-sprite-x) (emit-get-sprite 3 x))
-
    ((eq? (car x) 'add-sprites-x!) (emit-zzz-sprites! 3 "adc" x))
    ((eq? (car x) 'add-sprites-y!) (emit-zzz-sprites! 0 "adc" x))
    ((eq? (car x) 'sub-sprites-x!) (emit-zzz-sprites! 3 "sbc" x))
@@ -917,9 +847,11 @@
      ;; reset the stack pointer.
      (emit "ldx #$ff")
      (emit "txs")
-     ;; setup fnarg stack address pointer high byte
+     ;; setup stack frame address high byte
      (emit "lda #1")
-     (emit "sta" spare-reg-h)))
+     (emit "sta" stack-frame-h)
+     (emit "lda #123")
+     (emit "sta" rnd-reg)))
 
    (else
     (emit-fncall x)

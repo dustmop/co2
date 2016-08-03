@@ -54,8 +54,8 @@
 
 (defun (assert v)
   (if (eq? v 1)
-      (ppu-memset2 ppu-name-table-0 0 assertpos 1 1)
-      (ppu-memset2 ppu-name-table-0 0 assertpos 1 2))
+      (ppu-memset ppu-name-table-0 0 assertpos 1 1)
+      (ppu-memset ppu-name-table-0 0 assertpos 1 2))
   (inc assertpos))
 
 (defun (test-simple) 1)
@@ -113,28 +113,28 @@
      ;; update tile data
      (when (eq? (peek display-list display-list-index) prim-tile-data) 
        (set! end display-list-index)
-       (ppu-memcpy2 ppu-name-table-0 
-		    (peek display-list (+ display-list-index 1))
-		    (peek display-list (+ display-list-index 2))
-		    end ;; w
-		    display-list
-		    start)) ;; start
+       (ppu-memcpy ppu-name-table-0 
+		   (peek display-list (+ display-list-index 1))
+		   (peek display-list (+ display-list-index 2))
+		   end ;; w
+		   display-list
+		   start)) ;; start
 
      ;; update arbitrary length strips of one value (RLE)
      (when (eq? (peek display-list display-list-index) prim-tile-value) ;; tileset
        (assert (eq? p (peek display-list (+ display-list-index 2))))
-       (ppu-memset2 ppu-name-table-0 
-		    (peek display-list (+ display-list-index 1))
-		    (peek display-list (+ display-list-index 2))
-		    (peek display-list start) ;; length
-		    (peek display-list (+ start 1)))) ;; tile id
+       (ppu-memset ppu-name-table-0 
+		   (peek display-list (+ display-list-index 1))
+		   (peek display-list (+ display-list-index 2))
+		   (peek display-list start) ;; length
+		   (peek display-list (+ start 1)))) ;; tile id
 
      (when (eq? (peek display-list display-list-index) prim-quad) 
-       (ppu-memset2 ppu-name-table-0 
-		    (peek display-list (+ display-list-index 1))
-		    (peek display-list (+ display-list-index 2))
-		    1 ;; w
-		    (+ i 16)) ;; start
+       (ppu-memset ppu-name-table-0 
+		   (peek display-list (+ display-list-index 1))
+		   (peek display-list (+ display-list-index 2))
+		   1 ;; w
+		   (+ i 16)) ;; start
        ;;(ppu-memset-more 1 (+ i 1))
        ;(ppu-memset2 ppu-name-table-0 
 ;		    o (+ p 32) ;; y
@@ -217,35 +217,11 @@
 
  (defun (load-palette)
    ;; copy 32 bytes of bg and sprite palette
-   (ppu-memcpy ppu-palette #x20 palette))
+   (ppu-memcpy ppu-palette 0 0 #x20 palette 0))
 
  (defint (reset)  
    ;; disable interrupts while we set stuff up
-   (asm "sei"
-        ;; make sure we're not using decimal mode
-        "cld")
-   ;; have to pause here
-   (wait-vblank)
-   (wait-vblank)
-   (asm
-    ;; clear out all ram
-    "lda #$00"
-    "ldx #$00"
-    "- sta $000,x"
-    "sta $100,x"
-    "sta $200,x"
-    "sta $300,x"
-    "sta $400,x"
-    "sta $500,x"
-    "sta $600,x"
-    "sta $700,x"
-    "inx"
-    "bne -"
-    ;; reset the stack pointer.
-    "ldx #$ff"
-    "txs")
-
-   (set! spare-reg-h 1)
+   (init-system)
 
    ;; disable all graphics.
    (set! reg-ppu-ctl 0)

@@ -8,14 +8,13 @@ More impressive screenshots to follow.
 
 Generates 6502 assembly tested with ![asm6](https://github.com/freem/asm6f) and ![nestopia](http://nestopia.sourceforge.net/).
 
-
-Everything 8 bit currently, 16bit base addresses specified via
-constantsor predefined registers. No garbage collection, variables and
-direct memory peek/poke only. Supports rough function calling so
-arguments work as expected until you call a function within a function,
-whereapon they become clobbered. [this will now be fixed!] The plan is
-to eventually provide a bunch of NES specific calls for sprites,
+Everything 8 bit currently, no garbage collection, variables and
+direct memory peek/poke only. Supports function calling with arguments
+stored on the stack. We are working on NES specific calls for sprites,
 backgrounds and sound. All that is experimental for now.
+
+16bit base addresses are generally specified via constants or
+predefined registers with 8 bit offsets.
 
 Small example code, for reading the joypad button state:
 
@@ -49,12 +48,14 @@ See example.co2 for more of this.
 
 ## Memory use
 
-    $00 - $ef : defvar reserves it's addresses here
-    $f0 - $fe : function arguments stored here
-    $ff       : a compiler specific working register
+    $000 - $0fa : defvar reserves it's addresses here
+    $0fc        : random state register
+    $0fd        : stack frame low
+    $0fe        : stack frame high
+    $0ff        : compiler working register 
+    $100 - $1ff : stack
     $200 - $2ff : sprite control data
-    $300 - $31f : processed joypad data
-    $320 - ...  : yours
+    $300 - ...  : free
 
 ## Fundamental stuff
 
@@ -195,6 +196,20 @@ insert raw assembly code
       ".byte $00,$00" ;; filler
       ".byte $00,$00,$00,$00,$00,$00,$00,$00")
 
+### (byte data)
+
+insert raw bytes into the PRG-ROM
+
+     (asm "palette:")
+     (byte "$0d,$00,$00,...")
+
+### (text string)
+
+insert raw text into the PRG-ROM
+
+    (asm "mystring:")
+    (text "hello world")
+
 ### (set! variable value)
 
 assignments
@@ -298,6 +313,12 @@ NES/Famicom specific commands. These are subject to much change, while
 we figure out how the architecture works and the best approach to game
 programming.
 
+## (init-system)
+
+clears memory, resets stack pointer and stack frame, initialises
+random number generator etc. needs to be called at the start of 
+your reset interrupt.
+
 ## (wait-vblank)
 
 delay for a vblank
@@ -312,36 +333,32 @@ set location of following code/data
 
 ## (memset address value)
 
-block writes an entire page - 256 bytes to a 16bit address
+block writes an entire page of PRG-RAM - 256 bytes to a 16bit address
 
     ;; clear sprite data
     (memset sprite-data 0)
 
+## PPU DMA commands
 
-## (ppu-memset addr length value)
+## (ppu-memset base-ppuaddr ppu-offset-h ppu-offset-l length value)
 
-block writes value into ppu memory from address 
+block writes a single value into ppu memory
 
     ;; write a load of tile ids to background memory
-    (ppu-memset ppu-name-table-1 #xff tile-id)
+    (ppu-memset ppu-name-table-1 0 0 #x2f tile-id 0)
 
-## (ppu-memset-carry-on length value)
+note: should only be called when the ppu is disabled or at the start
+of vblank.
 
-contiues block writing from where the previous ppu-memset/carry-on left
-off. allows you to write more than 256 bytes.
+## (ppu-memcpy base-ppuaddr ppu-offset-h ppu-offset-l prg-end-offset prg-addr prg-start-offset)
 
-    (ppu-memset ppu-name-table-1 #xff tile-id)
-    (ppu-memset-carry-on #xff (+ tile-id 1))
-
-## (ppu-memcpy dstaddr length sourceaddr)
-
-copy a load of cpu bytes to the ppu. dst and src addresses need to be 16bit constants/registers.
+copy a load of prg bytes to the ppu. dst and src addresses need to be 16bit constants/registers.
 
     ;; load a palette
     (asm "palette: .incbin \"example.pal\"")
     ...
     ;; copy all 32bytes of bg/sprite palette into the ppu
-    (ppu-memcpy ppu-palette #x20 palette))
+    (ppu-memcpy ppu-palette 0 0 #x20 palette 0))
 
 ## OAM commands
 
@@ -360,6 +377,12 @@ sprites: still working on the best way to do these...
 - sub-sprite-x!
 - sub-sprite-y!
 - or-sprite-attr!
+- animate-sprites-2x2!
+
+- get-sprite-vflip
+- get-sprite-hflip
+- set-sprite-vflip
+- set-sprite-hflip
 
 # registers
 
