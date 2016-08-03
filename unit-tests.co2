@@ -38,15 +38,6 @@
  (org #xc000)
 
  (defvar n 0)
- (defvar i 0)
- (defvar j 0)
- (defvar k 0)
- (defvar l 0)
- (defvar m 0)
- (defvar o 0)
- (defvar p 0)
- (defvar start 0)
- (defvar end 0)
 
  (defvar assertpos 0)
  ;; the current display list index 
