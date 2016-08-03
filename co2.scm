@@ -133,17 +133,6 @@
 ;; calls within function calls - beware...
 
 (define fnargs-start #x1)
-(define max-fnargs 13)
-
-(define (emit-push-argstack)
-  (append
-   (emit "lda" (fnarg 0))
-   (emit "pha")))
-
-(define (emit-pop-argstack)
-  (append
-   (emit "pla")
-   (emit "sta" (fnarg 0))))
 
 (define (fnarg index)
   (string-append (number->string (+ fnargs-start index))))
@@ -302,66 +291,34 @@
    (emit-expr-list (cddr x))
    (emit "rti")))
 
-;; (define (emit-fncall x)
-;;   (cond 
-;;    ((> (length x) max-fnargs)
-;;     (display "too many function arguments in ")
-;;     (display (car x))(newline)
-;;     '())
-;;    (else
-;;     (define count -1) ;; sigh
-;;     (append
-;;      ;; store the current arg values
-;;      ;;(emit-push-argstack)
-;;      (foldl
-;;       (lambda (arg r)
-;; 	(set! count (+ count 1))
-;; 	(append
-;; 	 r
-;; 	 (emit-expr arg)
-;; 	 (emit "sta" (fnarg count))))
-;;       '() 
-;;       (cdr x))
-;;      (emit "jsr" (dash->underscore (symbol->string (car x))))
-;;      (emit "pha")
-;;      ;;(emit-pop-argstack)
-;;      (emit "pla")
-;;      ))))
-
 (define (emit-fncall x)
-  (define count -1) ;; sigh
-  (if (> (length x) max-fnargs)
-      (begin
-        (display "too many function arguments in ")
-        (display (car x))(newline)
-        '())
-      (append
-       (emit "lda" stack-frame-l) ;; previous stack location
-       (emit "pha")
-       (foldl
-        (lambda (arg r)
-          (append
-           r
-           (emit-expr arg)
-           ;;(emit "sta" (fnarg count))))
-	   (emit "pha")))
-        '()
-        (reverse (cdr x)))
-       (emit "tsx")
-       (emit "stx" stack-frame-l)
-       (emit "jsr" (dash->underscore (symbol->string (car x))))
-       (emit "sta" working-reg)
-       (foldl
-        (lambda (arg r)
-          (append
-           r
-	   (emit "pla")))
-        '()
-        (cdr x))
-       (emit "pla")
-       (emit "sta" stack-frame-l) ;; reinstate previous
-       (emit "lda" working-reg)
-       )))
+  (append
+   (emit "lda" stack-frame-l) ;; store previous stack location
+   (emit "pha")
+   ;; push the arguments on the stack
+   (foldl
+    (lambda (arg r)
+      (append 
+       r
+       (emit-expr arg)
+       (emit "pha")))
+    '()
+    (reverse (cdr x))) ;; in reverse order
+   (emit "tsx") ;; sture current top as stack frame 
+   (emit "stx" stack-frame-l) ;; to find arguments later
+   ;; call the function
+   (emit "jsr" (dash->underscore (symbol->string (car x))))
+   (emit "sta" working-reg) ;; temp store return value
+   ;; remove arguments from the stack
+   (foldl
+    (lambda (arg r)
+      (append r (emit "pla")))
+    '()
+    (cdr x))
+   (emit "pla")
+   (emit "sta" stack-frame-l) ;; reinstate previous stack frame
+   (emit "lda" working-reg) ;; load return value
+   ))
 
 (define (emit-set! x)
   (if (is-fnarg? (cadr x))
