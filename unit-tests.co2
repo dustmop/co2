@@ -13,42 +13,24 @@
   ".byte $00,$00" ;; filler
   ".byte $00,$00,$00,$00,$00,$00,$00,$00")
 
-    ;; our memory layout
-
+ ;; our memory layout
  (defconst sprite-shadow  "$200") ;; where the sprite control data is
  (defconst poke-test "$300")
- (defconst display-list "$400") ;; the display list
-
- ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
- ;; display primitives
- ;; ------------------
- ;;
- ;; 
- ;; tile-data display primitive: [list of bytes to copy as tile ids]
- (defconst prim-tile-data "#$01")
- ;; tile-value display primitive: [length tile-id] 
- ;; for clearing screen etc - 128 long is about max for timing
- (defconst prim-tile-value "#$02")
- ;; 2x2 tile quad [tile top left id]
- (defconst prim-quad "#$03")
-
-
 
  ;; code start
  (org #xc000)
 
  (defvar n 0)
+ (defvar k 0)
 
  (defvar assertpos 0)
- ;; the current display list index 
- (defvar display-list-index 0)
 
-(defun (assert v)
-  (if (eq? v 1)
-      (ppu-memset ppu-name-table-0 0 assertpos 1 1)
-      (ppu-memset ppu-name-table-0 0 assertpos 1 2))
-  (inc assertpos))
-
+ (defun (assert v)
+   (if (eq? v 1)
+       (ppu-memset ppu-name-table-0 0 assertpos 1 1)
+       (ppu-memset ppu-name-table-0 0 assertpos 1 2))
+   (inc assertpos))
+ 
 (defun (test-simple) 1)
 (defun (test2-argret a) a)
 (defun (test3-multifn a)
@@ -160,7 +142,6 @@
    ;; sprites from $1000, and the name table from $2000.
    (set! reg-ppu-ctl #b10001000)
    (set! reg-ppu-mask #b00011110)
-
 
    (asm
     ;; restart interrupts again
