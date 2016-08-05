@@ -116,7 +116,7 @@
 
  (defun (load-palette)
    ;; copy 32 bytes of bg and sprite palette
-   (ppu-memcpy ppu-palette #x20 palette))
+   (ppu-memcpy ppu-palette 0 0 #x20 palette 0))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; display list
@@ -149,21 +149,21 @@
      (when (eq? (peek display-list display-list-index) prim-tile-data) 
        (set! start (- display-list-index n))
        (set! end display-list-index)
-       (ppu-memcpy2 ppu-name-table-0 
-		    (peek display-list (+ display-list-index 1)) ;; x
-		    (peek display-list (+ display-list-index 2)) ;; y
-		    end ;; w
-		    display-list
-		    start)) ;; start
+       (ppu-memcpy ppu-name-table-0 
+		   (peek display-list (+ display-list-index 1)) ;; x
+		   (peek display-list (+ display-list-index 2)) ;; y
+		   end ;; w
+		   display-list
+		   start)) ;; start
 
      ;; update arbitrary length strips of one value (RLE)
      (when (eq? (peek display-list display-list-index) prim-tile-value) ;; tileset
        (set! start (- display-list-index n))
-       (ppu-memset2 ppu-name-table-0 
-		    (peek display-list (+ display-list-index 1)) ;; x
-		    (peek display-list (+ display-list-index 2)) ;; y
-		    (peek display-list start) ;; length
-		    (peek display-list (+ start 1)))) ;; tile id
+       (ppu-memset ppu-name-table-0 
+		   (peek display-list (+ display-list-index 1)) ;; x
+		   (peek display-list (+ display-list-index 2)) ;; y
+		   (peek display-list start) ;; length
+		   (peek display-list (+ start 1)))) ;; tile id
      (set! display-list-index (- display-list-index n)))))
 
 (defun (clear-tiles)
