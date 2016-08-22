@@ -30,10 +30,12 @@
  ;; tile-value display primitive: [length tile-id] 
  ;; for clearing screen etc - 128 long is about max for timing
  (defconst prim-tile-value "#$02")
+ ;; 2x2 tile quad [tile top left id]
+ (defconst prim-quad "#$03")
 
  ;; code start
  (org #xc000)
-
+ 
  ;; globals that will be removed - honest gov
  (defvar gframe 0)
 
@@ -47,6 +49,9 @@
  (defvar j 0)
  (defvar k 0)
  (defvar l 0)
+ (defvar m 0)
+ (defvar o 0)
+ (defvar p 0)
  (defvar start 0)
  (defvar end 0)
 
@@ -121,6 +126,9 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; display list
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; display list
+
 (defun (display-list-add-byte data)
   (poke! display-list display-list-index data) 
   (inc display-list-index))
@@ -144,26 +152,38 @@
      (set! display-list-index (- display-list-index 4))
 
      (set! n (peek display-list (+ display-list-index 3))) ;; store nbytes
+     (set! start (- display-list-index n))
+     (set! end display-list-index)
 
      ;; update tile data
      (when (eq? (peek display-list display-list-index) prim-tile-data) 
-       (set! start (- display-list-index n))
        (set! end display-list-index)
        (ppu-memcpy ppu-name-table-0 
-		   (peek display-list (+ display-list-index 1)) ;; x
-		   (peek display-list (+ display-list-index 2)) ;; y
+		   (peek display-list (+ display-list-index 1)) 
+		   (peek display-list (+ display-list-index 2))
 		   end ;; w
 		   display-list
 		   start)) ;; start
 
      ;; update arbitrary length strips of one value (RLE)
      (when (eq? (peek display-list display-list-index) prim-tile-value) ;; tileset
-       (set! start (- display-list-index n))
        (ppu-memset ppu-name-table-0 
-		   (peek display-list (+ display-list-index 1)) ;; x
-		   (peek display-list (+ display-list-index 2)) ;; y
+		   (peek display-list (+ display-list-index 1)) 
+		   (peek display-list (+ display-list-index 2))
 		   (peek display-list start) ;; length
 		   (peek display-list (+ start 1)))) ;; tile id
+     
+     (when (eq? (peek display-list display-list-index) prim-quad) 
+       (set! o (peek display-list (+ display-list-index 1)))
+       (set! p (peek display-list (+ display-list-index 2)))
+       (set! i (peek display-list start))
+       ;; could be optimised a lot
+       (ppu-memset ppu-name-table-0 o p 1 i) 
+       (ppu-memset ppu-name-table-0 o (+ p 1) 1 (+ i 1)) 
+       (ppu-memset ppu-name-table-0 o (+ p 32) 1 (+ i 16)) 
+       (ppu-memset ppu-name-table-0 o (+ p 33) 1 (+ i 17))
+       )
+     
      (set! display-list-index (- display-list-index n)))))
 
 (defun (clear-tiles)
@@ -247,7 +267,7 @@
  (defun (init-sprites)
    ;; clear page #2, which we'll use to hold sprite data
    ;; (memset writes 256 bytes in one go)
-   (memset sprite-shadow #xfe)
+   (memset sprite-shadow #x00)
 
    (setup-character #x0 0)
 
@@ -329,10 +349,10 @@
 
      (set! n (and (rnd) #x03))
      (cond
-      ((eq? n 0) (display-8x4-image 2 (rnd) #x80))
-      ((eq? n 1) (display-8x4-image 2 (rnd) #x88))
-      ((eq? n 2) (display-8x4-image 2 (rnd) #xc0))
-      (else (display-8x4-image 2 (rnd) #xc8))))))
+      ((eq? n 0) (display-8x4-image 1 (rnd) #x80))
+      ((eq? n 1) (display-8x4-image 1 (rnd) #x88))
+      ((eq? n 2) (display-8x4-image 1 (rnd) #xc0))
+      (else (display-8x4-image 1 (rnd) #xc8))))))
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -378,7 +398,7 @@
 
    (display-8x4-image 0 34 #x80)
    (display-8x4-image 0 51 #x88)
-   (display-8x4-image 1 2 #xc0)
+   ;;(display-8x4-image 1 2 #xc0)
    (display-8x4-image 1 11 #xc8)
 
    (clear-tiles)
