@@ -121,6 +121,9 @@
 (define constants '())
 
 (define (make-constant! name value)
+  (when (not (string? value))
+	(display "ERROR: constant ")(display name)(display " is not a string: ")
+	(display value)(newline))
   (set! constants (cons (list name value) constants)))
 
 (define (constant-lookup name)
@@ -839,6 +842,7 @@
     (emit-load-immediate x))
    ((primcall? x)
     (let ((r (emit-procedure x)))
+     ;; (display x)(newline)
       (set! histogram (add-histogram (car x) (length r) histogram))
       (append
        (emit ";; starting " (symbol->string (car x)))

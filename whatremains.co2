@@ -272,55 +272,50 @@
    (set-sprite-y! (+ 3 id) 8)
    (set-sprite-id! (+ 3 id) (+ 18 block)))
 
- (defun (init-sprites)
-   ;; clear page #2, which we'll use to hold sprite data
-   ;; (memset writes 256 bytes in one go)
-   (memset sprite-shadow #x00)
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; collisions: all assume 2x2 sprites...
 
-   (setup-character #x0 0)
+(defun (sprite-collide-sprite sprite-id-a sprite-id-b)
+  ;; collide with 4th sprite x/y as centre of 2x2
+  (sprite-collide-pos 
+   sprite-id-a 
+   (get-sprite-x (+ sprite-id-b 3))
+   (get-sprite-y (+ sprite-id-b 3))))
+  
+(defun (sprite-collide-pos sprite-id x y)
+  (and 
+   (and
+    ;; expanding bbox to get edge-edge collision
+    ;; can reduce this to get 'softer' collisions
+    (> x (- (get-sprite-x sprite-id) 8))
+    (< x (+ (get-sprite-x (+ sprite-id 1)) 16)))
+   (and 
+    (> y (- (get-sprite-y sprite-id) 8))
+    (< y (+ (get-sprite-y (+ sprite-id 2)) 16)))))
 
-   (setup-character #x0 4)
-   (add-sprites-x! 4 4 100)
-   (add-sprites-y! 4 4 100)
-   (or-sprites-attr! 4 4 10)
+;; --
 
-   (setup-character #x70 8)
-   (add-sprites-x! 8 4 120)
-   (add-sprites-y! 8 4 80)
-   (or-sprites-attr! 8 4 11)
-
-   (setup-character #x50 12)
-   (add-sprites-x! 12 4 70)
-   (add-sprites-y! 12 4 120)
-   (or-sprites-attr! 12 4 01)
-
-   (defvar direction 1)
-   
-   )
-
-
-
-(defun (collide-sprite-left sprite-id)
+(defun (bb-collide-sprite-left sprite-id)
   (set! sprite-id (+ sprite-id 2))
-  (collide-pos (get-sprite-x sprite-id) 
-	       (get-sprite-y sprite-id)))
+  (bb-collide-pos (get-sprite-x sprite-id) 
+		  (get-sprite-y sprite-id)))
 
-(defun (collide-sprite-right sprite-id)
+(defun (bb-collide-sprite-right sprite-id)
   (set! sprite-id (+ sprite-id 3))
-  (collide-pos (+ (get-sprite-x sprite-id) 8) 
-	       (get-sprite-y sprite-id)))
+  (bb-collide-pos (+ (get-sprite-x sprite-id) 8) 
+		  (get-sprite-y sprite-id)))
 
-(defun (collide-sprite-up sprite-id)
+(defun (bb-collide-sprite-up sprite-id)
   (set! sprite-id (+ sprite-id 1))
-  (collide-pos (get-sprite-x sprite-id) 
-	       (get-sprite-y sprite-id)))
+  (bb-collide-pos (get-sprite-x sprite-id) 
+		  (get-sprite-y sprite-id)))
 
-(defun (collide-sprite-down sprite-id)
+(defun (bb-collide-sprite-down sprite-id)
   (set! sprite-id (+ sprite-id 3))
-  (collide-pos (get-sprite-x sprite-id) 
-	       (+ (get-sprite-y sprite-id) 8)))
+  (bb-collide-pos (get-sprite-x sprite-id) 
+		  (+ (get-sprite-y sprite-id) 8)))
 
-(defun (collide-pos x y)
+(defun (bb-collide-pos x y)
   ;; read the length of rects to get the end
   (set! end (+ 1 (<< (peek collision_data) 2))) ;; rect so * 4   
   ;; setup for the loop
@@ -338,6 +333,39 @@
     (set! i (+ i 4)))
   j)
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(defconst player-sprite "#0")
+(defconst npc1-sprite "#4")
+(defconst npc2-sprite "#8")
+(defconst npc3-sprite "#12")
+
+ (defun (init-sprites)
+   ;; clear page #2, which we'll use to hold sprite data
+   ;; (memset writes 256 bytes in one go)
+   (memset sprite-shadow #x00)
+
+   (setup-character #x0 player-sprite)
+
+   (setup-character #x0 npc1-sprite)
+   (add-sprites-x! npc1-sprite 4 100)
+   (add-sprites-y! npc1-sprite 4 100)
+   (or-sprites-attr! npc1-sprite 4 10)
+
+   (setup-character #x70 npc2-sprite)
+   (add-sprites-x! npc2-sprite 4 120)
+   (add-sprites-y! npc2-sprite 4 80)
+   (or-sprites-attr! npc2-sprite 4 11)
+
+   (setup-character #x50 npc3-sprite)
+   (add-sprites-x! npc3-sprite 4 70)
+   (add-sprites-y! npc3-sprite 4 120)
+   (or-sprites-attr! npc3-sprite 4 01)
+
+   (defvar direction 1)
+   
+   )
+
 
  (defun (update-sprite)
    ;; do sprite stuff here.
@@ -354,42 +382,45 @@
      ;; (2 frame) animation start facing in this direction
      (set! direction 5)
      ;; move the 4 sprites a bit
-     (when (not (collide-sprite-up 0))
-       (sub-sprites-y! 0 4 1)))
+     (when (not (bb-collide-sprite-up player-sprite))
+       (sub-sprites-y! player-sprite 4 1)))
     ((pressed joypad-down)
      (set! direction 1)
-     (when (not (collide-sprite-down 0))
-       (add-sprites-y! 0 4 1)))
+     (when (not (bb-collide-sprite-down player-sprite))
+       (add-sprites-y! player-sprite 4 1)))
     ((pressed joypad-left)
      (set! direction 9)
-     (when (not (collide-sprite-left 0))
-       (sub-sprites-x! 0 4 1)))
+     (when (not (bb-collide-sprite-left player-sprite))
+       (sub-sprites-x! player-sprite 4 1)))
     ((pressed joypad-right)
      (set! direction 13)
-     (when (not (collide-sprite-right 0))
-       (add-sprites-x! 0 4 1)))
+     (when (not (bb-collide-sprite-right player-sprite))
+       (add-sprites-x! player-sprite 4 1)))
     (else
      ;; we are not moving
      (set! running 0)))
 
    ;; player character
    (if (and running (>> (and gframe #x08) 3))
-       (animate-sprites-2x2! 0 direction)
-       (animate-sprites-2x2! 0 (+ 2 direction)))
+       (animate-sprites-2x2! player-sprite direction)
+       (animate-sprites-2x2! player-sprite (+ 2 direction)))
 
    ;; the NPC's
-   (if (and gframe #x08) ;; animation speed
-       ;; offset to sprite, offset to pattern
-       (animate-sprites-2x2! 4 #x51)
-       (animate-sprites-2x2! 4 #x53))
+   (when (sprite-collide-sprite player-sprite npc1-sprite)
+     (if (and gframe #x08) ;; animation speed
+	 ;; offset to sprite, offset to pattern
+	 (animate-sprites-2x2! npc1-sprite #x51)
+         (animate-sprites-2x2! npc1-sprite #x53)))
 
-   (if (and gframe #x10) ;; try different speeds
-       (animate-sprites-2x2! 8 #x71)
-       (animate-sprites-2x2! 8 #x73))
+   (when (sprite-collide-sprite player-sprite npc2-sprite)
+     (if (and gframe #x10) ;; try different speeds
+       (animate-sprites-2x2! npc2-sprite #x71)
+       (animate-sprites-2x2! npc2-sprite #x73)))
 
-   (if (and gframe #x20)
-       (animate-sprites-2x2! 12 #x51)
-       (animate-sprites-2x2! 12 #x53))
+   (when (sprite-collide-sprite player-sprite npc3-sprite)
+     (if (and gframe #x20)
+	 (animate-sprites-2x2! npc3-sprite #x51)
+         (animate-sprites-2x2! npc3-sprite #x53)))
 
    )
 
@@ -416,30 +447,13 @@
    (set! reg-ppu-ctl #b10001000)
    (set! reg-ppu-mask #b00011110)
 
-   ;; (set! i 0)
-   ;; (while (< i 4)
-   ;;   (set! start (<< i 4)) ;; * 16
-   ;;   (set! end (+ start 7))
-   ;;   (loop n start end (display-list-add-byte (+ #x80 n)))
-   ;;   (display-list-end-packet #x01 0 (+ 2 (<< i 5)) 8) ;; * 32
-   ;;   (inc i))
-   
-   ;; (loop n 0 15 (display-list-add-byte (+ #x80 n)))
-   ;; (display-list-end-packet #x01 0 0 8)
-   ;; (loop n 16 23 (display-list-add-byte (+ #x80 n)))
-   ;; (display-list-end-packet #x01 0 32 8)
-   ;; (loop n 32 39 (display-list-add-byte (+ #x80 n)))
-   ;; (display-list-end-packet #x01 0 64 8)
-   ;; (loop n 48 55 (display-list-add-byte (+ #x80 n)))
-   ;; (display-list-end-packet #x01 0 96 8)
-
-
+   ;; display the first screen
    (display-6x4-image 0 66 #x80)
    (display-6x4-image 1 (+ 66 16) #x80)
    (display-8x4-image 2 66 #x88)
 
+   ;; (display list in reverse order)
    (clear-tiles)
-
 
    (init-sprites)
 
@@ -464,9 +478,7 @@
    ;; reads the joypad state into memory to save time
    ;; probably premature optimisation
    (read-joypad)
-
    (update-music)
-
    (inc gframe))
 
  (defint (irq))
