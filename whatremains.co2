@@ -40,6 +40,8 @@
  (defvar gframe 0)
  ;; stores what section of the game we are in, title/eighties/future
  (defvar ggame-mode 0)
+ ;; are we showing text?
+ (defvar gtext-box 0)
  ;; ramps from 0-255 when game modes are switched, for sequencing
  ;; initialisation/drawlist updates for the big screen updates
  (defvar gdraw-phase 0)
@@ -364,7 +366,7 @@
 
 (defconst title-mode "#0")
 (defconst eighties-mode "#1")
-(defconst future-mode "#2")
+(defconst future-mode "#3")
 
 (defun (switch-game-mode new-mode)
   (set! ggame-mode new-mode)
@@ -426,23 +428,38 @@
    
    )
 
-(defun (update-eighties) 
-  (cond
-   ((eq? gdraw-phase 1) 
-    ;; display the first screen
-    (display-6x4-image 0 66 #x80)
-    (display-6x4-image 1 (+ 66 16) #x80)
-    (display-8x4-image 2 66 #x88)
-    ;; (display list in reverse order)
-    (clear-tiles))
-   ((eq? gdraw-phase 5) ;; wait some frames...
-    (init-sprites-eighties))
-   (else (update-sprites-eighties)))
+(defun (show-textbox)   
+  (when (eq? gtext-box 0)
+    (set! text-pos 0)
+    (set! gtext-box 255))
+  0)
 
-  (when (pressed joypad-start)
-    (switch-game-mode title-mode))
+(defun (update-textbox)   
+  (when (eq? gtext-box 255)
+    (update-typed-text 1 68)
+    (when (pressed joypad-b)
+      (set! gdraw-phase 1)
+      (set! gtext-box 254))))
+
+(defun (update-eighties) 
+  (when (not (eq? gtext-box 255))
+    (cond
+     ((eq? gdraw-phase 1) 
+      (init-sprites-eighties))
+     ((eq? gdraw-phase 2) 
+      ;; display the first screen
+      (display-6x4-image 0 66 #x80)
+      (display-6x4-image 1 (+ 66 16) #x80)
+      (display-8x4-image 2 66 #x88)
+      ;; (display list in reverse order)
+      (clear-tiles))
+     (else (update-sprites-eighties)))
+
+    (when (pressed joypad-start)
+      (switch-game-mode title-mode)))
   
-  )
+  (when (and (< gtext-box 255) (> gtext-box 0)) (dec gtext-box))
+  (update-textbox))
 
 (defun (update-sprites-eighties)
    ;; is the player character moving?
@@ -484,6 +501,8 @@
    ;; the NPC's
    ;; get them to react to the player
    (when (sprite-collide-sprite player-sprite npc1-sprite)
+     (set16! text-addr npcsays)
+     (show-textbox)
      (if (and gframe #x08) ;; animation speed
 	 ;; offset to sprite, offset to pattern
 	 (animate-sprites-2x2! npc1-sprite #x51)
@@ -573,6 +592,8 @@
 
 (asm "introtitle:")(text "What remains intro!") (byte "0")
 (asm "intropress:")(text "Press b button to continue") (byte "0")
+
+(asm "npcsays:")(text "Hello stranger")(byte "0")
 
 (asm "mystring:")
 ;       xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
