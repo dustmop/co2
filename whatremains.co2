@@ -38,7 +38,10 @@
  
  ;; globals that will be removed - honest gov
  (defvar gframe 0)
+ ;; stores what section of the game we are in, title/eighties/future
  (defvar ggame-mode 0)
+ ;; ramps from 0-255 when game modes are switched, for sequencing
+ ;; initialisation/drawlist updates for the big screen updates
  (defvar gdraw-phase 0)
  
  ;; the current display list index 
@@ -58,8 +61,8 @@
 
  (defvar text-pos 0)
  (defvar text-time 0) 
+ (defvar text-addr 0)
  (defvar text-addr-h 0)
- (defvar text-addr-l 0)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; library code follows
@@ -245,18 +248,27 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; text display
 
-(defun (update-text)
+(defun (draw-text h l)
+  ;; zero terminating strings
+  (set! i 1) ;; char
+  (set! j 0) ;; count
+  (while (not (eq? i 0))
+    (set! i (peek16 text-addr j))
+    (display-list-add-byte i)
+    (inc j))
+  (display-list-end-packet prim-tile-data h (+ l text-pos) j)
+  )
+
+(defun (update-typed-text h l)
   (inc text-time)
   (when (> text-time 10)
-    (display-list-add-byte (peek mystring text-pos))
-    (display-list-end-packet prim-tile-data 0 text-pos 1)
-    (inc text-pos)
-    (set! text-time 0))
-  ;; reset
-  (when (> text-pos 31)
-    (set! text-pos 0)
-    (loop n 0 33 (display-list-add-byte 0))
-    (display-list-end-packet prim-tile-data 0 text-pos 34)))
+    (set! i (peek16 text-addr text-pos))
+    ;; zero terminating strings
+    (when (not (eq? i 0))
+      (display-list-add-byte i)
+      (display-list-end-packet prim-tile-data h (+ l text-pos) 1)
+      (inc text-pos))
+    (set! text-time 0)))
     
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
  ;; sprite stuff
@@ -366,9 +378,12 @@
    ((eq? gdraw-phase 1) 
     (update-sprites-title))
    ((eq? gdraw-phase 2)
-    (clear-tiles))
+    (set16! text-addr introtitle)
+    (draw-text 1 7)
+    (clear-tiles)
+    (set16! text-addr intropress))
    (else
-    (update-text)))
+    (update-typed-text 1 68)))
 
   (when (pressed joypad-b)
     (switch-game-mode eighties-mode))
@@ -414,14 +429,14 @@
 (defun (update-eighties) 
   (cond
    ((eq? gdraw-phase 1) 
-    (init-sprites-eighties))
-   ((eq? gdraw-phase 2)
     ;; display the first screen
     (display-6x4-image 0 66 #x80)
     (display-6x4-image 1 (+ 66 16) #x80)
     (display-8x4-image 2 66 #x88)
     ;; (display list in reverse order)
     (clear-tiles))
+   ((eq? gdraw-phase 5) ;; wait some frames...
+    (init-sprites-eighties))
    (else (update-sprites-eighties)))
 
   (when (pressed joypad-start)
@@ -502,7 +517,6 @@
 
  (defint (reset)
    (init-system)
-
    (init-sound)
 
    ;; disable all graphics.
@@ -557,10 +571,8 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; data follows
 
-(asm "introtext:")
-;       xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-(text "What remains intro!")
-
+(asm "introtitle:")(text "What remains intro!") (byte "0")
+(asm "intropress:")(text "Press b button to continue") (byte "0")
 
 (asm "mystring:")
 ;       xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx

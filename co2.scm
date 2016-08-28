@@ -333,6 +333,19 @@
        (emit-expr (caddr x))
        (emit "sta" (immediate-value (cadr x))))))
 
+;; takes an address literal
+(define (emit-set16! x)
+  (if (is-fnarg? (cadr x))
+      (begin
+	(display "ERROR: trying to set fn arg to 16bit value...")
+	(newline))
+      (append
+       (emit "lda" (string-append "#<" (symbol->string (caddr x))))
+       (emit "sta" (immediate-value (cadr x)))
+       (emit "ldx" "#1")
+       (emit "lda" (string-append "#>" (symbol->string (caddr x))))
+       (emit "sta" (immediate-value (cadr x)) ",x"))))
+       
 (define (emit-write! x)
   (append
    (emit-expr (list-ref x 3))
@@ -362,6 +375,17 @@
        (emit "lda" (immediate-value (list-ref x 1)) ",y"))
       (append
        (emit "lda" (immediate-value (list-ref x 1))))))
+
+(define (emit-peek16 x)
+  ;; address offset is optional
+  (if (eq? (length x) 3)
+      (append
+       (emit-expr (list-ref x 2)) ;; address offset
+       (emit "tay")
+       (emit "lda" (string-append "(" (immediate-value (list-ref x 1)) ")") ",y"))
+      (append
+       (emit "ldy" "#0")
+       (emit "lda" (string-append "(" (immediate-value (list-ref x 1)) ")") ",y"))))
 
 
 ;; sets blocks of 256 bytes
@@ -734,6 +758,7 @@
    ((eq? (car x) 'defint) (emit-defint x))
    ((eq? (car x) 'defconst) (make-constant! (cadr x) (caddr x)) '())
    ((eq? (car x) 'set!) (emit-set! x))
+   ((eq? (car x) 'set16!) (emit-set16! x))
    ;;        ((eq? (car x) 'let) (emit-let x))
    ((eq? (car x) 'if) (emit-if x))
    ((eq? (car x) 'when) (emit-when x))
@@ -762,6 +787,7 @@
    ((eq? (car x) 'org) (emit ".org" (immediate-value (cadr x))))
    ((eq? (car x) 'poke!) (emit-poke! x))
    ((eq? (car x) 'peek) (emit-peek x))
+   ((eq? (car x) 'peek16) (emit-peek16 x))
    ((eq? (car x) 'memset) (emit-memset x))
    ((eq? (car x) 'ppu-memset) (emit-ppu-memset x))
    ((eq? (car x) 'ppu-memcpy) (emit-ppu-memcpy x))
