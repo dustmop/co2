@@ -38,12 +38,13 @@
  
  ;; globals that will be removed - honest gov
  (defvar gframe 0)
-
+ (defvar ggame-mode 0)
+ (defvar gdraw-phase 0)
+ 
  ;; the current display list index 
  (defvar display-list-index 0)
 
- ;; for use as temporaries (careful not to use them over fncalls
- ;; as they will get clobbered)
+ ;; random locals for use anywhere
  (defvar n 0)
  (defvar i 0)
  (defvar j 0)
@@ -54,6 +55,11 @@
  (defvar p 0)
  (defvar start 0)
  (defvar end 0)
+
+ (defvar text-pos 0)
+ (defvar text-time 0) 
+ (defvar text-addr-h 0)
+ (defvar text-addr-l 0)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; library code follows
@@ -239,18 +245,19 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; text display
 
- ;; (defun (update-text)
- ;;   (inc text-time)
- ;;   (when (> text-time 10)
- ;;     (poke! tile-data text-pos (peek mystring text-pos))
- ;;     (inc text-pos)
- ;;     (set! text-time 0))
- ;;   ;; reset
- ;;   (when (> text-pos 32)
- ;;     (set! text-pos 0)
- ;;     (loop n 0 32
- ;; 	   (poke! tile-data n 0))))
-
+(defun (update-text)
+  (inc text-time)
+  (when (> text-time 10)
+    (display-list-add-byte (peek mystring text-pos))
+    (display-list-end-packet prim-tile-data 0 text-pos 1)
+    (inc text-pos)
+    (set! text-time 0))
+  ;; reset
+  (when (> text-pos 31)
+    (set! text-pos 0)
+    (loop n 0 33 (display-list-add-byte 0))
+    (display-list-end-packet prim-tile-data 0 text-pos 34)))
+    
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
  ;; sprite stuff
  
@@ -340,44 +347,89 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; game modes
+
+(defconst title-mode "#0")
+(defconst eighties-mode "#1")
+(defconst future-mode "#2")
+
+(defun (switch-game-mode new-mode)
+  (set! ggame-mode new-mode)
+  (set! gdraw-phase 0))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; title
+
+(defun (update-title)
+  (cond
+   ((eq? gdraw-phase 1) 
+    (update-sprites-title))
+   ((eq? gdraw-phase 2)
+    (clear-tiles))
+   (else
+    (update-text)))
+
+  (when (pressed joypad-b)
+    (switch-game-mode eighties-mode))
+  )
+
+(defun (update-sprites-title)
+  (memset sprite-shadow #x00))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; eighties
+
 (defconst player-sprite "#0")
 (defconst npc1-sprite "#4")
 (defconst npc2-sprite "#8")
 (defconst npc3-sprite "#12")
 
- (defun (init-sprites)
+(defun (init-sprites-eighties)
    ;; clear page #2, which we'll use to hold sprite data
    ;; (memset writes 256 bytes in one go)
    (memset sprite-shadow #x00)
-
+   
    (setup-character #x0 player-sprite)
-
+   
    (setup-character #x0 npc1-sprite)
    (add-sprites-x! npc1-sprite 4 100)
    (add-sprites-y! npc1-sprite 4 100)
    (or-sprites-attr! npc1-sprite 4 10)
-
+   
    (setup-character #x70 npc2-sprite)
    (add-sprites-x! npc2-sprite 4 120)
    (add-sprites-y! npc2-sprite 4 80)
    (or-sprites-attr! npc2-sprite 4 11)
-
+   
    (setup-character #x50 npc3-sprite)
    (add-sprites-x! npc3-sprite 4 70)
    (add-sprites-y! npc3-sprite 4 120)
    (or-sprites-attr! npc3-sprite 4 01)
-
+   
    (defvar direction 1)
    
    )
 
+(defun (update-eighties) 
+  (cond
+   ((eq? gdraw-phase 1) 
+    (init-sprites-eighties))
+   ((eq? gdraw-phase 2)
+    ;; display the first screen
+    (display-6x4-image 0 66 #x80)
+    (display-6x4-image 1 (+ 66 16) #x80)
+    (display-8x4-image 2 66 #x88)
+    ;; (display list in reverse order)
+    (clear-tiles))
+   (else (update-sprites-eighties)))
 
- (defun (update-sprite)
-   ;; do sprite stuff here.
-   ;; reads the joypad state into memory to save time
-   ;; probably premature optimisation
-   (read-joypad)
+  (when (pressed joypad-start)
+    (switch-game-mode title-mode))
+  
+  )
 
+(defun (update-sprites-eighties)
    ;; is the player character moving?
    (defvar running 1)
 
@@ -434,6 +486,17 @@
 
    )
 
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; future
+
+(defun (update-future)
+  (update-sprites-future))
+
+(defun (update-sprites-future)
+  0)
+
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; interrupts
 
@@ -457,15 +520,8 @@
    (set! reg-ppu-ctl #b10001000)
    (set! reg-ppu-mask #b00011110)
 
-   ;; display the first screen
-   (display-6x4-image 0 66 #x80)
-   (display-6x4-image 1 (+ 66 16) #x80)
-   (display-8x4-image 2 66 #x88)
-
-   ;; (display list in reverse order)
-   (clear-tiles)
-
-   (init-sprites)
+   ;; clear sprite shadow
+   (memset sprite-shadow #x00)
 
    (asm
     ;; restart interrupts again
@@ -477,29 +533,38 @@
  ;; main loop is here
  (defint (vblank)
    ;; these need to go first!
-   ;; start sprite data dma to the oam
+   ;; start sprite data dma to the oam now
    (set! reg-oam-dma sprite-dma)
+   ;; dma the display list now
    (display-list-execute)
 
-   ;; now we're safe...
-   (update-sprite)
+   ;; that's done, now we're safe to do whatever
+   (cond
+    ((eq? ggame-mode title-mode) (update-title))
+    ((eq? ggame-mode eighties-mode) (update-eighties))    
+    (else (update-future)))
 
-   ;;(update-text)
    ;; reads the joypad state into memory to save time
-   ;; probably premature optimisation
+   ;; probably premature optimisation?
    (read-joypad)
-   (update-music)
-   (inc gframe))
-
+   (inc gframe)
+   (when (not (eq? gdraw-phase 255)) (inc gdraw-phase))
+   )
+   
  (defint (irq))
  
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; data follows
 
- (asm "mystring:")
+(asm "introtext:")
 ;       xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
- (text " What remains? TESTING text 1234")
+(text "What remains intro!")
+
+
+(asm "mystring:")
+;       xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+(text " What remains? TESTING text 12345")
 
 ;; bounding box data follows
  (asm "collision_data")
