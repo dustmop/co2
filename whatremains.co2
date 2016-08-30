@@ -13,12 +13,22 @@
   ".byte $00,$00" ;; filler
   ".byte $00,$00,$00,$00,$00,$00,$00,$00")
 
+(asm "include \"ggsound.inc\"")
+
+(asm "enum $00FE")
+(asm "include \"ggsound_zp.inc\"")
+(asm "ende")
+
     ;; our memory layout
  (defconst sprite-shadow  "$200") ;; where the sprite control data is
  (defconst sprite-dma   "#$2") ;; dma address is 100X this = $200
  (defconst display-list "$300") ;; the display list
  (defconst pad-data     "$400") ;; cache of the current pad state
  (defconst music-data "$500")
+
+(asm "enum $0600")
+(asm "include \"ggsound_ram.inc\"")
+(asm "ende")
 
  ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
  ;; display primitives
@@ -35,6 +45,9 @@
 
  ;; code start
  (org #xc000)
+
+ (asm "include \"ggsound.asm\"")
+ (asm "include \"songs.asm\"")
  
  ;; globals that will be removed - honest gov
  (defvar gframe 0)
@@ -76,43 +89,10 @@
 ;; sound
 
 (defun (init-sound)
-  (set! reg-apu-channel #b00011111)
-
-  (poke! music-data 0 #b11111101)
-  (poke! music-data 2 #b11111110)
-  (poke! music-data 5 #b11101110)
-  (poke! music-data 10 #b11101010)
-  (poke! music-data 12 #b11101010)
-  (poke! music-data 14 #b11001010)
-  (poke! music-data 15 #b11101011)
-
-  (loop n 0 8 (poke! music-data (+ 16 (<< n 1)) #b00001111))
+  (set! sound_param_byte_0 SOUND_REGION_NTSC)
+  ;(set16! sound_param_word_0 song_list)
+  ;(set16! sound_param_word_0 sfx_list)
   )
-
-(defun (play-p2 note)
-  (set! reg-apu-pulse2-control #b10011111)
-  (set! reg-apu-pulse2-ft note)
-  (set! reg-apu-pulse2-ct #b11111000))
-
-(defun (play-p1 note)
-  (set! reg-apu-pulse1-control #b10011111)
-  (set! reg-apu-pulse1-ft note)
-  (set! reg-apu-pulse1-ct #b11111000))
-
-(defun (play-n note)
-  (set! reg-apu-noise-env #b10111111)
-  (set! reg-apu-noise-ft note)
-  (set! reg-apu-noise-ct #b00000000))
-
-(defun (update-music)
-  (when (and (>> gframe 3) 1)
-    (play-p1 (peek music-data (+ 8 (and (>> gframe 4) #x0f))))
-    (play-p2 (peek music-data (and (>> gframe 4) #x0f)))
-    (play-n (peek music-data (+ 16 (and (>> gframe 4) #x0f))))
-    ;; don't play the same thing twice
-    ;;(poke! music-data (and (>> gframe 4) #x0f) (rnd))
-    ;(poke! music-data (+ 16 (and (>> gframe 4) #x0f) (rnd)))
-    ))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; input stuff
@@ -468,24 +448,24 @@
    (cond
     ((pressed joypad-up)
      ;; set direction to be the sprite offset for the
-     ;; (2 frame) animation start facing in this direction
-     (set! direction 5)
+     ;; (3 frame) animation start facing in this direction
+     (set! direction #x27)
      ;; move the 4 sprites a bit
      (when (not (bb-collide-sprite-up player-sprite))
        (sub-sprites-y! player-sprite 4 1)))
 
     ((pressed joypad-down)
-     (set! direction 1)
+     (set! direction #x21)
      (when (not (bb-collide-sprite-down player-sprite))
        (add-sprites-y! player-sprite 4 1)))
 
     ((pressed joypad-left)
-     (set! direction 9)
+     (set! direction #x0b)
      (when (not (bb-collide-sprite-left player-sprite))
        (sub-sprites-x! player-sprite 4 1)))
 
     ((pressed joypad-right)
-     (set! direction 13)
+     (set! direction #x05)
      (when (not (bb-collide-sprite-right player-sprite))
        (add-sprites-x! player-sprite 4 1)))
 
@@ -494,9 +474,15 @@
      (set! running 0)))
 
    ;; animate player character
-   (if (and running (>> (and gframe #x08) 3))
-       (animate-sprites-2x2! player-sprite direction)
+   (when running 
+     (cond 
+      ((eq? (and (>> gframe 2) #x3) 0)
+       (animate-sprites-2x2! player-sprite direction))
+      ((eq? (and (>> gframe 2) #x3) 1)
        (animate-sprites-2x2! player-sprite (+ 2 direction)))
+      (else
+       (animate-sprites-2x2! player-sprite (+ 4 direction)))))
+       
 
    ;; the NPC's
    ;; get them to react to the player
@@ -634,7 +620,7 @@
   ".incbin \"binary/whatremains-tiles.chr\""
   ".align $1000"
   ".byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00" ; character 0: blank
-  ".incbin \"binary/sprites.chr\""
+  ".incbin \"binary/whatremains-sprites.chr\""
   ".align $1000")
  
  )
