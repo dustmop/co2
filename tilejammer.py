@@ -13,7 +13,7 @@ print(out)
 
 out=[]
 
-for i in range(16,30):
+for i in range(15,30):
     for j in range(0,32):
         out.append(tiles[(i*64)+j]-1)
         pos+=1
