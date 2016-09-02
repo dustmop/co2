@@ -447,6 +447,30 @@
    (emit "lda" "#$00")
    (emit "sta" (reg-table-lookup 'reg-ppu-addr))))
 
+; (memcpy base-symbol high-offset low-offset prg-end prg-base-h prg-base-l)
+(define (emit-ppu-memcpy16 x)
+  (display (immediate-value (list-ref x 5)))(newline)
+  (append
+   (emit-expr (list-ref x 2)) ;; dest offset high
+   (emit "clc")
+   (emit "adc" (car (immediate-value (list-ref x 1))))
+   (emit "sta" (reg-table-lookup 'reg-ppu-addr))
+   (emit-expr (list-ref x 3)) ;; dest offset low
+   (emit "clc")
+   (emit "adc" (cadr (immediate-value (list-ref x 1))))
+   (emit "sta" (reg-table-lookup 'reg-ppu-addr))
+   (emit "ldy #0")
+   (emit "- lda" (string-append "(" (immediate-value (list-ref x 5)) ")") ",y") ;; base addr
+   (emit "sta" (reg-table-lookup 'reg-ppu-data))
+   (emit "iny")
+   (emit "cpy" (immediate-value (list-ref x 4))) ;; end addr
+   (emit "bne -")
+   ;; reset ppu addr
+   (emit "lda" "#$00")
+   (emit "sta" (reg-table-lookup 'reg-ppu-addr))
+   (emit "lda" "#$00")
+   (emit "sta" (reg-table-lookup 'reg-ppu-addr))))
+
 
 ;; optimised version of poke for sprites
 (define (emit-set-sprite! n x)
@@ -798,6 +822,8 @@
    ((eq? (car x) 'dec) (emit "dec" (immediate-value (cadr x))))
    ((eq? (car x) '<<) (emit-left-shift x))
    ((eq? (car x) '>>) (emit-right-shift x))
+   ((eq? (car x) 'high) (emit "lda" (string-append "#>" (symbol->string (cadr x)))))
+   ((eq? (car x) 'low) (emit "lda" (string-append "#<" (symbol->string (cadr x)))))
    ((eq? (car x) '_rnd) (emit-rnd x))
    ((eq? (car x) 'wait-vblank)
     (append (emit "- lda $2002")
@@ -809,6 +835,7 @@
    ((eq? (car x) 'memset) (emit-memset x))
    ((eq? (car x) 'ppu-memset) (emit-ppu-memset x))
    ((eq? (car x) 'ppu-memcpy) (emit-ppu-memcpy x))
+   ((eq? (car x) 'ppu-memcpy16) (emit-ppu-memcpy16 x))
    ((eq? (car x) 'set-sprite-y!) (emit-set-sprite! 0 x))
    ((eq? (car x) 'set-sprite-id!) (emit-set-sprite! 1 x))
    ((eq? (car x) 'set-sprite-attr!) (emit-set-sprite! 2 x))

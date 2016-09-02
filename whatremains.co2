@@ -6,6 +6,7 @@
 
 (do
  ;; NES header follows
+
  (asm
   ".byte \"NES\",$1a" ;; number of prg-rom blocks
   ".byte $02" ;; number of chr-rom blocks
@@ -18,7 +19,6 @@
  (defconst sprite-dma   "#$2") ;; dma address is 100X this = $200
  (defconst display-list "$300") ;; the display list
  (defconst pad-data     "$400") ;; cache of the current pad state
- ;(defconst music-data "$500")
 
  ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
  ;; display primitives
@@ -32,8 +32,10 @@
  (defconst prim-tile-value "#$02")
  ;; 2x2 tile quad [tile top left id]
  (defconst prim-quad "#$03")
+ ;; rom dump [high low length]
+ (defconst prim-rom-data "#$04")
 
- ;; famitone stuff
+;; famitone stuff
  (asm "FT_BASE_ADR = $0500 ;; page in the RAM used for FT2 variables, should be $xx00
        FT_TEMP = $70 ;; 3 bytes in zeropage used by the library as a scratchpad
        FT_DPCM_OFF = $c000  
@@ -45,12 +47,10 @@
        FT_NTSC_SUPPORT	;; undefine to exclude NTSC support
   ")
 
+
  ;; code start
  (org #x8000)
 
- (asm ".include \"famitone2_asm6.asm\"
-        .include \"danger_streets.asm\"
-;;.include \"after_the_rain.asm\"")
  
  ;; globals that will be removed - honest gov
  (defvar gframe 0)
@@ -91,21 +91,22 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; sound
-
-(defun (init-sound)
+ (defun (init-sound)
    (asm "ldx #<danger_streets_music_data	;play second song
    	ldy #>danger_streets_music_data
    	lda #80
    	jsr FamiToneInit
    	lda #0
    	jsr FamiToneMusicPlay")
+
    ;; (asm "ldx #<after_the_rain_music_data	;play second song
    ;; 	ldy #>after_the_rain_music_data
    ;; 	lda #80
    ;; 	jsr FamiToneInit
    ;; 	lda #0
    ;; 	jsr FamiToneMusicPlay")
-   )
+   
+   0)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; input stuff
@@ -187,35 +188,45 @@
        (ppu-memset ppu-name-table-0 o (+ p 32) 1 (+ i 16)) 
        (ppu-memset ppu-name-table-0 o (+ p 33) 1 (+ i 17))
        )
+
+     ;; update tile data
+     (when (eq? (peek display-list display-list-index) prim-rom-data) 
+       (set! i (peek display-list start)) ;; high
+       (set! j (peek display-list (+ start 1))) ;; low
+       (set! o (peek display-list (+ start 2))) ;; length
+       (ppu-memcpy16 ppu-name-table-0 
+     		     (peek display-list (+ display-list-index 1)) 
+     		     (peek display-list (+ display-list-index 2))
+     		     o i))
      
      (set! display-list-index (- display-list-index n)))))
 
 (defun (clear-tiles)
   ; nametable 1
   (display-list-add-byte 128)
-  (display-list-add-byte 0)
+  (display-list-add-byte #xff)
   (display-list-end-packet prim-tile-value 0 0 2)
   (display-list-add-byte 128)
-  (display-list-add-byte 0)
+  (display-list-add-byte #xff)
   (display-list-end-packet prim-tile-value 0 128 2)
   (display-list-add-byte 128)
-  (display-list-add-byte 0)
+  (display-list-add-byte #xff)
   (display-list-end-packet prim-tile-value 1 0 2)
   (display-list-add-byte 128)
-  (display-list-add-byte 0)
+  (display-list-add-byte #xff)
   (display-list-end-packet prim-tile-value 1 128 2)
   ; nametable 2
   (display-list-add-byte 128)
-  (display-list-add-byte 0)
+  (display-list-add-byte #xff)
   (display-list-end-packet prim-tile-value 2 0 2)
   (display-list-add-byte 128)
-  (display-list-add-byte 0)
+  (display-list-add-byte #xff)
   (display-list-end-packet prim-tile-value 2 128 2)
   (display-list-add-byte 128)
-  (display-list-add-byte 0)
+  (display-list-add-byte #xff)
   (display-list-end-packet prim-tile-value 3 0 2)
   (display-list-add-byte 64)
-  (display-list-add-byte 0)
+  (display-list-add-byte #xff)
   (display-list-end-packet prim-tile-value 3 128 2))
 
 (defun (display-8x4-image x y loc)
@@ -235,10 +246,6 @@
     (loop n start end (display-list-add-byte (+ loc n)))
     (display-list-end-packet prim-tile-data x (+ y (<< i 5)) 6) ;; * 32
     (inc i)))
-
- 
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; image display
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; text display
@@ -446,20 +453,47 @@
       (set! gdraw-phase 1)
       (set! gtext-box 254))))
 
+(defun (draw-bg page)
+  (display-list-add-byte (+ (low bgtiles) 0))
+  (display-list-add-byte (+ (high bgtiles) page))
+  (display-list-add-byte 64)
+  (display-list-end-packet prim-rom-data page 0 3)
+
+  (display-list-add-byte (+ (low bgtiles) 64))
+  (display-list-add-byte (+ (high bgtiles) page))
+  (display-list-add-byte 64)
+  (display-list-end-packet prim-rom-data page 64 3)
+
+  (display-list-add-byte (+ (low bgtiles) 128))
+  (display-list-add-byte (+ (high bgtiles) page))
+  (display-list-add-byte 64)
+  (display-list-end-packet prim-rom-data page 128 3)
+
+  (display-list-add-byte (+ (low bgtiles) 192))
+  (display-list-add-byte (+ (high bgtiles) page))
+  (display-list-add-byte 64)
+  (display-list-end-packet prim-rom-data page 192 3))
+
 (defun (update-eighties) 
   (when (not (eq? gtext-box 255))
     (cond
      ((eq? gdraw-phase 1) 
       (init-sprites-eighties))
-     ((eq? gdraw-phase 2) 
-      ;; display the first screen
-      (display-6x4-image 0 66 #x80)
-      (display-6x4-image 1 (+ 66 16) #x80)
-      (display-8x4-image 2 66 #x88)
-      ;; (display list in reverse order)
-      (clear-tiles))
-     (else (update-sprites-eighties)))
+     ((eq? gdraw-phase 2) (draw-bg 0))
+     ((eq? gdraw-phase 3) (draw-bg 1))
+     ((eq? gdraw-phase 6) (draw-bg 2))
+     ((eq? gdraw-phase 7) (draw-bg 3))
+     ;((eq? gdraw-phase 8)
+     ; (asm "ldx #<danger_streets_music_data	;play second song
+     ; 	ldy #>danger_streets_music_data
+     ; 	lda #80
+     ; 	jsr FamiToneInit
+     ; 	lda #0
+     ; 	jsr FamiToneMusicPlay"))
+     (else 0))
 
+    (update-sprites-eighties)
+    
     (when (pressed joypad-start)
       (switch-game-mode title-mode)))
   
@@ -620,7 +654,6 @@
 ;; 	sta $401e				;for VirtuaNES custom build
 ;; ")
 
-(asm "	jsr FamiToneUpdate")
 
 
    ;; ;; that's done, now we're safe to do whatever
@@ -634,6 +667,8 @@
     (read-joypad)
     (inc gframe)
     (when (not (eq? gdraw-phase 255)) (inc gdraw-phase))
+
+    (asm "jsr FamiToneUpdate")
 
 ;; (asm "
 ;; 	sta $401f				;show end of sound code time
@@ -649,21 +684,24 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; data follows
 
-(asm "introtitle:")(text "What remains intro!") (byte "0")
-(asm "intropress:")(text "Press any key") (byte "0")
-
-(asm "npcsays:")(text "Hey, watch my moves")(byte "0")
-
-(asm "mystring:")
-;       xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-(text " What remains? TESTING text 12345")
+(asm "introtitle:")(text "what remains intro!") (byte "0")
+(asm "intropress:")(text "press any key") (byte "0")
+(asm "npcsays:")(text "hey, watch my moves")(byte "0")
 
 ;; bounding box data follows
  (asm "collision_data")
  (byte "2") ;; number of boxes
  (byte "16,16,64,48")
  (byte "144,80,192,112")
- 
+
+
+(asm "bgtiles:")
+(byte "9, 10, 28, 27, 28, 27, 28, 27, 28, 15, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 79, 59, 41, 41, 41, 41, 41, 41, 25, 70, 12, 4, 4, 11, 12, 11, 12, 15, 11, 12, 11, 12, 11, 12, 11, 12, 11, 12, 11, 12, 11, 12, 15, 4, 4, 4, 4, 5, 6, 4, 3, 70, 28, 5, 6, 27, 28, 27, 28, 15, 27, 28, 27, 28, 27, 28, 27, 28, 27, 28, 27, 28, 27, 28, 15, 11, 12, 11, 12, 21, 22, 11, 3, 70, 19, 21, 22, 19, 19, 19, 19, 47, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 15, 27, 28, 27, 28, 45, 46, 27, 41, 42, 3, 3, 3, 3, 3, 3, 3, 3, 11, 12, 11, 12, 4, 4, 11, 12, 11, 12, 4, 4, 11, 12, 15, 4, 4, 4, 4, 61, 62, 4, 12, 3, 0, 1, 1, 1, 1, 1, 1, 2, 27, 28, 27, 28, 13, 14, 27, 28, 27, 28, 13, 14, 27, 28, 15, 11, 12, 11, 12, 61, 62, 11, 28, 3, 16, 39, 39, 39, 39, 39, 39, 18, 20, 19, 19, 19, 29, 30, 19, 19, 19, 19, 29, 30, 19, 19, 47, 27, 28, 27, 28, 45, 46, 27, 12, 3, 16, 39, 39, 39, 39, 39, 39, 38, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 7, 7, 7, 7, 61, 62, 7, 28, 3, 16, 39, 39, 39, 39, 39, 39, 39, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 18, 11, 12, 11, 12, 45, 46, 11, 9, 9, 9, 76, 36, 39, 39, 39, 39, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 18, 27, 28, 27, 28, 61, 62, 27, 3, 3, 25, 26, 16, 39, 39, 17, 17, 17, 75, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 76, 17, 17, 18, 20, 19, 19, 19, 61, 62, 4, 41, 41, 41, 42, 16, 39, 39, 75, 9, 9, 58, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 26, 17, 17, 38, 1, 1, 1, 1, 37, 38, 2, 12, 11, 12, 3, 16, 39, 39, 24, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 56, 127, 41, 44, 17, 17, 17, 17, 17, 17, 17, 17, 17, 18, 28, 27, 28, 3, 16, 39, 39, 43, 41, 41, 41, 41, 41, 41, 41, 41, 41, 41, 60, 94, 12, 36, 17, 17, 35, 33, 33, 33, 33, 33, 33, 34, 12, 11, 12, 3, 16, 39, 39, 17, 11, 12, 11, 12, 11, 12, 11, 12, 11, 12, 4, 110, 28, 16, 17, 17, 18, 3, 3, 3, 3, 3, 3, 3")
+(byte "13, 14, 4, 3, 16, 39, 39, 18, 11, 12, 11, 12, 4, 4, 11, 12, 11, 12, 4, 110, 28, 16, 17, 17, 18, 3, 3, 3, 3, 3, 3, 3, 29, 30, 23, 3, 16, 39, 39, 18, 27, 28, 27, 28, 5, 6, 27, 28, 27, 28, 4, 63, 23, 16, 17, 17, 18, 3, 3, 3, 3, 3, 3, 3, 10, 3, 3, 3, 16, 39, 39, 18, 20, 19, 19, 19, 21, 22, 19, 19, 19, 19, 23, 0, 1, 37, 17, 17, 38, 1, 2, 3, 3, 3, 3, 3, 70, 0, 1, 1, 37, 39, 39, 38, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 37, 17, 17, 17, 17, 17, 17, 38, 1, 2, 3, 3, 3, 70, 16, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 17, 17, 17, 17, 17, 17, 17, 17, 38, 1, 1, 1, 70, 16, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 74, 9, 76, 39, 39, 39, 35, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 36, 39, 39, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 3, 3, 26, 39, 39, 39, 38, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 37, 39, 39, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 127, 41, 44, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 17, 17, 17, 17, 17, 17, 35, 33, 33, 33, 94, 12, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 36, 39, 39, 17, 17, 17, 17, 17, 35, 34, 3, 3, 3, 110, 28, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 32, 33, 36, 17, 17, 17, 35, 33, 34, 3, 3, 3, 3, 94, 12, 3, 3, 3, 3, 3, 3, 3, 75, 9, 9, 9, 9, 9, 9, 9, 9, 9, 10, 3, 32, 33, 33, 33, 34, 3, 3, 3, 3, 3, 3, 110, 28, 3, 3, 3, 3, 3, 3, 3, 71, 3, 3, 3, 3, 3, 3, 3, 3, 3, 70, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 9, 9, 9, 9, 9, 9, 9, 10, 3, 71, 3, 3, 3, 3, 3, 3, 3, 3, 3, 70, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3")
+
+(asm ".include \"famitone2_asm6.asm\"")
+(asm ".include \"danger_streets.asm\"")
+
  ;; stuff still to tidy up follows...
  (asm "palette:")
 
@@ -677,16 +715,8 @@
  (byte "$15,$25,$35,$30")
  (byte "$17,$27,$37,$30")
 
- (asm "bg:")
- ;; attribute table
- (byte "$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00")
- (byte "$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00")
- (byte "$00,$00,$00,$00,$00,$00,$00,$00,$f0,$f0,$f0,$f0,$f0,$f0,$f0,$f0")
- (byte "$ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$0f,$0f,$0f,$0f,$0f,$0f,$0f,$0f")
-
-(asm "	.org $c000
-	.incbin \"after_the_rain.dmc\"")
-
+;(asm "	.org $c000
+;	.incbin \"after_the_rain.dmc\"")
  
  ;; interrupt vectors (addresses for functions)
  (asm ".pad $fffa")
@@ -694,7 +724,7 @@
 
  ;; finally all the chr data
  (asm 
-  ".incbin \"binary/whatremains-tiles.chr\""
+  ".incbin \"binary/whatremains-tiles4.chr\""
   ".align $1000"
   ".incbin \"binary/whatremains-sprites.chr\""
   ".align $1000")
