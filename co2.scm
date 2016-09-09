@@ -650,7 +650,8 @@
      (emit-label end-label))))
 
 ;; correct, but hella slow
-(define (emit-< x)
+;; instr depends on signed or unsigned version
+(define (emit-< x instr)
   (let ((true-label (generate-label "gt_true"))
         (end-label (generate-label "gt_end")))
     (append
@@ -662,7 +663,7 @@
      (emit "clc")
      (emit "adc" "#1")
      (emit "sbc" working-reg)
-     (emit "bmi" true-label) ;; branch on minus
+     (emit instr true-label) ;; branch on minus
      (emit "lda" "#0")
      (emit "jmp" end-label)
      (emit-label true-label)
@@ -670,7 +671,7 @@
      (emit-label end-label))))
 
 ;; correct, but hella slow
-(define (emit-<= x)
+(define (emit-<= x instr)
   (let ((true-label (generate-label "gt_true"))
         (end-label (generate-label "gt_end")))
     (append
@@ -680,14 +681,14 @@
      (emit "sta" working-reg)
      (emit "pla")
      (emit "sbc" working-reg)
-     (emit "bmi" true-label) ;; branch on minus
+     (emit instr true-label) ;; branch on minus
      (emit "lda" "#0")
      (emit "jmp" end-label)
      (emit-label true-label)
      (emit "lda" "#1")
      (emit-label end-label))))
 
-(define (emit-> x)
+(define (emit-> x instr)
   (let ((true-label (generate-label "lt_true"))
         (end-label (generate-label "lt_end")))
     (append
@@ -697,7 +698,7 @@
      (emit "sta" working-reg)
      (emit "pla")
      (emit "sbc" working-reg)
-     (emit "bpl" true-label) ;; branch on plus
+     (emit instr true-label) ;; branch on plus
      (emit "lda" "#0")
      (emit "jmp" end-label)
      (emit-label true-label)
@@ -824,9 +825,12 @@
    ((eq? (car x) 'loop) (emit-loop x))
    ((eq? (car x) 'do) (emit-expr-list (cdr x)))
    ((eq? (car x) 'eq?) (emit-eq? x))
-   ((eq? (car x) '<) (emit-< x))
-   ((eq? (car x) '<=) (emit-<= x))
-   ((eq? (car x) '>) (emit-> x))
+   ((eq? (car x) '<) (emit-< x "bcc"))
+   ((eq? (car x) '<=) (emit-<= x "bcc"))
+   ((eq? (car x) '>) (emit-> x "bcs"))
+   ((eq? (car x) '<s) (emit-< x "bmi"))
+   ((eq? (car x) '<=s) (emit-<= x "bmi"))
+   ((eq? (car x) '>s) (emit-> x "bpl"))
    ((eq? (car x) 'not) (emit-not x))
    ((eq? (car x) '+) (append (emit "clc") (binary-procedure "adc" x)))
    ((eq? (car x) '-) (append (emit "sec") (binary-procedure "sbc" x)))

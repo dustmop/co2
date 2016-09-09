@@ -38,7 +38,12 @@
  ;; palette change
  (defconst prim-palette-change "#$05")
 
-;; famitone stuff
+ (defconst title-palette-id "#0")
+ (defconst eighties-palette-id "#1")
+ (defconst future-palette-id "#2")
+ (defconst black-palette-id "#3")
+ 
+ ;; famitone stuff
  (asm "FT_BASE_ADR = $0500 ;; page in the RAM used for FT2 variables, should be $xx00
        FT_TEMP = $70 ;; 3 bytes in zeropage used by the library as a scratchpad
        FT_DPCM_OFF = $c000  
@@ -50,19 +55,16 @@
        FT_NTSC_SUPPORT	;; undefine to exclude NTSC support
   ")
 
-
  ;; code start
  (org #x8000)
  
- ;; globals that will be removed - honest gov
- (defvar gframe 0)
- ;; stores what section of the game we are in, title/eighties/future
- (defvar ganim-frame 0)
- (defvar ggame-mode 0)
- ;; are we showing text?
- (defvar gtext-box 0)
- ;; ramps from 0-255 when game modes are switched, for sequencing
- ;; initialisation/drawlist updates for the big screen updates
+ ;; we love globals 
+ (defvar gframe 0) ;; 8bit frame counter
+ (defvar ganim-frame 0) ;; global anim frame for sprite animation  
+ (defvar ggame-mode 0) ;; stores what section of the game we are in, title/eighties/future
+ (defvar gtext-box 0) ;; are we showing a text box?
+ ;; draw-phase ramps from 0-255 when game modes are switched, for 
+ ;; sequencing initialisation/drawlist updates 
  (defvar gdraw-phase 0)
  
  ;; the current display list index 
@@ -80,13 +82,14 @@
  (defvar start 0)
  (defvar end 0)
 
+ ;; text display globals
  (defvar text-pos 0)
  (defvar text-time 0) 
  (defvar text-addr 0)
  (defvar text-addr-h 0)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; library code follows
+ ;; library code follows
 
  (defun (enable-rendering)
    ;; ;; set basic ppu registers.  load background from $0000,
@@ -100,9 +103,10 @@
    (set! reg-ppu-scroll 0)
    (set! reg-ppu-scroll 0))
 
-
+ ;; mmc1 stuff 
  (defun (mmc1-control a)
-   a
+   a ;; get argument into register
+   ;; rotate into serial output
    (asm "sta $8000")
    (asm "lsr a")
    (asm "sta $8000")
@@ -137,11 +141,11 @@
    (asm "lsr a")
    (asm "sta $c000"))
 
- ;; really crappy random number generator
+ ;; calls the random number generator
  (defun (rnd) (_rnd))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; sound
+ ;; sound
  (defun (init-sound)
    (asm "ldx #<danger_streets_music_data	;play second song
    	ldy #>danger_streets_music_data
@@ -160,7 +164,7 @@
    0)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; input stuff
+ ;; input stuff
 
  (defun (read-joypad)
    ;; need to 'strobe' register before reading
@@ -173,176 +177,216 @@
    (peek pad-data key))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; display list
+ ;; the display list
 
-(defun (display-list-add-byte data)
-  (poke! display-list display-list-index data) 
-  (inc display-list-index))
+ ;; adds a byte to the list
+ (defun (display-list-add-byte data)
+   (poke! display-list display-list-index data) 
+   (inc display-list-index))
 
-(defun (display-list-end-packet prim-id x y nbytes)
-  (poke! display-list display-list-index prim-id) 
-  (inc display-list-index)
-  (poke! display-list display-list-index x)
-  (inc display-list-index)
-  (poke! display-list display-list-index y)
-  (inc display-list-index)
-  ;; last byte needs to be size for all primitives
-  (poke! display-list display-list-index nbytes) 
-  (inc display-list-index))
+ ;; finishes a packet for rendering
+ (defun (display-list-end-packet prim-id x y nbytes)
+   (poke! display-list display-list-index prim-id) 
+   (inc display-list-index)
+   (poke! display-list display-list-index x)
+   (inc display-list-index)
+   (poke! display-list display-list-index y)
+   (inc display-list-index)
+   ;; last byte needs to be size for all primitives
+   (poke! display-list display-list-index nbytes) 
+   (inc display-list-index))
 
-(defun (display-list-execute)
-  ;; is there anything in the queue?
-  (if (eq? display-list-index 0) 0 ;; early out (avoid long branch)
-    (do
-     ;; reverse to read info (lifo for ease/speed)
-     (set! display-list-index (- display-list-index 4))
+ ;; to be called in vblank, all ppu updates should be in here
+ (defun (display-list-execute)
+   ;; is there anything in the queue?
+   (if (eq? display-list-index 0) 0 ;; early out (avoid long branch)
+     (do
+      ;; reverse to read info (lifo for ease/speed)
+      (set! display-list-index (- display-list-index 4))
 
-     (set! n (peek display-list (+ display-list-index 3))) ;; store nbytes
-     (set! start (- display-list-index n))
-     (set! end display-list-index)
+      (set! n (peek display-list (+ display-list-index 3))) ;; store nbytes
+      (set! start (- display-list-index n))
+      (set! end display-list-index)
 
-     ;; update tile data
-     (when (eq? (peek display-list display-list-index) prim-tile-data) 
-       (set! end display-list-index)
-       (ppu-memcpy ppu-name-table-0 
-		   (peek display-list (+ display-list-index 1)) 
-		   (peek display-list (+ display-list-index 2))
-		   end ;; w
-		   display-list
-		   start)) ;; start
+      ;; update tile data
+      (when (eq? (peek display-list display-list-index) prim-tile-data) 
+	(set! end display-list-index)
+	(ppu-memcpy ppu-name-table-0 
+		    (peek display-list (+ display-list-index 1)) 
+		    (peek display-list (+ display-list-index 2))
+		    end ;; w
+		    display-list
+		    start)) ;; start
 
-     ;; update arbitrary length strips of one value (RLE)
-     (when (eq? (peek display-list display-list-index) prim-tile-value) ;; tileset
-       (ppu-memset ppu-name-table-0 
-		   (peek display-list (+ display-list-index 1)) 
-		   (peek display-list (+ display-list-index 2))
-		   (peek display-list start) ;; length
-		   (peek display-list (+ start 1)))) ;; tile id
+      ;; update arbitrary length strips of one value (RLE)
+      (when (eq? (peek display-list display-list-index) prim-tile-value) ;; tileset
+	(ppu-memset ppu-name-table-0 
+		    (peek display-list (+ display-list-index 1)) 
+		    (peek display-list (+ display-list-index 2))
+		    (peek display-list start) ;; length
+		    (peek display-list (+ start 1)))) ;; tile id
 
-     ;; 2x2 metatile block
-     (when (eq? (peek display-list display-list-index) prim-quad) 
-       (set! o (peek display-list (+ display-list-index 1)))
-       (set! p (peek display-list (+ display-list-index 2)))
-       (set! i (peek display-list start))
-       ;; could be optimised a lot
-       (ppu-memset ppu-name-table-0 o p 1 i) 
-       (ppu-memset ppu-name-table-0 o (+ p 1) 1 (+ i 1)) 
-       (ppu-memset ppu-name-table-0 o (+ p 32) 1 (+ i 16)) 
-       (ppu-memset ppu-name-table-0 o (+ p 33) 1 (+ i 17))
-       )
+      ;; 2x2 metatile block
+      (when (eq? (peek display-list display-list-index) prim-quad) 
+	(set! o (peek display-list (+ display-list-index 1)))
+	(set! p (peek display-list (+ display-list-index 2)))
+	(set! i (peek display-list start))
+	;; could be optimised a lot
+	(ppu-memset ppu-name-table-0 o p 1 i) 
+	(ppu-memset ppu-name-table-0 o (+ p 1) 1 (+ i 1)) 
+	(ppu-memset ppu-name-table-0 o (+ p 32) 1 (+ i 16)) 
+	(ppu-memset ppu-name-table-0 o (+ p 33) 1 (+ i 17))
+	)
 
-     ;; copy from PRG-ROM to tile data
-     (when (eq? (peek display-list display-list-index) prim-rom-data) 
-       (set! o (peek display-list start)) ;; prg high
-       (set! p (peek display-list (+ start 1))) ;; prg low
-       (set! i (peek display-list (+ start 2))) ;; length
-       (ppu-memcpy16 ppu-name-table-0 
-     		     (peek display-list (+ display-list-index 1)) 
-     		     (peek display-list (+ display-list-index 2))
-     		     i o))
+      ;; copy from PRG-ROM to tile data
+      (when (eq? (peek display-list display-list-index) prim-rom-data) 
+	(set! o (peek display-list start)) ;; prg high
+	(set! p (peek display-list (+ start 1))) ;; prg low
+	(set! i (peek display-list (+ start 2))) ;; length
+	(ppu-memcpy16 ppu-name-table-0 
+		      (peek display-list (+ display-list-index 1)) 
+		      (peek display-list (+ display-list-index 2))
+		      i o))
 
-     (when (eq? (peek display-list display-list-index) prim-palette-change) 
-       (set! o (peek display-list start)) ;; palette index
-       (cond
-	((eq? o 0) (ppu-memcpy ppu-palette 0 0 #x20 title_palette 0))
-	((eq? o 1) (ppu-memcpy ppu-palette 0 0 #x20 eighties_palette 0))
-	((eq? o 2) (ppu-memcpy ppu-palette 0 0 #x20 future_palette 0))
-	(else (ppu-memcpy ppu-palette 0 0 #x20 black_palette 0))))
-     
-     (set! display-list-index (- display-list-index n)))))
+      (when (eq? (peek display-list display-list-index) prim-palette-change) 
+	(set! o (peek display-list start)) ;; palette index
+	(cond
+	 ((eq? o title-palette-id) (ppu-memcpy ppu-palette 0 0 #x20 title_palette 0))
+	 ((eq? o eighties-palette-id) (ppu-memcpy ppu-palette 0 0 #x20 eighties_palette 0))
+	 ((eq? o black-palette-id) (ppu-memcpy ppu-palette 0 0 #x20 black_palette 0))
+	 (else (ppu-memcpy ppu-palette 0 0 #x20 black_palette 0))))
+      
+      (set! display-list-index (- display-list-index n)))))
 
-(defun (clear-tiles)
-  ; nametable 1
-  (display-list-add-byte 128)
-  (display-list-add-byte #xff)
-  (display-list-end-packet prim-tile-value 0 0 2)
-  (display-list-add-byte 128)
-  (display-list-add-byte #xff)
-  (display-list-end-packet prim-tile-value 0 128 2)
-  (display-list-add-byte 128)
-  (display-list-add-byte #xff)
-  (display-list-end-packet prim-tile-value 1 0 2)
-  (display-list-add-byte 128)
-  (display-list-add-byte #xff)
-  (display-list-end-packet prim-tile-value 1 128 2)
-  ; nametable 2
-  (display-list-add-byte 128)
-  (display-list-add-byte #xff)
-  (display-list-end-packet prim-tile-value 2 0 2)
-  (display-list-add-byte 128)
-  (display-list-add-byte #xff)
-  (display-list-end-packet prim-tile-value 2 128 2)
-  (display-list-add-byte 128)
-  (display-list-add-byte #xff)
-  (display-list-end-packet prim-tile-value 3 0 2)
-  (display-list-add-byte 64)
-  (display-list-add-byte #xff)
-  (display-list-end-packet prim-tile-value 3 128 2))
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+ ;; utilities that use the display list
 
-(defun (draw-image x y sx sy loc)
-  (set! i 0)
-  (set! j (- sx 1))
-  (while (< i sy)
-    (set! start (<< i 4)) ;; * 16
-    (set! end (+ start j))
-    (loop n start end (display-list-add-byte (+ loc n)))
-    (display-list-end-packet prim-tile-data x (+ y (<< i 5)) sx) ;; * 32
-    (inc i)))
+ ;; clear screen
+ (defun (clear-tiles)
+   ;; nametable 1
+   (display-list-add-byte 128)
+   (display-list-add-byte #xff)
+   (display-list-end-packet prim-tile-value 0 0 2)
+   (display-list-add-byte 128)
+   (display-list-add-byte #xff)
+   (display-list-end-packet prim-tile-value 0 128 2)
+   (display-list-add-byte 128)
+   (display-list-add-byte #xff)
+   (display-list-end-packet prim-tile-value 1 0 2)
+   (display-list-add-byte 128)
+   (display-list-add-byte #xff)
+   (display-list-end-packet prim-tile-value 1 128 2)
+   ;; nametable 2
+   (display-list-add-byte 128)
+   (display-list-add-byte #xff)
+   (display-list-end-packet prim-tile-value 2 0 2)
+   (display-list-add-byte 128)
+   (display-list-add-byte #xff)
+   (display-list-end-packet prim-tile-value 2 128 2)
+   (display-list-add-byte 128)
+   (display-list-add-byte #xff)
+   (display-list-end-packet prim-tile-value 3 0 2)
+   (display-list-add-byte 128)
+   (display-list-add-byte #xff)
+   (display-list-end-packet prim-tile-value 3 128 2))
 
-(defun (draw-bg l h page)
-  (set! h (+ h page))
-  (display-list-add-byte (+ l 0))
-  (display-list-add-byte h)
-  (display-list-add-byte 64)
-  (display-list-end-packet prim-rom-data page 0 3)
-  (display-list-add-byte (+ l 64))
-  (display-list-add-byte h)
-  (display-list-add-byte 64)
-  (display-list-end-packet prim-rom-data page 64 3)
-  (display-list-add-byte (+ l 128))
-  (display-list-add-byte h)
-  (display-list-add-byte 64)
-  (display-list-end-packet prim-rom-data page 128 3)
-  (display-list-add-byte (+ l 192))
-  (display-list-add-byte h)
-  (display-list-add-byte 64)
-  (display-list-end-packet prim-rom-data page 192 3))
+ ;; draw a load of consecutive tiles from chr-rom directly
+ (defun (draw-image x y sx sy loc)
+   (set! i 0)
+   (set! j (- sx 1))
+   (while (< i sy)
+     (set! start (<< i 4)) ;; * 16
+     (set! end (+ start j))
+     (loop n start end (display-list-add-byte (+ loc n)))
+     (display-list-end-packet prim-tile-data x (+ y (<< i 5)) sx) ;; * 32
+     (inc i)))
 
-(defun (draw-screen l h)
-  (draw-bg (low bgtiles) (high bgtiles) 0)
-  (draw-bg (low bgtiles) (high bgtiles) 1)
-  (draw-bg (low bgtiles) (high bgtiles) 2)
-  (draw-bg (low bgtiles) (high bgtiles) 3))
+ ;; draws a single page of prg-rom defined tiles
+ (defun (draw-bg l h page)
+   (set! h (+ h page))
+   (display-list-add-byte (+ l 0))
+   (display-list-add-byte h)
+   (display-list-add-byte 64)
+   (display-list-end-packet prim-rom-data page 0 3)
+   (display-list-add-byte (+ l 64))
+   (display-list-add-byte h)
+   (display-list-add-byte 64)
+   (display-list-end-packet prim-rom-data page 64 3)
+   (display-list-add-byte (+ l 128))
+   (display-list-add-byte h)
+   (display-list-add-byte 64)
+   (display-list-end-packet prim-rom-data page 128 3)
+   (display-list-add-byte (+ l 192))
+   (display-list-add-byte h)
+   (display-list-add-byte 64)
+   (display-list-end-packet prim-rom-data page 192 3))
+
+ ;; draws an entire screens worth of prg-rom defined tiles
+ (defun (draw-screen l h)
+   (draw-bg (low bgtiles) (high bgtiles) 0)
+   (draw-bg (low bgtiles) (high bgtiles) 1)
+   (draw-bg (low bgtiles) (high bgtiles) 2)
+   (draw-bg (low bgtiles) (high bgtiles) 3))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; text display
+ ;; text display
 
-(defun (draw-text h l)
-  ;; zero terminating strings
-  (set! i 1) ;; char
-  (set! j 0) ;; count
-  (while (not (eq? i 0))
-    (set! i (peek16 text-addr j))
-    (display-list-add-byte i)
-    (inc j))
-  (display-list-end-packet prim-tile-data h (+ l text-pos) j)
-  )
+ ;; draw text straight to screen
+ (defun (draw-text h l)
+   ;; zero terminating strings
+   (set! i 1) ;; char
+   (set! j 0) ;; count
+   (while (not (eq? i 0))
+     (set! i (peek16 text-addr j))
+     (display-list-add-byte i)
+     (inc j))
+   (display-list-end-packet prim-tile-data h (+ l text-pos) j)
+   )
 
-(defun (update-typed-text h l)
-  (inc text-time)
-  (when (> text-time 10)
-    (set! i (peek16 text-addr text-pos))
-    ;; zero terminating strings
-    (when (not (eq? i 0))
-      (display-list-add-byte i)
-      (display-list-end-packet prim-tile-data h (+ l text-pos) 1)
-      (inc text-pos))
-    (set! text-time 0)))
-    
+ ;; gradually type text to screen
+ (defun (update-typed-text h l)
+   (inc text-time)
+   (when (> text-time 10)
+     (set! i (peek16 text-addr text-pos))
+     ;; zero terminating strings
+     (when (not (eq? i 0))
+       (display-list-add-byte i)
+       (display-list-end-packet prim-tile-data h (+ l text-pos) 1)
+       (inc text-pos))
+     (set! text-time 0)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+ ;; textbox for character chat
+
+;; gtext-box is used both as activation and countdown
+;; to avoid repeated activation when next to characters
+
+(defconst text-box-deactivated "#0")
+(defconst text-box-activated "#254")
+(defconst text-box-start-delay "#253")
+
+;; create the text box
+ (defun (show-textbox)   
+   (when (eq? gtext-box text-box-deactivated)  ;; not shown already
+     (set! text-pos 0)                         ;; reset typing pos
+     (set! gtext-box  text-box-activated)))    ;; set to shown
+
+ (defun (update-textbox)   
+   (when (eq? gtext-box text-box-activated)   ;; shown activated
+     (update-typed-text 1 68)  ;; update typing
+     (when (pressed joypad-b)  ;; exit pressed
+       (set! gdraw-phase 1)    ;; redraw background
+       (set! gtext-box text-box-start-delay)))  ;; start countdown running
+   ;; do the count down
+   (when (and (< gtext-box text-box-activated) 
+	      (not (eq? gtext-box text-box-deactivated))) 
+     (dec gtext-box)))
+   
+
  ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
  ;; sprite stuff
  
- ;; 2x2 block sprites
+ ;; set up a 2x2 block meta sprite
  (defun (setup-character block id)
    (set-sprite-x! id 0)
    (set-sprite-y! id 0)
@@ -365,148 +409,158 @@
    (set-sprite-attr! (+ 3 id) 0))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; collisions: all assume 2x2 sprites...
+ ;; collisions: all assume 2x2 sprites...
 
-;; sprites colliding against sprites
-(defun (sprite-collide-sprite sprite-id-a sprite-id-b)
-  ;; collide with 4th sprite x/y as centre of 2x2
-  (sprite-collide-pos 
-   sprite-id-a 
-   (get-sprite-x (+ sprite-id-b 3))
-   (get-sprite-y (+ sprite-id-b 3))))
-  
-;; sprite pixel pos collision
-(defun (sprite-collide-pos sprite-id x y)
-  (and 
-   (and
-    ;; expanding bbox to get edge-edge collision
-    ;; can reduce this to get 'softer' collisions
-    (> x (- (get-sprite-x sprite-id) 8))
-    (< x (+ (get-sprite-x (+ sprite-id 1)) 16)))
+ ;; sprites colliding against sprites
+ (defun (sprite-collide-sprite sprite-id-a sprite-id-b)
+   ;; collide with 4th sprite x/y as centre of 2x2
+   (sprite-collide-pos 
+    sprite-id-a 
+    (get-sprite-x (+ sprite-id-b 3))
+    (get-sprite-y (+ sprite-id-b 3))))
+ 
+ ;; sprite pixel pos collision
+ (defun (sprite-collide-pos sprite-id x y)
    (and 
-    (> y (- (get-sprite-y sprite-id) 8))
-    (< y (+ (get-sprite-y (+ sprite-id 2)) 16)))))
+    (and
+     ;; expanding bbox to get edge-edge collision
+     ;; can reduce this to get 'softer' collisions
+     (> x (- (get-sprite-x sprite-id) 8))
+     (< x (+ (get-sprite-x (+ sprite-id 1)) 16)))
+    (and 
+     (> y (- (get-sprite-y sprite-id) 8))
+     (< y (+ (get-sprite-y (+ sprite-id 2)) 16)))))
 
-;; bounding box list collisions for level terrain
-;; different directions use different hotspots
-;; still some tweaks todo here
+ ;; bounding box list collisions for level terrain
+ ;; different directions use different hotspots
+ ;; still some tweaks todo here
 
-(defun (bb-collide-sprite-left sprite-id)
-  (set! sprite-id (+ sprite-id 2))
-  (bb-collide-pos (get-sprite-x sprite-id) 
-		  (get-sprite-y sprite-id)))
+ (defun (bb-collide-sprite-left sprite-id)
+   (set! sprite-id (+ sprite-id 2))
+   (bb-collide-pos (get-sprite-x sprite-id) 
+		   (get-sprite-y sprite-id)))
 
-(defun (bb-collide-sprite-right sprite-id)
-  (set! sprite-id (+ sprite-id 3))
-  (bb-collide-pos (+ (get-sprite-x sprite-id) 8) 
-		  (get-sprite-y sprite-id)))
+ (defun (bb-collide-sprite-right sprite-id)
+   (set! sprite-id (+ sprite-id 3))
+   (bb-collide-pos (+ (get-sprite-x sprite-id) 8) 
+		   (get-sprite-y sprite-id)))
 
-(defun (bb-collide-sprite-up sprite-id)
-  (set! sprite-id (+ sprite-id 1))
-  (bb-collide-pos (get-sprite-x sprite-id) 
-		  (get-sprite-y sprite-id)))
+ (defun (bb-collide-sprite-up sprite-id)
+   (set! sprite-id (+ sprite-id 1))
+   (bb-collide-pos (get-sprite-x sprite-id) 
+		   (get-sprite-y sprite-id)))
 
-(defun (bb-collide-sprite-down sprite-id)
-  (set! sprite-id (+ sprite-id 3))
-  (bb-collide-pos (get-sprite-x sprite-id) 
-		  (+ (get-sprite-y sprite-id) 8)))
+ (defun (bb-collide-sprite-down sprite-id)
+   (set! sprite-id (+ sprite-id 3))
+   (bb-collide-pos (get-sprite-x sprite-id) 
+		   (+ (get-sprite-y sprite-id) 8)))
 
-(defun (bb-collide-pos x y)
-  ;; read the length of rects to get the end
-  (set! end (+ 1 (<< (peek collision_data) 2))) ;; rect so * 4   
-  ;; setup for the loop
-  (set! i 1) ;; address
-  (set! j 0) ;; return value (1=collision)
-  ;; loop through all the collision rects (or until we are inside one)
-  (while (and (< i end) (eq? j 0))
-    (set! j
-	  (and ;; check bounding boxes
-	   (and
-	    (> x (peek collision_data i)) 
-	    (< x (peek collision_data (+ i 2))))
-	   (and 
-	    (> y (peek collision_data (+ i 1)))
-	    (< y (peek collision_data (+ i 3))))))
-    (set! i (+ i 4))) ;; next bbox
-  j)
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; game modes
-
-(defconst title-mode "#0")
-(defconst eighties-mode "#1")
-(defconst future-mode "#3")
-
-(defun (switch-game-mode new-mode)
-  (display-list-add-byte #x3) ;; black palette id
-  (display-list-end-packet prim-palette-change 0 0 1)
-  (set! ggame-mode new-mode)
-  (set! gdraw-phase 0))
+ (defun (bb-collide-pos x y)
+   ;; read the length of rects to get the end
+   (set! end (+ 1 (<< (peek collision_data) 2))) ;; rect so * 4   
+   ;; setup for the loop
+   (set! i 1) ;; address
+   (set! j 0) ;; return value (1=collision)
+   ;; loop through all the collision rects (or until we are inside one)
+   (while (and (< i end) (eq? j 0))
+     (set! j
+	   (and ;; check bounding boxes
+	    (and
+	     (> x (peek collision_data i)) 
+	     (< x (peek collision_data (+ i 2))))
+	    (and 
+	     (> y (peek collision_data (+ i 1)))
+	     (< y (peek collision_data (+ i 3))))))
+     (set! i (+ i 4))) ;; next bbox
+   j)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; title
+ ;; game modes
 
-(defun (update-title)
-  (cond
-   ((eq? gdraw-phase 1) 
-    (mmc1-chrbank0 0)
-    (mmc1-chrbank1 1)
-    (display-list-add-byte #x0) ;; title palette id
-    (display-list-end-packet prim-palette-change 0 0 1)
-    (update-sprites-title))
-   ((eq? gdraw-phase 2)
-    (draw-image 0 73 13 6 #x0)
-    (clear-tiles)
-    (set16! text-addr intropress))
-   (else
-    (update-typed-text 1 73)))
-
-  (when (or
-	 (or (pressed joypad-a)
-	     (pressed joypad-b))
-	 (or
-	  (pressed joypad-select)
-	  0
-	  ;(pressed joypad-start)
-	  ))
-    (switch-game-mode eighties-mode))
-  )
-
-(defun (update-sprites-title)
-  (memset sprite-shadow #xff))
+ (defun (switch-game-mode new-mode)
+   ;; blank the screen to hide update
+   (display-list-add-byte black-palette-id) 
+   (display-list-end-packet prim-palette-change 0 0 1)
+   (set! ggame-mode new-mode)
+   (set! text-pos 0)
+   ;; reset the draw phase
+   (set! gdraw-phase 0))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; eighties
+ ;; game specific code follows
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(defconst player-sprite "#0")
-(defconst npc1-sprite "#4")
-(defconst npc2-sprite "#8")
-(defconst npc3-sprite "#12")
+ (defconst title-mode "#0")
+ (defconst eighties-mode "#1")
+ (defconst future-mode "#2")
 
-(defconst dancer-id "#$c0")
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+ ;; title
 
-(defun (init-sprites-eighties)
+ (defun (update-title)
+   (cond
+    ((eq? gdraw-phase 1) 
+     (mmc1-chrbank0 0)
+     (mmc1-chrbank1 1)
+     (update-sprites-title))
+    ((eq? gdraw-phase 2)
+     (draw-image 0 73 13 6 #x0)
+     (clear-tiles)
+     (set16! text-addr intropress))
+    ;; wait before reveal
+    ((eq? gdraw-phase 20)
+     (display-list-add-byte title-palette-id) 
+     (display-list-end-packet prim-palette-change 0 0 1))
+    ;; let clear happen first
+    ((> gdraw-phase 20)
+     (update-typed-text 1 73)))
+
+   (when (or
+	  (or (pressed joypad-a)
+	      (pressed joypad-b))
+	  (or
+	   (pressed joypad-select)
+	   0
+					;(pressed joypad-start)
+	   ))
+     (switch-game-mode eighties-mode))
+   )
+
+ (defun (update-sprites-title)
+   (memset sprite-shadow #xff))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+ ;; eighties
+
+ (defconst player-sprite "#0")
+ (defconst npc1-sprite "#4")
+ (defconst npc2-sprite "#8")
+ (defconst npc3-sprite "#12")
+
+ (defconst dancer-id "#$c0")
+
+ (defun (init-sprites-eighties)
    ;; clear page #2, which we'll use to hold sprite data
    ;; (memset writes 256 bytes in one go)
    (memset sprite-shadow #xff)
    
    (setup-character #x0 player-sprite)
+   (add-sprites-x! player-sprite 4 35)
+   (add-sprites-y! player-sprite 4 100)
    
    (setup-character dancer-id npc1-sprite)
-   (add-sprites-x! npc1-sprite 4 100)
-   (add-sprites-y! npc1-sprite 4 100)
+   (add-sprites-x! npc1-sprite 4 200)
+   (add-sprites-y! npc1-sprite 4 170)
    (or-sprites-attr! npc1-sprite 4 10)
    
    (setup-character dancer-id npc2-sprite)
-   (add-sprites-x! npc2-sprite 4 120)
-   (add-sprites-y! npc2-sprite 4 80)
+   (add-sprites-x! npc2-sprite 4 220)
+   (add-sprites-y! npc2-sprite 4 140)
    (or-sprites-attr! npc2-sprite 4 11)
    
    (setup-character dancer-id npc3-sprite)
-   (add-sprites-x! npc3-sprite 4 70)
-   (add-sprites-y! npc3-sprite 4 120)
+   (add-sprites-x! npc3-sprite 4 170)
+   (add-sprites-y! npc3-sprite 4 200)
    (or-sprites-attr! npc3-sprite 4 01)
    
    (defvar direction 1)
@@ -514,38 +568,31 @@
    
    )
 
-(defun (show-textbox)   
-  (when (eq? gtext-box 0)
-    (set! text-pos 0)
-    (set! gtext-box 255))
-  0)
-
-(defun (update-textbox)   
-  (when (eq? gtext-box 255)
-    (update-typed-text 1 68)
-    (when (pressed joypad-b)
-      (set! gdraw-phase 1)
-      (set! gtext-box 254))))
-
-(defun (update-eighties) 
-  (when (not (eq? gtext-box 255))
-    (when (eq? gdraw-phase 1) 
-      (mmc1-chrbank0 2)
-      (mmc1-chrbank1 3)
-      (display-list-add-byte #x1) ;; eighties palette id
-      (display-list-end-packet prim-palette-change 0 0 1)
-      (init-sprites-eighties)
+ (defun (update-eighties) 
+   (when (not (eq? gtext-box 255))
+     (cond 
+      ((eq? gdraw-phase 1) 
+       (mmc1-chrbank0 2)
+       (mmc1-chrbank1 3)
+       (init-sprites-eighties))
+     ;; separate phase so the textbox can redraw on clear
+     ;; but leave the sprites where they are etc
+     ((eq? gdraw-phase 2) 
       (draw-screen (low bgtiles) (high bgtiles)))
-    
-     (update-sprites-eighties)
+     ;; wait before reveal
+     ((eq? gdraw-phase 20)
+      (display-list-add-byte eighties-palette-id) 
+      (display-list-end-packet prim-palette-change 0 0 1)))
+
+     (when (not (eq? gtext-box text-box-activated))
+       (update-sprites-eighties))
 
      (when (pressed joypad-start)
        (switch-game-mode title-mode)))
 
-  (when (and (< gtext-box 255) (> gtext-box 0)) (dec gtext-box))
-  (update-textbox))
+   (update-textbox))
 
-(defun (update-sprites-eighties)
+ (defun (update-sprites-eighties)
    ;; is the player character moving?
    (defvar running 1)
    (set! i 0)
@@ -595,15 +642,15 @@
      (if (eq? last-dir (+ i #x0a)) ;; left
 	 ;; standing
 	 (animate-sprites-2x2! player-sprite #x2)
-	 (animate-sprites-2x2! player-sprite #x0)))
-       
+       (animate-sprites-2x2! player-sprite #x0)))
+   
    (when running
      (set! last-dir direction))
 
    ;; the NPC's
    ;; get them to react to the player
    (when (sprite-collide-sprite player-sprite npc1-sprite)
-     (set16! text-addr npcsays)
+     (set16! text-addr npcsays) ;; what to say
      (show-textbox))
 
    (cond 
@@ -638,18 +685,17 @@
 
    )
 
-
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; future
+ ;; future
 
-(defun (update-future)
-  (update-sprites-future))
+ (defun (update-future)
+   (update-sprites-future))
 
-(defun (update-sprites-future)
-  0)
+ (defun (update-sprites-future)
+   0)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; interrupts
+ ;; interrupts
 
  (defint (reset)
    (init-system)
@@ -658,72 +704,87 @@
    (enable-rendering)
    ;; clear sprite shadow
    (memset sprite-shadow #xff)
+   ;; set mmc1 so we can update tiles/sprites separately
+   ;; (using 4k blocks rather than 8k ones)
    (mmc1-control #b00010000)
-   (asm
-    ;; restart interrupts again
-    "cli")
-    ;; go into in infinite loop - vblank interrupt takes over
-   (asm "loop: jmp loop"))
 
+   ;; load first palette
+   (display-list-add-byte title-palette-id) 
+   (display-list-end-packet prim-palette-change 0 0 1)
+
+   (asm
+    "cli"            ;; restart interrupts again
+    "loop: jmp loop" ;; go into in infinite loop - vblank interrupt takes over
+    ))
 
  ;; main loop is here
  (defint (vblank)
-   ;; these need to go first!
+   ;; precious ppu update time starts
    ;; start sprite data dma to the oam now
    (set! reg-oam-dma sprite-dma)
    ;; dma the display list now
    (display-list-execute)
+   ;; precious ppu update time ends
 
-;; (asm "
-;; 	lda #%10001110			;show start of sound code time
-;; 	sta $2001
-;; ")
+   ;; profiling display (breaks sprite update)
+   ;; (asm "
+   ;; 	lda #%10001110	
+   ;; 	sta $2001
+   ;; ")
 
-   ;; ;; that's done, now we're safe to do whatever
-    (cond
-     ((eq? ggame-mode title-mode) (update-title))
-     ((eq? ggame-mode eighties-mode) (update-eighties))    
-     (else (update-future)))
+   ;; update whichever game mode we are in
+   (cond
+    ((eq? ggame-mode title-mode) (update-title))
+    ((eq? ggame-mode eighties-mode) (update-eighties))    
+    (else (update-future)))
 
-    ;; reads the joypad state into memory to save time
-    ;; probably premature optimisation?
-    (read-joypad)
-    (inc gframe)
-    (when (not (eq? gdraw-phase 255)) (inc gdraw-phase))
+   ;; read the joypad state into memory
+   (read-joypad)
+   (inc gframe)
 
-    (asm "jsr FamiToneUpdate")
+   ;; increment the draw phase
+   (when (not (eq? gdraw-phase 255)) 
+     (inc gdraw-phase))
 
- ;; (asm "
- ;; 	lda #%00001110
- ;; 	sta $2001
- ;;  ")
+   ;; update sound driver
+   (asm "jsr FamiToneUpdate")
 
-    )
+   ;; (asm "
+   ;; 	lda #%00001110
+   ;; 	sta $2001
+   ;;  ")
    
-(defint (irq))
+   )
  
-
+ (defint (irq))
+ 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; data follows
+ ;; game data follows
 
-(asm "intropress:")(text "press any key") (byte "0")
-(asm "npcsays:")(text "hey, watch my moves")(byte "0")
+ ;; text
+ (asm "intropress:")(text "press any key") (byte "0")
+ (asm "npcsays:")(text "hey, watch my moves")(byte "0")
 
-;; bounding box data follows
+ ;; bounding box data
  (asm "collision_data")
- (byte "2") ;; number of boxes
- (byte "16,16,64,48")
- (byte "144,80,192,112")
+ (byte "5") ;; number of boxes
+(byte "58, 90, 156, 155")
+(byte "80, 82, 173, 147")
+(byte "0, 0, 22, 238")
+(byte "0, 0, 255, 45")
+(byte "197, 0, 255, 91")
 
-(asm ".align $100") ;; align so we don't need 16 address maths!
-(asm "bgtiles:")
-(byte "9, 10, 28, 27, 28, 27, 28, 27, 28, 15, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 79, 59, 41, 41, 41, 41, 41, 41, 25, 70, 12, 4, 4, 11, 12, 11, 12, 15, 11, 12, 11, 12, 11, 12, 11, 12, 11, 12, 11, 12, 11, 12, 15, 4, 4, 4, 4, 5, 6, 4, 3, 70, 28, 5, 6, 27, 28, 27, 28, 15, 27, 28, 27, 28, 27, 28, 27, 28, 27, 28, 27, 28, 27, 28, 15, 11, 12, 11, 12, 21, 22, 11, 3, 70, 19, 21, 22, 19, 19, 19, 19, 47, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 15, 27, 28, 27, 28, 45, 46, 27, 41, 42, 3, 3, 3, 3, 3, 3, 3, 3, 11, 12, 11, 12, 4, 4, 11, 12, 11, 12, 4, 4, 11, 12, 15, 4, 4, 4, 4, 61, 62, 4, 12, 3, 0, 1, 1, 1, 1, 1, 1, 2, 27, 28, 27, 28, 13, 14, 27, 28, 27, 28, 13, 14, 27, 28, 15, 11, 12, 11, 12, 61, 62, 11, 28, 3, 16, 39, 39, 39, 39, 39, 39, 18, 20, 19, 19, 19, 29, 30, 19, 19, 19, 19, 29, 30, 19, 19, 47, 27, 28, 27, 28, 45, 46, 27, 12, 3, 16, 39, 39, 39, 39, 39, 39, 38, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 7, 7, 7, 7, 61, 62, 7, 28, 3, 16, 39, 39, 39, 39, 39, 39, 39, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 18, 11, 12, 11, 12, 45, 46, 11, 9, 9, 9, 76, 36, 39, 39, 39, 39, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 18, 27, 28, 27, 28, 61, 62, 27, 3, 3, 25, 26, 16, 39, 39, 17, 17, 17, 75, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 76, 17, 17, 18, 20, 19, 19, 19, 61, 62, 4, 41, 41, 41, 42, 16, 39, 39, 75, 9, 9, 58, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 26, 17, 17, 38, 1, 1, 1, 1, 37, 38, 2, 12, 11, 12, 3, 16, 39, 39, 24, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 56, 127, 41, 44, 17, 17, 17, 17, 17, 17, 17, 17, 17, 18, 28, 27, 28, 3, 16, 39, 39, 43, 41, 41, 41, 41, 41, 41, 41, 41, 41, 41, 60, 94, 12, 36, 17, 17, 35, 33, 33, 33, 33, 33, 33, 34, 12, 11, 12, 3, 16, 39, 39, 17, 11, 12, 11, 12, 11, 12, 11, 12, 11, 12, 4, 110, 28, 16, 17, 17, 18, 3, 3, 3, 3, 3, 3, 3")
-(byte "28, 27, 28, 3, 16, 39, 39, 35, 27, 28, 27, 28, 27, 28, 27, 28, 27, 28, 4, 94, 12, 16, 17, 17, 18, 3, 3, 3, 3, 3, 3, 3, 13, 14, 4, 3, 16, 39, 39, 18, 11, 12, 11, 12, 4, 4, 11, 12, 11, 12, 4, 110, 28, 16, 17, 17, 18, 3, 3, 3, 3, 3, 3, 3, 29, 30, 23, 3, 16, 39, 39, 18, 27, 28, 27, 28, 5, 6, 27, 28, 27, 28, 4, 63, 23, 16, 17, 17, 18, 3, 3, 3, 3, 3, 3, 3, 10, 3, 3, 3, 16, 39, 39, 18, 20, 19, 19, 19, 21, 22, 19, 19, 19, 19, 23, 0, 1, 37, 17, 17, 38, 1, 2, 3, 3, 3, 3, 3, 70, 0, 1, 1, 37, 39, 39, 38, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 37, 17, 17, 17, 17, 17, 17, 38, 1, 2, 3, 3, 3, 70, 16, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 17, 17, 17, 17, 17, 17, 17, 17, 38, 1, 1, 1, 70, 16, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 74, 9, 76, 39, 39, 39, 35, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 36, 39, 39, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 3, 3, 26, 39, 39, 39, 38, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 37, 39, 39, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 127, 41, 44, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 17, 17, 17, 17, 17, 17, 35, 33, 33, 33, 94, 12, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 36, 39, 39, 17, 17, 17, 17, 17, 35, 34, 3, 3, 3, 110, 28, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 32, 33, 36, 17, 17, 17, 35, 33, 34, 3, 3, 3, 3, 94, 12, 3, 3, 3, 3, 3, 3, 3, 75, 9, 9, 9, 9, 9, 9, 9, 9, 9, 10, 3, 32, 33, 33, 33, 34, 3, 3, 3, 3, 3, 3, 110, 28, 3, 3, 3, 3, 3, 3, 3, 71, 3, 3, 3, 3, 3, 3, 3, 3, 3, 70, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 9, 9, 9, 9, 9, 9, 9, 10, 3, 71, 3, 3, 3, 3, 3, 3, 3, 3, 3, 70, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3")
+ ;; screen tiles
+ (asm ".align $100") ;; align so we don't need 16 address maths!
+ (asm "bgtiles:")
+ (byte "9, 10, 28, 27, 28, 27, 28, 27, 28, 15, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 79, 59, 41, 41, 41, 41, 41, 41, 25, 70, 12, 4, 4, 11, 12, 11, 12, 15, 11, 12, 11, 12, 11, 12, 11, 12, 11, 12, 11, 12, 11, 12, 15, 4, 4, 4, 4, 5, 6, 4, 3, 70, 28, 5, 6, 27, 28, 27, 28, 15, 27, 28, 27, 28, 27, 28, 27, 28, 27, 28, 27, 28, 27, 28, 15, 11, 12, 11, 12, 21, 22, 11, 3, 70, 19, 21, 22, 19, 19, 19, 19, 47, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 15, 27, 28, 27, 28, 45, 46, 27, 41, 42, 3, 3, 3, 3, 3, 3, 3, 3, 11, 12, 11, 12, 4, 4, 11, 12, 11, 12, 4, 4, 11, 12, 15, 4, 4, 4, 4, 61, 62, 4, 12, 3, 0, 1, 1, 1, 1, 1, 1, 2, 27, 28, 27, 28, 13, 14, 27, 28, 27, 28, 13, 14, 27, 28, 15, 11, 12, 11, 12, 61, 62, 11, 28, 3, 16, 39, 39, 39, 39, 39, 39, 18, 20, 19, 19, 19, 29, 30, 19, 19, 19, 19, 29, 30, 19, 19, 47, 27, 28, 27, 28, 45, 46, 27, 12, 3, 16, 39, 39, 39, 39, 39, 39, 38, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 7, 7, 7, 7, 61, 62, 7, 28, 3, 16, 39, 39, 39, 39, 39, 39, 39, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 18, 11, 12, 11, 12, 45, 46, 11, 9, 9, 9, 76, 36, 39, 39, 39, 39, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 18, 27, 28, 27, 28, 61, 62, 27, 3, 3, 25, 26, 16, 39, 39, 17, 17, 17, 75, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 76, 17, 17, 18, 20, 19, 19, 19, 61, 62, 4, 41, 41, 41, 42, 16, 39, 39, 75, 9, 9, 58, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 26, 17, 17, 38, 1, 1, 1, 1, 37, 38, 2, 12, 11, 12, 3, 16, 39, 39, 24, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 56, 127, 41, 44, 17, 17, 17, 17, 17, 17, 17, 17, 17, 18, 28, 27, 28, 3, 16, 39, 39, 43, 41, 41, 41, 41, 41, 41, 41, 41, 41, 41, 60, 94, 12, 36, 17, 17, 35, 33, 33, 33, 33, 33, 33, 34, 12, 11, 12, 3, 16, 39, 39, 17, 11, 12, 11, 12, 11, 12, 11, 12, 11, 12, 4, 110, 28, 16, 17, 17, 18, 3, 3, 3, 3, 3, 3, 3")
+ (byte "28, 27, 28, 3, 16, 39, 39, 35, 27, 28, 27, 28, 27, 28, 27, 28, 27, 28, 4, 94, 12, 16, 17, 17, 18, 3, 3, 3, 3, 3, 3, 3, 13, 14, 4, 3, 16, 39, 39, 18, 11, 12, 11, 12, 4, 4, 11, 12, 11, 12, 4, 110, 28, 16, 17, 17, 18, 3, 3, 3, 3, 3, 3, 3, 29, 30, 23, 3, 16, 39, 39, 18, 27, 28, 27, 28, 5, 6, 27, 28, 27, 28, 4, 63, 23, 16, 17, 17, 18, 3, 3, 3, 3, 3, 3, 3, 10, 3, 3, 3, 16, 39, 39, 18, 20, 19, 19, 19, 21, 22, 19, 19, 19, 19, 23, 0, 1, 37, 17, 17, 38, 1, 2, 3, 3, 3, 3, 3, 70, 0, 1, 1, 37, 39, 39, 38, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 37, 17, 17, 17, 17, 17, 17, 38, 1, 2, 3, 3, 3, 70, 16, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 17, 17, 17, 17, 17, 17, 17, 17, 38, 1, 1, 1, 70, 16, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 74, 9, 76, 39, 39, 39, 35, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 36, 39, 39, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 3, 3, 26, 39, 39, 39, 38, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 37, 39, 39, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 127, 41, 44, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 17, 17, 17, 17, 17, 17, 35, 33, 33, 33, 94, 12, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 36, 39, 39, 17, 17, 17, 17, 17, 35, 34, 3, 3, 3, 110, 28, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 32, 33, 36, 17, 17, 17, 35, 33, 34, 3, 3, 3, 3, 94, 12, 3, 3, 3, 3, 3, 3, 3, 75, 9, 9, 9, 9, 9, 9, 9, 9, 9, 10, 3, 32, 33, 33, 33, 34, 3, 3, 3, 3, 3, 3, 110, 28, 3, 3, 3, 3, 3, 3, 3, 71, 3, 3, 3, 3, 3, 3, 3, 3, 3, 70, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 9, 9, 9, 9, 9, 9, 9, 10, 3, 71, 3, 3, 3, 3, 3, 3, 3, 3, 3, 70, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3")
 
-(asm ".include \"famitone2_asm6.asm\"")
-(asm ".include \"danger_streets.asm\"")
+ ;; sound code
+ (asm ".include \"famitone2_asm6.asm\"")
+ (asm ".include \"danger_streets.asm\"")
 
- ;; stuff still to tidy up follows...
+ ;; the palettes
  (asm "title_palette:")
 
  (byte "$11,$21,$31,$30")
@@ -772,14 +833,16 @@
  (byte "$0f,$0f,$0f,$0f")
  (byte "$0f,$0f,$0f,$0f")
 
-;(asm "	.org $c000
-;	.incbin \"after_the_rain.dmc\"")
+ ;; dmc samples
+					;(asm "	.org $c000
+					;	.incbin \"after_the_rain.dmc\"")
  
+
  ;; interrupt vectors (addresses for functions)
- (asm ".pad $fffa")
+ (asm ".pad $fffa") ;; jump to the end of prg-rom
  (asm ".word vblank, reset, irq")
 
- ;; finally all the chr data
+ ;; finally ppu-rom 
  (asm 
   ".incbin \"binary/whatremains-title-tiles.chr\""
   ".align $1000"
@@ -791,8 +854,5 @@
   ".align $1000"
   ".incbin \"binary/whatremains-eighties-sprites.chr\""
   ".align $1000")
-
- 
- 
  
  )
