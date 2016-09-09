@@ -748,6 +748,22 @@
      (emit "dex")
      (emit "bne" label))))
 
+;; add an 8 bit number to a 16 bit one
+(define (emit-add16-8 x)
+  (emit-expr (list-ref x 2)) ; 8 bit num
+  (emit "sta" working-reg)
+  (emit "ldy #1")
+  (emit "lda" (string-append "(" (immediate-value (list-ref x 1)) ")") ",y")
+  (emit "adc" working-reg)
+  (emit "sta" (string-append "(" (immediate-value (list-ref x 1)) ")") ",y")
+  (emit "ldy #0")
+  (emit "lda #0")
+  (emit "sta" working-reg)
+  (emit "lda" (string-append "(" (immediate-value (list-ref x 1)) ")") ",y")
+  (emit "adc" working-reg)
+  (emit "sta" (string-append "(" (immediate-value (list-ref x 1)) ")") ",y"))
+ 
+
 ;; (define (emit-mod x)
 ;; Mod:
 ;; 		LDA $00  ; memory addr A
@@ -824,6 +840,7 @@
    ((eq? (car x) '>>) (emit-right-shift x))
    ((eq? (car x) 'high) (emit "lda" (string-append "#>" (symbol->string (cadr x)))))
    ((eq? (car x) 'low) (emit "lda" (string-append "#<" (symbol->string (cadr x)))))
+   ;;((eq? (car x) '+16) (emit-add16 x))
    ((eq? (car x) '_rnd) (emit-rnd x))
    ((eq? (car x) 'wait-vblank)
     (append (emit "- lda $2002")

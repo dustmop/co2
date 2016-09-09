@@ -8,12 +8,13 @@
  ;; NES header follows
 
  (asm
-  ".byte \"NES\",$1a" ;; number of prg-rom blocks
-  ".byte $02" ;; number of chr-rom blocks
-  ".byte $01" ;; rom control bytes: horizontal mirroring, no sram or trainer, mapper #0
-  ".byte $00,$00" ;; filler
-  ".byte $00,$00,$00,$00,$00,$00,$00,$00")
-
+  ".byte \"NES\",$1a" ;; "NES" followed by MS-DOS end-of-file
+   ".byte $02" ;; number of prg-rom blocks in 16 KB units
+   ".byte $02"  ;; number of chr-rom blocks 8 KB units (value 0 means the board uses CHR RAM)   
+   ".byte $10" ;; flags 6 (mapper = 1)
+   ".byte $00" ;; flags 7 - rom control bytes: horizontal mirroring, no sram or trainer, mapper #0
+   ".byte $00,$00,$00,$00,$00,$00,$00,$00")
+ 
     ;; our memory layout
  (defconst sprite-shadow  "$200") ;; where the sprite control data is
  (defconst sprite-dma   "#$2") ;; dma address is 100X this = $200
@@ -34,6 +35,8 @@
  (defconst prim-quad "#$03")
  ;; rom dump [high low length]
  (defconst prim-rom-data "#$04")
+ ;; palette change
+ (defconst prim-palette-change "#$05")
 
 ;; famitone stuff
  (asm "FT_BASE_ADR = $0500 ;; page in the RAM used for FT2 variables, should be $xx00
@@ -50,7 +53,6 @@
 
  ;; code start
  (org #x8000)
-
  
  ;; globals that will be removed - honest gov
  (defvar gframe 0)
@@ -86,6 +88,55 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; library code follows
 
+ (defun (enable-rendering)
+   ;; ;; set basic ppu registers.  load background from $0000,
+   ;; ;; sprites from $1000, and the name table from $2000.
+   (set! reg-ppu-ctl #b10001000)
+   (set! reg-ppu-mask #b00011110))
+
+ (defun (disable-rendering)
+   (set! reg-ppu-ctl 0)
+   (set! reg-ppu-mask 0)
+   (set! reg-ppu-scroll 0)
+   (set! reg-ppu-scroll 0))
+
+
+ (defun (mmc1-control a)
+   a
+   (asm "sta $8000")
+   (asm "lsr a")
+   (asm "sta $8000")
+   (asm "lsr a")
+   (asm "sta $8000")
+   (asm "lsr a")
+   (asm "sta $8000")
+   (asm "lsr a")
+   (asm "sta $8000"))
+
+ (defun (mmc1-chrbank0 a)
+   a
+   (asm "sta $a000")
+   (asm "lsr a")
+   (asm "sta $a000")
+   (asm "lsr a")
+   (asm "sta $a000")
+   (asm "lsr a")
+   (asm "sta $a000")
+   (asm "lsr a")
+   (asm "sta $a000"))
+
+ (defun (mmc1-chrbank1 a)
+   a
+   (asm "sta $c000")
+   (asm "lsr a")
+   (asm "sta $c000")
+   (asm "lsr a")
+   (asm "sta $c000")
+   (asm "lsr a")
+   (asm "sta $c000")
+   (asm "lsr a")
+   (asm "sta $c000"))
+
  ;; really crappy random number generator
  (defun (rnd) (_rnd))
 
@@ -120,16 +171,6 @@
 
  (defun (pressed key)
    (peek pad-data key))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; ppu transfers
-
- (defun (load-palette)
-   ;; copy 32 bytes of bg and sprite palette
-   (ppu-memcpy ppu-palette 0 0 #x20 palette 0))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; display list
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; display list
@@ -177,7 +218,8 @@
 		   (peek display-list (+ display-list-index 2))
 		   (peek display-list start) ;; length
 		   (peek display-list (+ start 1)))) ;; tile id
-     
+
+     ;; 2x2 metatile block
      (when (eq? (peek display-list display-list-index) prim-quad) 
        (set! o (peek display-list (+ display-list-index 1)))
        (set! p (peek display-list (+ display-list-index 2)))
@@ -189,15 +231,23 @@
        (ppu-memset ppu-name-table-0 o (+ p 33) 1 (+ i 17))
        )
 
-     ;; update tile data
+     ;; copy from PRG-ROM to tile data
      (when (eq? (peek display-list display-list-index) prim-rom-data) 
-       (set! i (peek display-list start)) ;; high
-       (set! j (peek display-list (+ start 1))) ;; low
-       (set! o (peek display-list (+ start 2))) ;; length
+       (set! o (peek display-list start)) ;; prg high
+       (set! p (peek display-list (+ start 1))) ;; prg low
+       (set! i (peek display-list (+ start 2))) ;; length
        (ppu-memcpy16 ppu-name-table-0 
      		     (peek display-list (+ display-list-index 1)) 
      		     (peek display-list (+ display-list-index 2))
-     		     o i))
+     		     i o))
+
+     (when (eq? (peek display-list display-list-index) prim-palette-change) 
+       (set! o (peek display-list start)) ;; palette index
+       (cond
+	((eq? o 0) (ppu-memcpy ppu-palette 0 0 #x20 title_palette 0))
+	((eq? o 1) (ppu-memcpy ppu-palette 0 0 #x20 eighties_palette 0))
+	((eq? o 2) (ppu-memcpy ppu-palette 0 0 #x20 future_palette 0))
+	(else (ppu-memcpy ppu-palette 0 0 #x20 black_palette 0))))
      
      (set! display-list-index (- display-list-index n)))))
 
@@ -229,23 +279,40 @@
   (display-list-add-byte #xff)
   (display-list-end-packet prim-tile-value 3 128 2))
 
-(defun (display-8x4-image x y loc)
+(defun (draw-image x y sx sy loc)
   (set! i 0)
-  (while (< i 4)
+  (set! j (- sx 1))
+  (while (< i sy)
     (set! start (<< i 4)) ;; * 16
-    (set! end (+ start 7))
+    (set! end (+ start j))
     (loop n start end (display-list-add-byte (+ loc n)))
-    (display-list-end-packet prim-tile-data x (+ y (<< i 5)) 8) ;; * 32
+    (display-list-end-packet prim-tile-data x (+ y (<< i 5)) sx) ;; * 32
     (inc i)))
 
-(defun (display-6x4-image x y loc)
-  (set! i 0)
-  (while (< i 4)
-    (set! start (<< i 4)) ;; * 16
-    (set! end (+ start 5))
-    (loop n start end (display-list-add-byte (+ loc n)))
-    (display-list-end-packet prim-tile-data x (+ y (<< i 5)) 6) ;; * 32
-    (inc i)))
+(defun (draw-bg l h page)
+  (set! h (+ h page))
+  (display-list-add-byte (+ l 0))
+  (display-list-add-byte h)
+  (display-list-add-byte 64)
+  (display-list-end-packet prim-rom-data page 0 3)
+  (display-list-add-byte (+ l 64))
+  (display-list-add-byte h)
+  (display-list-add-byte 64)
+  (display-list-end-packet prim-rom-data page 64 3)
+  (display-list-add-byte (+ l 128))
+  (display-list-add-byte h)
+  (display-list-add-byte 64)
+  (display-list-end-packet prim-rom-data page 128 3)
+  (display-list-add-byte (+ l 192))
+  (display-list-add-byte h)
+  (display-list-add-byte 64)
+  (display-list-end-packet prim-rom-data page 192 3))
+
+(defun (draw-screen l h)
+  (draw-bg (low bgtiles) (high bgtiles) 0)
+  (draw-bg (low bgtiles) (high bgtiles) 1)
+  (draw-bg (low bgtiles) (high bgtiles) 2)
+  (draw-bg (low bgtiles) (high bgtiles) 3))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; text display
@@ -272,7 +339,7 @@
       (inc text-pos))
     (set! text-time 0)))
     
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+ ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
  ;; sprite stuff
  
  ;; 2x2 block sprites
@@ -373,6 +440,8 @@
 (defconst future-mode "#3")
 
 (defun (switch-game-mode new-mode)
+  (display-list-add-byte #x3) ;; black palette id
+  (display-list-end-packet prim-palette-change 0 0 1)
   (set! ggame-mode new-mode)
   (set! gdraw-phase 0))
 
@@ -382,10 +451,13 @@
 (defun (update-title)
   (cond
    ((eq? gdraw-phase 1) 
+    (mmc1-chrbank0 0)
+    (mmc1-chrbank1 1)
+    (display-list-add-byte #x0) ;; title palette id
+    (display-list-end-packet prim-palette-change 0 0 1)
     (update-sprites-title))
    ((eq? gdraw-phase 2)
-    (set16! text-addr introtitle)
-    (draw-text 1 7)
+    (draw-image 0 73 13 6 #x0)
     (clear-tiles)
     (set16! text-addr intropress))
    (else
@@ -396,7 +468,9 @@
 	     (pressed joypad-b))
 	 (or
 	  (pressed joypad-select)
-	  (pressed joypad-start)))
+	  0
+	  ;(pressed joypad-start)
+	  ))
     (switch-game-mode eighties-mode))
   )
 
@@ -453,57 +527,27 @@
       (set! gdraw-phase 1)
       (set! gtext-box 254))))
 
-(defun (draw-bg page)
-  (display-list-add-byte (+ (low bgtiles) 0))
-  (display-list-add-byte (+ (high bgtiles) page))
-  (display-list-add-byte 64)
-  (display-list-end-packet prim-rom-data page 0 3)
-
-  (display-list-add-byte (+ (low bgtiles) 64))
-  (display-list-add-byte (+ (high bgtiles) page))
-  (display-list-add-byte 64)
-  (display-list-end-packet prim-rom-data page 64 3)
-
-  (display-list-add-byte (+ (low bgtiles) 128))
-  (display-list-add-byte (+ (high bgtiles) page))
-  (display-list-add-byte 64)
-  (display-list-end-packet prim-rom-data page 128 3)
-
-  (display-list-add-byte (+ (low bgtiles) 192))
-  (display-list-add-byte (+ (high bgtiles) page))
-  (display-list-add-byte 64)
-  (display-list-end-packet prim-rom-data page 192 3))
-
 (defun (update-eighties) 
   (when (not (eq? gtext-box 255))
-    (cond
-     ((eq? gdraw-phase 1) 
-      (init-sprites-eighties))
-     ((eq? gdraw-phase 2) (draw-bg 0))
-     ((eq? gdraw-phase 3) (draw-bg 1))
-     ((eq? gdraw-phase 6) (draw-bg 2))
-     ((eq? gdraw-phase 7) (draw-bg 3))
-     ;((eq? gdraw-phase 8)
-     ; (asm "ldx #<danger_streets_music_data	;play second song
-     ; 	ldy #>danger_streets_music_data
-     ; 	lda #80
-     ; 	jsr FamiToneInit
-     ; 	lda #0
-     ; 	jsr FamiToneMusicPlay"))
-     (else 0))
-
-    (update-sprites-eighties)
+    (when (eq? gdraw-phase 1) 
+      (mmc1-chrbank0 2)
+      (mmc1-chrbank1 3)
+      (display-list-add-byte #x1) ;; eighties palette id
+      (display-list-end-packet prim-palette-change 0 0 1)
+      (init-sprites-eighties)
+      (draw-screen (low bgtiles) (high bgtiles)))
     
-    (when (pressed joypad-start)
-      (switch-game-mode title-mode)))
-  
+     (update-sprites-eighties)
+
+     (when (pressed joypad-start)
+       (switch-game-mode title-mode)))
+
   (when (and (< gtext-box 255) (> gtext-box 0)) (dec gtext-box))
   (update-textbox))
 
 (defun (update-sprites-eighties)
    ;; is the player character moving?
    (defvar running 1)
-
    (set! i 0)
 
    (when (pressed joypad-select)
@@ -570,7 +614,6 @@
     (else
      (animate-sprites-2x2! npc1-sprite (+ dancer-id 4))))
 
-
    (when (sprite-collide-sprite player-sprite npc2-sprite)
      (cond 
       ((eq? (and (>> ganim-frame 3) #x3) 0)
@@ -605,37 +648,20 @@
 (defun (update-sprites-future)
   0)
 
-
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; interrupts
 
  (defint (reset)
    (init-system)
-
-   ;; disable all graphics.
-   (set! reg-ppu-ctl 0)
-   (set! reg-ppu-mask 0)
-   (set! reg-ppu-scroll 0)
-   (set! reg-ppu-scroll 0)
-   ;; send stuff to the ppu here...
-
+   (disable-rendering)
    (init-sound)
-   (load-palette)
-
-   ;; ;; set basic ppu registers.  load background from $0000,
-   ;; ;; sprites from $1000, and the name table from $2000.
-   (set! reg-ppu-ctl #b10001000)
-   (set! reg-ppu-mask #b00011110)
-
-   ;; ;; clear sprite shadow
+   (enable-rendering)
+   ;; clear sprite shadow
    (memset sprite-shadow #xff)
-
-
+   (mmc1-control #b00010000)
    (asm
     ;; restart interrupts again
     "cli")
-
-
     ;; go into in infinite loop - vblank interrupt takes over
    (asm "loop: jmp loop"))
 
@@ -651,10 +677,7 @@
 ;; (asm "
 ;; 	lda #%10001110			;show start of sound code time
 ;; 	sta $2001
-;; 	sta $401e				;for VirtuaNES custom build
 ;; ")
-
-
 
    ;; ;; that's done, now we're safe to do whatever
     (cond
@@ -670,11 +693,10 @@
 
     (asm "jsr FamiToneUpdate")
 
-;; (asm "
-;; 	sta $401f				;show end of sound code time
-;; 	lda #%00001110
-;; 	sta $2001
-;;  ")
+ ;; (asm "
+ ;; 	lda #%00001110
+ ;; 	sta $2001
+ ;;  ")
 
     )
    
@@ -684,7 +706,6 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; data follows
 
-(asm "introtitle:")(text "what remains intro!") (byte "0")
 (asm "intropress:")(text "press any key") (byte "0")
 (asm "npcsays:")(text "hey, watch my moves")(byte "0")
 
@@ -694,7 +715,7 @@
  (byte "16,16,64,48")
  (byte "144,80,192,112")
 
-
+(asm ".align $100") ;; align so we don't need 16 address maths!
 (asm "bgtiles:")
 (byte "9, 10, 28, 27, 28, 27, 28, 27, 28, 15, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 79, 59, 41, 41, 41, 41, 41, 41, 25, 70, 12, 4, 4, 11, 12, 11, 12, 15, 11, 12, 11, 12, 11, 12, 11, 12, 11, 12, 11, 12, 11, 12, 15, 4, 4, 4, 4, 5, 6, 4, 3, 70, 28, 5, 6, 27, 28, 27, 28, 15, 27, 28, 27, 28, 27, 28, 27, 28, 27, 28, 27, 28, 27, 28, 15, 11, 12, 11, 12, 21, 22, 11, 3, 70, 19, 21, 22, 19, 19, 19, 19, 47, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 15, 27, 28, 27, 28, 45, 46, 27, 41, 42, 3, 3, 3, 3, 3, 3, 3, 3, 11, 12, 11, 12, 4, 4, 11, 12, 11, 12, 4, 4, 11, 12, 15, 4, 4, 4, 4, 61, 62, 4, 12, 3, 0, 1, 1, 1, 1, 1, 1, 2, 27, 28, 27, 28, 13, 14, 27, 28, 27, 28, 13, 14, 27, 28, 15, 11, 12, 11, 12, 61, 62, 11, 28, 3, 16, 39, 39, 39, 39, 39, 39, 18, 20, 19, 19, 19, 29, 30, 19, 19, 19, 19, 29, 30, 19, 19, 47, 27, 28, 27, 28, 45, 46, 27, 12, 3, 16, 39, 39, 39, 39, 39, 39, 38, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 7, 7, 7, 7, 61, 62, 7, 28, 3, 16, 39, 39, 39, 39, 39, 39, 39, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 18, 11, 12, 11, 12, 45, 46, 11, 9, 9, 9, 76, 36, 39, 39, 39, 39, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 18, 27, 28, 27, 28, 61, 62, 27, 3, 3, 25, 26, 16, 39, 39, 17, 17, 17, 75, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 76, 17, 17, 18, 20, 19, 19, 19, 61, 62, 4, 41, 41, 41, 42, 16, 39, 39, 75, 9, 9, 58, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 26, 17, 17, 38, 1, 1, 1, 1, 37, 38, 2, 12, 11, 12, 3, 16, 39, 39, 24, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 56, 127, 41, 44, 17, 17, 17, 17, 17, 17, 17, 17, 17, 18, 28, 27, 28, 3, 16, 39, 39, 43, 41, 41, 41, 41, 41, 41, 41, 41, 41, 41, 60, 94, 12, 36, 17, 17, 35, 33, 33, 33, 33, 33, 33, 34, 12, 11, 12, 3, 16, 39, 39, 17, 11, 12, 11, 12, 11, 12, 11, 12, 11, 12, 4, 110, 28, 16, 17, 17, 18, 3, 3, 3, 3, 3, 3, 3")
 (byte "28, 27, 28, 3, 16, 39, 39, 35, 27, 28, 27, 28, 27, 28, 27, 28, 27, 28, 4, 94, 12, 16, 17, 17, 18, 3, 3, 3, 3, 3, 3, 3, 13, 14, 4, 3, 16, 39, 39, 18, 11, 12, 11, 12, 4, 4, 11, 12, 11, 12, 4, 110, 28, 16, 17, 17, 18, 3, 3, 3, 3, 3, 3, 3, 29, 30, 23, 3, 16, 39, 39, 18, 27, 28, 27, 28, 5, 6, 27, 28, 27, 28, 4, 63, 23, 16, 17, 17, 18, 3, 3, 3, 3, 3, 3, 3, 10, 3, 3, 3, 16, 39, 39, 18, 20, 19, 19, 19, 21, 22, 19, 19, 19, 19, 23, 0, 1, 37, 17, 17, 38, 1, 2, 3, 3, 3, 3, 3, 70, 0, 1, 1, 37, 39, 39, 38, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 37, 17, 17, 17, 17, 17, 17, 38, 1, 2, 3, 3, 3, 70, 16, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 17, 17, 17, 17, 17, 17, 17, 17, 38, 1, 1, 1, 70, 16, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 74, 9, 76, 39, 39, 39, 35, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 36, 39, 39, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 3, 3, 26, 39, 39, 39, 38, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 37, 39, 39, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 127, 41, 44, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 17, 17, 17, 17, 17, 17, 35, 33, 33, 33, 94, 12, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 36, 39, 39, 17, 17, 17, 17, 17, 35, 34, 3, 3, 3, 110, 28, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 32, 33, 36, 17, 17, 17, 35, 33, 34, 3, 3, 3, 3, 94, 12, 3, 3, 3, 3, 3, 3, 3, 75, 9, 9, 9, 9, 9, 9, 9, 9, 9, 10, 3, 32, 33, 33, 33, 34, 3, 3, 3, 3, 3, 3, 110, 28, 3, 3, 3, 3, 3, 3, 3, 71, 3, 3, 3, 3, 3, 3, 3, 3, 3, 70, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 9, 9, 9, 9, 9, 9, 9, 10, 3, 71, 3, 3, 3, 3, 3, 3, 3, 3, 3, 70, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3")
@@ -703,7 +724,19 @@
 (asm ".include \"danger_streets.asm\"")
 
  ;; stuff still to tidy up follows...
- (asm "palette:")
+ (asm "title_palette:")
+
+ (byte "$11,$21,$31,$30")
+ (byte "$11,$21,$31,$30")
+ (byte "$11,$21,$31,$30")
+ (byte "$11,$14,$20,$2c")
+
+ (byte "$11,$21,$31,$30")
+ (byte "$13,$23,$33,$30")
+ (byte "$15,$25,$35,$30")
+ (byte "$17,$27,$37,$30")
+
+ (asm "eighties_palette:")
 
  (byte "$11,$21,$31,$30")
  (byte "$11,$21,$31,$30")
@@ -715,6 +748,30 @@
  (byte "$15,$25,$35,$30")
  (byte "$17,$27,$37,$30")
 
+ (asm "future_palette:")
+
+ (byte "$11,$21,$31,$30")
+ (byte "$11,$21,$31,$30")
+ (byte "$11,$21,$31,$30")
+ (byte "$11,$21,$31,$30")
+
+ (byte "$11,$21,$31,$30")
+ (byte "$13,$23,$33,$30")
+ (byte "$15,$25,$35,$30")
+ (byte "$17,$27,$37,$30")
+
+ (asm "black_palette:")
+
+ (byte "$0f,$0f,$0f,$0f")
+ (byte "$0f,$0f,$0f,$0f")
+ (byte "$0f,$0f,$0f,$0f")
+ (byte "$0f,$0f,$0f,$0f")
+
+ (byte "$0f,$0f,$0f,$0f")
+ (byte "$0f,$0f,$0f,$0f")
+ (byte "$0f,$0f,$0f,$0f")
+ (byte "$0f,$0f,$0f,$0f")
+
 ;(asm "	.org $c000
 ;	.incbin \"after_the_rain.dmc\"")
  
@@ -724,9 +781,18 @@
 
  ;; finally all the chr data
  (asm 
-  ".incbin \"binary/whatremains-tiles4.chr\""
+  ".incbin \"binary/whatremains-title-tiles.chr\""
   ".align $1000"
-  ".incbin \"binary/whatremains-sprites.chr\""
+  ".incbin \"binary/whatremains-title-sprites.chr\""
   ".align $1000")
+
+ (asm 
+  ".incbin \"binary/whatremains-eighties-tiles.chr\""
+  ".align $1000"
+  ".incbin \"binary/whatremains-eighties-sprites.chr\""
+  ".align $1000")
+
+ 
+ 
  
  )
