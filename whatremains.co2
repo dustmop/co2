@@ -10,9 +10,9 @@
  (asm
   ".byte \"NES\",$1a" ;; "NES" followed by MS-DOS end-of-file
    ".byte $02" ;; number of prg-rom blocks in 16 KB units
-   ".byte $02"  ;; number of chr-rom blocks 8 KB units (value 0 means the board uses CHR RAM)   
-   ".byte $10" ;; flags 6 (mapper = 1)
-   ".byte $00" ;; flags 7 - rom control bytes: horizontal mirroring, no sram or trainer, mapper #0
+   ".byte $03"  ;; number of chr-rom blocks 8 KB units (value 0 means the board uses CHR RAM)   
+   ".byte $10" ;; flags 6 (mapper = 1 in high nibble)
+   ".byte $00" ;; flags 7 - more rom control bytes: horizontal mirroring, no sram or trainer, mapper #0
    ".byte $00,$00,$00,$00,$00,$00,$00,$00")
  
     ;; our memory layout
@@ -253,7 +253,7 @@
 	(cond
 	 ((eq? o title-palette-id) (ppu-memcpy ppu-palette 0 0 #x20 title_palette 0))
 	 ((eq? o eighties-palette-id) (ppu-memcpy ppu-palette 0 0 #x20 eighties_palette 0))
-	 ((eq? o black-palette-id) (ppu-memcpy ppu-palette 0 0 #x20 black_palette 0))
+	 ((eq? o future-palette-id) (ppu-memcpy ppu-palette 0 0 #x20 future_palette 0))
 	 (else (ppu-memcpy ppu-palette 0 0 #x20 black_palette 0))))
       
       (set! display-list-index (- display-list-index n)))))
@@ -457,7 +457,7 @@
 
  (defun (bb-collide-pos x y)
    ;; read the length of rects to get the end
-   (set! end (+ 1 (<< (peek collision_data) 2))) ;; rect so * 4   
+   (set! end (+ 1 (<< (peek collision_bboxes) 2))) ;; rect so * 4   
    ;; setup for the loop
    (set! i 1) ;; address
    (set! j 0) ;; return value (1=collision)
@@ -466,13 +466,29 @@
      (set! j
 	   (and ;; check bounding boxes
 	    (and
-	     (> x (peek collision_data i)) 
-	     (< x (peek collision_data (+ i 2))))
+	     (> x (peek collision_bboxes i)) 
+	     (< x (peek collision_bboxes (+ i 2))))
 	    (and 
-	     (> y (peek collision_data (+ i 1)))
-	     (< y (peek collision_data (+ i 3))))))
+	     (> y (peek collision_bboxes (+ i 1)))
+	     (< y (peek collision_bboxes (+ i 3))))))
      (set! i (+ i 4))) ;; next bbox
    j)
+
+;; doors to other dimensions
+
+ (defun (doorway-collide-pos x y)
+   (and ;; check bounding boxes
+    (and
+     (> x (peek doorway_bbox i)) 
+     (< x (peek doorway_bbox (+ i 2))))
+    (and 
+     (> y (peek doorway_bbox (+ i 1)))
+     (< y (peek doorway_bbox (+ i 3))))))
+
+ (defun (doorway-collide-sprite-right sprite-id)
+   (set! sprite-id (+ sprite-id 3))
+   (doorway-collide-pos (+ (get-sprite-x sprite-id) 8) 
+ 		       (get-sprite-y sprite-id)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
  ;; game modes
@@ -679,6 +695,10 @@
       (else
        (animate-sprites-2x2! npc3-sprite (+ dancer-id 4)))))
 
+   ;; exit to future level
+   (when (doorway-collide-sprite-right player-sprite)
+     (switch-game-mode future-mode))
+   
    (inc ganim-frame)
    (when (> ganim-frame 23)
      (set! ganim-frame 0))
@@ -688,7 +708,38 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
  ;; future
 
+ (defun (fuzz)
+   ;; random fuzz
+   (display-list-add-byte (rnd)) 
+   (display-list-end-packet 
+    prim-tile-data (and (rnd) #b00000111) 
+    gframe 1))
+
  (defun (update-future)
+   (cond
+    ((eq? gdraw-phase 1) 
+     (mmc1-chrbank0 4)
+     (mmc1-chrbank1 5)
+     (update-sprites-future))
+    ((eq? gdraw-phase 2)
+     (set16! text-addr futureblurb)
+     ;;(draw-image 0 73 13 6 #x0)
+     ;;(clear-tiles)
+     )
+    ;; wait before reveal
+    ((eq? gdraw-phase 20)
+     (display-list-add-byte future-palette-id) 
+     (display-list-end-packet prim-palette-change 0 0 1))
+    ;; let clear happen first
+    ((> gdraw-phase 20)
+     (fuzz)     
+     (update-typed-text 1 68)
+     ))
+   
+   (when (pressed joypad-select)
+     (switch-game-mode eighties-mode))
+
+      
    (update-sprites-future))
 
  (defun (update-sprites-future)
@@ -764,15 +815,19 @@
  ;; text
  (asm "intropress:")(text "press any key") (byte "0")
  (asm "npcsays:")(text "hey, watch my moves")(byte "0")
+ (asm "futureblurb:")(text "welcome to the future")(byte "0")
 
  ;; bounding box data
- (asm "collision_data")
+ (asm "collision_bboxes")
  (byte "5") ;; number of boxes
 (byte "58, 90, 156, 155")
 (byte "80, 82, 173, 147")
 (byte "0, 0, 22, 238")
 (byte "0, 0, 255, 45")
 (byte "197, 0, 255, 91")
+
+(asm "doorway_bbox")
+(byte "246, 164, 255, 197")
 
  ;; screen tiles
  (asm ".align $100") ;; align so we don't need 16 address maths!
@@ -811,15 +866,15 @@
 
  (asm "future_palette:")
 
+ (byte "$01,$02,$03,$04")
+ (byte "$41,$22,$21,$30")
  (byte "$11,$21,$31,$30")
- (byte "$11,$21,$31,$30")
- (byte "$11,$21,$31,$30")
- (byte "$11,$21,$31,$30")
+ (byte "$14,$22,$42,$90")
 
  (byte "$11,$21,$31,$30")
  (byte "$13,$23,$33,$30")
  (byte "$15,$25,$35,$30")
- (byte "$17,$27,$37,$30")
+ (byte "$37,$42,$07,$98")
 
  (asm "black_palette:")
 
@@ -855,4 +910,12 @@
   ".incbin \"binary/whatremains-eighties-sprites.chr\""
   ".align $1000")
  
+ (asm 
+  ".incbin \"binary/whatremains-future-tiles.chr\""
+  ".align $1000"
+  ".incbin \"binary/whatremains-future-sprites.chr\""
+  ".align $1000")
+ 
+
+
  )
