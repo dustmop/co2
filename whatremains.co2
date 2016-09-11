@@ -11,41 +11,46 @@
   ".byte \"NES\",$1a" ;; "NES" followed by MS-DOS end-of-file
    ".byte $02" ;; number of prg-rom blocks in 16 KB units
    ".byte $03"  ;; number of chr-rom blocks 8 KB units (value 0 means the board uses CHR RAM)   
-   ".byte $10" ;; flags 6 (mapper = 1 in high nibble)
-   ".byte $00" ;; flags 7 - more rom control bytes: horizontal mirroring, no sram or trainer, mapper #0
+   ".byte $11" ;; flags 6 (mapper = 1 in high nybble), vertical mirror in lower nybble
+   ".byte $00" ;; flags 7 - more rom control bytes
    ".byte $00,$00,$00,$00,$00,$00,$00,$00")
  
     ;; our memory layout
- (defconst sprite-shadow  "$200") ;; where the sprite control data is
- (defconst sprite-dma   "#$2") ;; dma address is 100X this = $200
- (defconst display-list "$300") ;; the display list
- (defconst pad-data     "$400") ;; cache of the current pad state
+ (defconst sprite-shadow "$200") ;; where the sprite control data is
+ (defconst sprite-dma    "#$2") ;; dma address is 100X this = $200
+ (defconst display-list  "$300") ;; the display list
+ (defconst pad-data      "$400") ;; cache of the current pad state
+ (defconst entity-data   "$500") ;; entity state list
 
+ (defconst entity-x "#1")
+ (defconst entity-x-h "#2")
+ 
  ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
- ;; display primitives
- ;; ------------------
- ;;
+ ;; display commands
+ ;; ----------------
  ;; 
  ;; tile-data display primitive: [list of bytes to copy as tile ids]
- (defconst prim-tile-data "#$01")
+ (defconst command-tile-data "#$01")
  ;; tile-value display primitive: [length tile-id] 
  ;; for clearing screen etc - 128 long is about max for timing
- (defconst prim-tile-value "#$02")
+ (defconst command-tile-value "#$02")
  ;; 2x2 tile quad [tile top left id]
- (defconst prim-quad "#$03")
- ;; rom dump [high low length]
- (defconst prim-rom-data "#$04")
- ;; palette change
- (defconst prim-palette-change "#$05")
+ (defconst command-quad "#$03")
+ ;; rom dump [high low length] - 64 maxish
+ (defconst command-rom-data "#$04")
+ ;; palette change [palette-id]
+ (defconst command-palette-change "#$05")
 
+ (defconst screen-blank-delay "#20")
+ 
  (defconst title-palette-id "#0")
  (defconst eighties-palette-id "#1")
  (defconst future-palette-id "#2")
  (defconst black-palette-id "#3")
  
  ;; famitone stuff
- (asm "FT_BASE_ADR = $0500 ;; page in the RAM used for FT2 variables, should be $xx00
-       FT_TEMP = $70 ;; 3 bytes in zeropage used by the library as a scratchpad
+ (asm "FT_BASE_ADR = $0600 ;; page in the RAM used for FT2 variables, should be $xx00
+       FT_TEMP = $f9 ;; 3 bytes in zeropage used by the library as a scratchpad
        FT_DPCM_OFF = $c000  
        FT_SFX_STREAMS = 4 ;; number of sound effects played at once, 1..4
        FT_DPCM_ENABLE	;; undefine to exclude all DMC code
@@ -70,6 +75,13 @@
  ;; the current display list index 
  (defvar display-list-index 0)
 
+ (defvar gscroll-x 0)
+ (defvar gscroll-y 0)
+
+ (defvar player-x 0)
+ (defvar player-y 0)
+ (defvar player-screen 0)
+
  ;; random locals for use anywhere
  (defvar n 0)
  (defvar i 0)
@@ -87,6 +99,8 @@
  (defvar text-time 0) 
  (defvar text-addr 0)
  (defvar text-addr-h 0)
+
+
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
  ;; library code follows
@@ -185,16 +199,20 @@
    (inc display-list-index))
 
  ;; finishes a packet for rendering
- (defun (display-list-end-packet prim-id x y nbytes)
-   (poke! display-list display-list-index prim-id) 
+ (defun (display-list-end-packet command-id x y nbytes)
+   (poke! display-list display-list-index command-id) 
    (inc display-list-index)
    (poke! display-list display-list-index x)
    (inc display-list-index)
    (poke! display-list display-list-index y)
    (inc display-list-index)
-   ;; last byte needs to be size for all primitives
+   ;; last byte needs to be size for all commands
    (poke! display-list display-list-index nbytes) 
    (inc display-list-index))
+
+ ;; clear pending commands
+ (defun (display-list-flush)
+   (set! display-list-index 0))
 
  ;; to be called in vblank, all ppu updates should be in here
  (defun (display-list-execute)
@@ -209,7 +227,7 @@
       (set! end display-list-index)
 
       ;; update tile data
-      (when (eq? (peek display-list display-list-index) prim-tile-data) 
+      (when (eq? (peek display-list display-list-index) command-tile-data) 
 	(set! end display-list-index)
 	(ppu-memcpy ppu-name-table-0 
 		    (peek display-list (+ display-list-index 1)) 
@@ -219,7 +237,7 @@
 		    start)) ;; start
 
       ;; update arbitrary length strips of one value (RLE)
-      (when (eq? (peek display-list display-list-index) prim-tile-value) ;; tileset
+      (when (eq? (peek display-list display-list-index) command-tile-value) ;; tileset
 	(ppu-memset ppu-name-table-0 
 		    (peek display-list (+ display-list-index 1)) 
 		    (peek display-list (+ display-list-index 2))
@@ -227,7 +245,7 @@
 		    (peek display-list (+ start 1)))) ;; tile id
 
       ;; 2x2 metatile block
-      (when (eq? (peek display-list display-list-index) prim-quad) 
+      (when (eq? (peek display-list display-list-index) command-quad) 
 	(set! o (peek display-list (+ display-list-index 1)))
 	(set! p (peek display-list (+ display-list-index 2)))
 	(set! i (peek display-list start))
@@ -239,7 +257,7 @@
 	)
 
       ;; copy from PRG-ROM to tile data
-      (when (eq? (peek display-list display-list-index) prim-rom-data) 
+      (when (eq? (peek display-list display-list-index) command-rom-data) 
 	(set! o (peek display-list start)) ;; prg high
 	(set! p (peek display-list (+ start 1))) ;; prg low
 	(set! i (peek display-list (+ start 2))) ;; length
@@ -248,7 +266,7 @@
 		      (peek display-list (+ display-list-index 2))
 		      i o))
 
-      (when (eq? (peek display-list display-list-index) prim-palette-change) 
+      (when (eq? (peek display-list display-list-index) command-palette-change) 
 	(set! o (peek display-list start)) ;; palette index
 	(cond
 	 ((eq? o title-palette-id) (ppu-memcpy ppu-palette 0 0 #x20 title_palette 0))
@@ -266,29 +284,58 @@
    ;; nametable 1
    (display-list-add-byte 128)
    (display-list-add-byte #xff)
-   (display-list-end-packet prim-tile-value 0 0 2)
+   (display-list-end-packet command-tile-value 0 0 2)
    (display-list-add-byte 128)
    (display-list-add-byte #xff)
-   (display-list-end-packet prim-tile-value 0 128 2)
+   (display-list-end-packet command-tile-value 0 128 2)
    (display-list-add-byte 128)
    (display-list-add-byte #xff)
-   (display-list-end-packet prim-tile-value 1 0 2)
+   (display-list-end-packet command-tile-value 1 0 2)
    (display-list-add-byte 128)
    (display-list-add-byte #xff)
-   (display-list-end-packet prim-tile-value 1 128 2)
+   (display-list-end-packet command-tile-value 1 128 2)
    ;; nametable 2
    (display-list-add-byte 128)
    (display-list-add-byte #xff)
-   (display-list-end-packet prim-tile-value 2 0 2)
+   (display-list-end-packet command-tile-value 2 0 2)
    (display-list-add-byte 128)
    (display-list-add-byte #xff)
-   (display-list-end-packet prim-tile-value 2 128 2)
+   (display-list-end-packet command-tile-value 2 128 2)
    (display-list-add-byte 128)
    (display-list-add-byte #xff)
-   (display-list-end-packet prim-tile-value 3 0 2)
+   (display-list-end-packet command-tile-value 3 0 2)
    (display-list-add-byte 128)
    (display-list-add-byte #xff)
-   (display-list-end-packet prim-tile-value 3 128 2))
+   (display-list-end-packet command-tile-value 3 128 2))
+
+ ;; clear screen
+ (defun (clear-tiles2)
+   ;; nametable 1
+   (display-list-add-byte 128)
+   (display-list-add-byte #xff)
+   (display-list-end-packet command-tile-value 8 0 2)
+   (display-list-add-byte 128)
+   (display-list-add-byte #xff)
+   (display-list-end-packet command-tile-value 8 128 2)
+   (display-list-add-byte 128)
+   (display-list-add-byte #xff)
+   (display-list-end-packet command-tile-value 9 0 2)
+   (display-list-add-byte 128)
+   (display-list-add-byte #xff)
+   (display-list-end-packet command-tile-value 9 128 2)
+   ;; nametable 2
+   (display-list-add-byte 128)
+   (display-list-add-byte #xff)
+   (display-list-end-packet command-tile-value 10 0 2)
+   (display-list-add-byte 128)
+   (display-list-add-byte #xff)
+   (display-list-end-packet command-tile-value 10 128 2)
+   (display-list-add-byte 128)
+   (display-list-add-byte #xff)
+   (display-list-end-packet command-tile-value 11 0 2)
+   (display-list-add-byte 128)
+   (display-list-add-byte #xff)
+   (display-list-end-packet command-tile-value 11 128 2))
 
  ;; draw a load of consecutive tiles from chr-rom directly
  (defun (draw-image x y sx sy loc)
@@ -298,7 +345,7 @@
      (set! start (<< i 4)) ;; * 16
      (set! end (+ start j))
      (loop n start end (display-list-add-byte (+ loc n)))
-     (display-list-end-packet prim-tile-data x (+ y (<< i 5)) sx) ;; * 32
+     (display-list-end-packet command-tile-data x (+ y (<< i 5)) sx) ;; * 32
      (inc i)))
 
  ;; draws a single page of prg-rom defined tiles
@@ -307,19 +354,19 @@
    (display-list-add-byte (+ l 0))
    (display-list-add-byte h)
    (display-list-add-byte 64)
-   (display-list-end-packet prim-rom-data page 0 3)
+   (display-list-end-packet command-rom-data page 0 3)
    (display-list-add-byte (+ l 64))
    (display-list-add-byte h)
    (display-list-add-byte 64)
-   (display-list-end-packet prim-rom-data page 64 3)
+   (display-list-end-packet command-rom-data page 64 3)
    (display-list-add-byte (+ l 128))
    (display-list-add-byte h)
    (display-list-add-byte 64)
-   (display-list-end-packet prim-rom-data page 128 3)
+   (display-list-end-packet command-rom-data page 128 3)
    (display-list-add-byte (+ l 192))
    (display-list-add-byte h)
    (display-list-add-byte 64)
-   (display-list-end-packet prim-rom-data page 192 3))
+   (display-list-end-packet command-rom-data page 192 3))
 
  ;; draws an entire screens worth of prg-rom defined tiles
  (defun (draw-screen l h)
@@ -340,7 +387,7 @@
      (set! i (peek16 text-addr j))
      (display-list-add-byte i)
      (inc j))
-   (display-list-end-packet prim-tile-data h (+ l text-pos) j)
+   (display-list-end-packet command-tile-data h (+ l text-pos) j)
    )
 
  ;; gradually type text to screen
@@ -351,7 +398,7 @@
      ;; zero terminating strings
      (when (not (eq? i 0))
        (display-list-add-byte i)
-       (display-list-end-packet prim-tile-data h (+ l text-pos) 1)
+       (display-list-end-packet command-tile-data h (+ l text-pos) 1)
        (inc text-pos))
      (set! text-time 0)))
 
@@ -488,15 +535,17 @@
  (defun (doorway-collide-sprite-right sprite-id)
    (set! sprite-id (+ sprite-id 3))
    (doorway-collide-pos (+ (get-sprite-x sprite-id) 8) 
- 		       (get-sprite-y sprite-id)))
+			(get-sprite-y sprite-id)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
  ;; game modes
 
  (defun (switch-game-mode new-mode)
+   ;; clear all pending stuff in the queue
+   (display-list-flush)
    ;; blank the screen to hide update
    (display-list-add-byte black-palette-id) 
-   (display-list-end-packet prim-palette-change 0 0 1)
+   (display-list-end-packet command-palette-change 0 0 1)
    (set! ggame-mode new-mode)
    (set! text-pos 0)
    ;; reset the draw phase
@@ -524,11 +573,11 @@
      (clear-tiles)
      (set16! text-addr intropress))
     ;; wait before reveal
-    ((eq? gdraw-phase 20)
+    ((eq? gdraw-phase screen-blank-delay)
      (display-list-add-byte title-palette-id) 
-     (display-list-end-packet prim-palette-change 0 0 1))
+     (display-list-end-packet command-palette-change 0 0 1))
     ;; let clear happen first
-    ((> gdraw-phase 20)
+    ((> gdraw-phase screen-blank-delay)
      (update-typed-text 1 73)))
 
    (when (or
@@ -561,8 +610,8 @@
    (memset sprite-shadow #xff)
    
    (setup-character #x0 player-sprite)
-   (add-sprites-x! player-sprite 4 35)
-   (add-sprites-y! player-sprite 4 100)
+   (add-sprites-x! player-sprite 4 player-x)
+   (add-sprites-y! player-sprite 4 player-y)
    
    (setup-character dancer-id npc1-sprite)
    (add-sprites-x! npc1-sprite 4 200)
@@ -590,15 +639,24 @@
       ((eq? gdraw-phase 1) 
        (mmc1-chrbank0 2)
        (mmc1-chrbank1 3)
+       ;;(clear-tiles2)
+       (set! player-x 25)
+       (set! player-y 100)
+       (set! player-screen 0)
        (init-sprites-eighties))
      ;; separate phase so the textbox can redraw on clear
      ;; but leave the sprites where they are etc
      ((eq? gdraw-phase 2) 
-      (draw-screen (low bgtiles) (high bgtiles)))
+      (draw-screen (low bgtiles) (high bgtiles))
+      ;; try writing stuff to screen 2
+      (display-list-add-byte 128)
+      (display-list-add-byte #x17)
+      (display-list-end-packet command-tile-value 4 0 2)
+      )
      ;; wait before reveal
-     ((eq? gdraw-phase 20)
+     ((eq? gdraw-phase screen-blank-delay)
       (display-list-add-byte eighties-palette-id) 
-      (display-list-end-packet prim-palette-change 0 0 1)))
+      (display-list-end-packet command-palette-change 0 0 1)))
 
      (when (not (eq? gtext-box text-box-activated))
        (update-sprites-eighties))
@@ -623,22 +681,30 @@
      (set! direction (+ i #x26))
      ;; move the 4 sprites a bit
      (when (not (bb-collide-sprite-up player-sprite))
+       (set! player-y (- player-y 1))
        (sub-sprites-y! player-sprite 4 1)))
-
+    
     ((pressed joypad-down)
      (set! direction (+ i #x20))
      (when (not (bb-collide-sprite-down player-sprite))
+       (set! player-y (+ player-y 1))
        (add-sprites-y! player-sprite 4 1)))
 
     ((pressed joypad-left)
      (set! direction (+ i #x0a))
      (when (not (bb-collide-sprite-left player-sprite))
-       (sub-sprites-x! player-sprite 4 1)))
+       (set! player-x (- player-x 1))
+       ;;(if (> player-x 128)
+       ;;(set! gscroll-x (- gscroll-x 1))
+  	   (sub-sprites-x! player-sprite 4 1)));)
 
     ((pressed joypad-right)
      (set! direction (+ i #x04))
      (when (not (bb-collide-sprite-right player-sprite))
-       (add-sprites-x! player-sprite 4 1)))
+       (set! player-x (+ player-x 1))
+       ;;(if (> player-x 128)
+	 ;;  (set! gscroll-x (+ gscroll-x 1))
+	   (add-sprites-x! player-sprite 4 1)));)
 
     (else
      ;; we are not moving
@@ -712,7 +778,7 @@
    ;; random fuzz
    (display-list-add-byte (rnd)) 
    (display-list-end-packet 
-    prim-tile-data (and (rnd) #b00000111) 
+    command-tile-data (and (rnd) #b00000111) 
     gframe 1))
 
  (defun (update-future)
@@ -729,7 +795,7 @@
     ;; wait before reveal
     ((eq? gdraw-phase 20)
      (display-list-add-byte future-palette-id) 
-     (display-list-end-packet prim-palette-change 0 0 1))
+     (display-list-end-packet command-palette-change 0 0 1))
     ;; let clear happen first
     ((> gdraw-phase 20)
      (fuzz)     
@@ -756,12 +822,12 @@
    ;; clear sprite shadow
    (memset sprite-shadow #xff)
    ;; set mmc1 so we can update tiles/sprites separately
-   ;; (using 4k blocks rather than 8k ones)
-   (mmc1-control #b00010000)
+   ;; (using 4k blocks rather than 8k ones, mirror vertically)
+   (mmc1-control #b00010010)
 
    ;; load first palette
-   (display-list-add-byte title-palette-id) 
-   (display-list-end-packet prim-palette-change 0 0 1)
+   (display-list-add-byte black-palette-id) 
+   (display-list-end-packet command-palette-change 0 0 1)
 
    (asm
     "cli"            ;; restart interrupts again
@@ -775,6 +841,11 @@
    (set! reg-oam-dma sprite-dma)
    ;; dma the display list now
    (display-list-execute)
+
+   ;; update scroll pos
+   ;;(set! reg-ppu-scroll gscroll-x)
+   ;;(set! reg-ppu-scroll gscroll-y)
+
    ;; precious ppu update time ends
 
    ;; profiling display (breaks sprite update)
@@ -871,10 +942,10 @@
  (byte "$11,$21,$31,$30")
  (byte "$14,$22,$42,$90")
 
- (byte "$11,$21,$31,$30")
- (byte "$13,$23,$33,$30")
- (byte "$15,$25,$35,$30")
- (byte "$37,$42,$07,$98")
+ (byte "$31,$02,$03,$04")
+ (byte "$51,$72,$91,$30")
+ (byte "$51,$91,$81,$40")
+ (byte "$64,$72,$32,$43")
 
  (asm "black_palette:")
 

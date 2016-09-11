@@ -78,8 +78,7 @@
 
  (defun (init-graphics)
    (init-sprites)
-   (load-palette)
-   (set-background-tiles))
+   (load-palette))
 
  (defun (init-sprites)
    ;; clear page #2, which we'll use to hold sprite data
@@ -96,7 +95,7 @@
 
  (defun (load-palette)
    ;; copy 32 bytes of bg and sprite palette
-   (ppu-memcpy ppu-palette #x20 palette))
+   (ppu-memcpy ppu-palette 0 0 #x20 palette 0))
 
 
  (defvar rnd-v 200)
@@ -126,55 +125,43 @@
    (set! reg-oam-dma sprite-dma)
    (set! sx (+ sx (>> (rnd) 5)))
    (set! sy (+ sy (>> (rnd) 5)))
-   (set! reg-ppu-scroll sx)
-   (set! reg-ppu-scroll sy)
+   ;(set! reg-ppu-scroll sx)
+   ;(set! reg-ppu-scroll sy)
    (read-joypad)
 
-   (cond
-    ((pressed joypad-up) (sub-sprite-y! 0 1))
-    ((pressed joypad-down) (add-sprite-y! 0 2))
-    (else 0))
+   ;; (cond
+   ;;  ((pressed joypad-up) (sub-sprites-y! 0 1 1))
+   ;;  ((pressed joypad-down) (add-sprites-y! 0 1 2))
+   ;;  (else 0))
 
-   (cond
-    ((pressed joypad-left) (sub-sprite-x! 0 1))
-    ((pressed joypad-right) (add-sprite-x! 0 2))
-    (else 0))
+   ;; (cond
+   ;;  ((pressed joypad-left) (sub-sprites-x! 0 1 1))
+   ;;  ((pressed joypad-right) (add-sprites-x! 0 1 2))
+   ;;  (else 0))
 
-   (loop n
-         (and gframe #x3f)
-         (and (+ gframe 12) #x3f)
-         (if (< (rnd) 127)
-             (add-sprite-x! n (>> (rnd) 4))
-             (sub-sprite-x! n (>> (rnd) 4)))
-         )
-   (loop n
-         (and (+ gframe 7) #x3f)
-         (and (+ gframe 22) #x3f)
-         (if (< (rnd) 127)
-             (add-sprite-y! n (>> (rnd) 4))
-             (sub-sprite-y! n (>> (rnd) 4)))
-         )
+   ;; (loop n
+   ;;       (and gframe #x3f)
+   ;;       (and (+ gframe 12) #x3f)
+   ;;       (if (< (rnd) 127)
+   ;;           (add-sprites-x! n 1 (>> (rnd) 4))
+   ;;           (sub-sprites-x! n 1 (>> (rnd) 4)))
+   ;;       )
+   ;; (loop n
+   ;;       (and (+ gframe 7) #x3f)
+   ;;       (and (+ gframe 22) #x3f)
+   ;;       (if (< (rnd) 127)
+   ;;           (add-sprites-y! n 1 (>> (rnd) 4))
+   ;;           (sub-sprites-y! n 1 (>> (rnd) 4)))
+   ;;       )
 
-   (ppu-memset ppu-name-table-1 (rnd) (rnd))
+   (ppu-memset ppu-name-table-1 0 (rnd) 1 (rnd))
 
-   (ppu-memcpy ppu-palette #x20 palette)
+   (ppu-memcpy ppu-palette 0 0 #x20 palette 0)
 
    )
 
  (defvar tile-id 0)
 
- (defun (set-background-tiles)
-   (set! tile-id 4)
-   ;; off by one so size #x0 wraps to mean #xff...
-   (ppu-memset ppu-name-table-1 #x0 tile-id)
-   (ppu-memset-carry-on #x0 (- tile-id 20))
-   (ppu-memset-carry-on #x0 (+ tile-id 10))
-   (ppu-memset-carry-on #xc3 tile-id)
-
-   (ppu-memset ppu-name-table-3 #x0 10)
-   (ppu-memset-carry-on #x0 60)
-   (ppu-memset-carry-on #x0 50)
-   (ppu-memset-carry-on #xc3 40))
 
  (defvar snd 0)
 
@@ -183,8 +170,8 @@
    (update-sprite)
 
    ;; test scrolling
-   ;;(set! reg-ppu-scroll gframe)
-   ;;(set! reg-ppu-scroll gframe)
+   (set! reg-ppu-scroll gframe)
+   (set! reg-ppu-scroll gframe)
 
    ;; do some stuff with sound
    (set! reg-apu-channel (xor (rnd) 123))

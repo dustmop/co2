@@ -22,6 +22,8 @@
 
  (defvar n 0)
  (defvar k 0)
+ (defvar n16 0)
+ (defvar n16-h 0)
 
  (defvar assertpos 0)
 
@@ -139,13 +141,13 @@
    (loop n 0 5 (inc k))
    (assert (eq? k 6))
 
-   (set! k 255)
-   (assert (not (< k 255)))
-   (while (and (< k 255) (not (eq? k 0))) 
-     (dec k))
-   (assert (eq? k 255))
    (set! k 254)
-   (while (and (< k 255) (not (eq? k 0))) 
+   (assert (not (< k 254)))
+   (while (and (< k 254) (not (eq? k 0))) 
+     (dec k))
+   (assert (eq? k 254))
+   (set! k 253)
+   (while (and (< k 254) (not (eq? k 0))) 
      (dec k))
    (assert (eq? k 0))
 
@@ -157,6 +159,24 @@
    (assert (not (<= -100 10)))
    (assert (<=s -100 10))
    (assert (<=s -10 -10))
+
+   ;; 16 bit maths
+
+   (+16! n16 0 255)
+   (assert (eq? n16 255))
+   (assert (eq? n16-h 0))
+   (+16! n16 0 1)
+   (assert (eq? n16 0))
+   (assert (eq? n16-h 1))
+   (+16! n16 2 0)
+   (assert (eq? n16 0))
+   (assert (eq? n16-h 3))
+   (-16! n16 0 8)
+   (assert (eq? n16 248))
+   (assert (eq? n16-h 2))
+   (-16! n16 2 10)
+   (assert (eq? n16 238))
+   (assert (eq? n16-h 0))
 
    ;; set basic ppu registers.  load background from $0000,
    ;; sprites from $1000, and the name table from $2000.

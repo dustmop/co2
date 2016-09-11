@@ -591,11 +591,14 @@
 ;; (if pred then else)
 (define (emit-if x)
   (let ((false-label (generate-label "if_false"))
+	(true-label (generate-label "if_true"))
         (end-label (generate-label "if_end")))
     (append
      (emit-expr (list-ref x 1))
      (emit "cmp" "#0")
-     (emit "beq" false-label)
+     (emit "bne" true-label)
+     (emit "jmp" false-label)
+     (emit-label true-label)
      (emit-expr (list-ref x 2)) ;; true block
      (emit "jmp" end-label)
      (emit-label false-label)
@@ -619,10 +622,13 @@
 (define (emit-while x)
   (let ((loop-label (generate-label "while_loop"))
 	(end-label (generate-label "while_loop_end"))
-	(next-label (generate-label "while_loop_next")))
+	(next-label (generate-label "while_loop_next"))
+	(pred-label (generate-label "while_loop_pred")))
     (append
+     (emit "jmp" pred-label) ;; check first
      (emit-label loop-label)
      (emit-expr-list (cddr x)) ;; loop block
+     (emit-label pred-label)
      (emit-expr (list-ref x 1)) ;; predicate
      (emit "bne" next-label)
      (emit "jmp" end-label)
@@ -749,20 +755,39 @@
      (emit "dex")
      (emit "bne" label))))
 
-;; add an 8 bit number to a 16 bit one
-(define (emit-add16-8 x)
-  (emit-expr (list-ref x 2)) ; 8 bit num
-  (emit "sta" working-reg)
-  (emit "ldy #1")
-  (emit "lda" (string-append "(" (immediate-value (list-ref x 1)) ")") ",y")
-  (emit "adc" working-reg)
-  (emit "sta" (string-append "(" (immediate-value (list-ref x 1)) ")") ",y")
-  (emit "ldy #0")
-  (emit "lda #0")
-  (emit "sta" working-reg)
-  (emit "lda" (string-append "(" (immediate-value (list-ref x 1)) ")") ",y")
-  (emit "adc" working-reg)
-  (emit "sta" (string-append "(" (immediate-value (list-ref x 1)) ")") ",y"))
+;; add two 8 bit numbers to a 16 bit one
+(define (emit-add16 x)
+  (append
+   (emit-expr (list-ref x 2)) ; high 8 bit num
+   (emit "pha")
+   (emit-expr (list-ref x 3)) ; low 8 bit num
+   (emit "sta" working-reg)
+   (emit "lda" (string-append "(" (immediate-value (list-ref x 1)) ")") )
+   (emit "clc")
+   (emit "adc" working-reg)
+   (emit "sta" (string-append "(" (immediate-value (list-ref x 1)) ")"))
+   (emit "pla")
+   (emit "sta" working-reg)
+   (emit "lda" (string-append "(" (immediate-value (list-ref x 1)) "+1)"))
+   (emit "adc" working-reg)
+   (emit "sta" (string-append "(" (immediate-value (list-ref x 1)) "+1)"))))
+
+;; subtract two 8 bit numbers to a 16 bit one
+(define (emit-sub16 x)
+  (append
+   (emit-expr (list-ref x 2)) ; high 8 bit num
+   (emit "pha")
+   (emit-expr (list-ref x 3)) ; low 8 bit num
+   (emit "sta" working-reg)
+   (emit "lda" (string-append "(" (immediate-value (list-ref x 1)) ")") )
+   (emit "sec")
+   (emit "sbc" working-reg)
+   (emit "sta" (string-append "(" (immediate-value (list-ref x 1)) ")"))
+   (emit "pla")
+   (emit "sta" working-reg)
+   (emit "lda" (string-append "(" (immediate-value (list-ref x 1)) "+1)"))
+   (emit "sbc" working-reg)
+   (emit "sta" (string-append "(" (immediate-value (list-ref x 1)) "+1)"))))
  
 
 ;; (define (emit-mod x)
@@ -844,7 +869,8 @@
    ((eq? (car x) '>>) (emit-right-shift x))
    ((eq? (car x) 'high) (emit "lda" (string-append "#>" (symbol->string (cadr x)))))
    ((eq? (car x) 'low) (emit "lda" (string-append "#<" (symbol->string (cadr x)))))
-   ;;((eq? (car x) '+16) (emit-add16 x))
+   ((eq? (car x) '+16!) (emit-add16 x))
+   ((eq? (car x) '-16!) (emit-sub16 x))
    ((eq? (car x) '_rnd) (emit-rnd x))
    ((eq? (car x) 'wait-vblank)
     (append (emit "- lda $2002")
