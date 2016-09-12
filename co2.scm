@@ -533,6 +533,35 @@
      (emit "bne" label))))
 
 ;; optimised version of poke for sprites
+(define (emit-set-sprites-x-2x2! x)
+  (append
+   (emit-expr (list-ref x 2)) ;; value
+   (emit "pha")
+   (emit-expr (list-ref x 1)) ;; sprite addr
+   (emit "tay") ;; put offset in y
+   (emit "pla") ;; value
+   (emit "sta" "$203,y")
+   (emit "sta" "$20b,y")
+   (emit "clc")
+   (emit "adc" "#8") 
+   (emit "sta" "$207,y")
+   (emit "sta" "$20f,y")))
+
+(define (emit-set-sprites-y-2x2! x)
+  (append
+   (emit-expr (list-ref x 2)) ;; value
+   (emit "pha")
+   (emit-expr (list-ref x 1)) ;; sprite addr
+   (emit "tay") ;; put offset in y
+   (emit "pla") ;; value
+   (emit "sta" "$200,y")
+   (emit "sta" "$204,y")
+   (emit "clc")
+   (emit "adc" "#8") 
+   (emit "sta" "$208,y")
+   (emit "sta" "$20c,y")))
+
+;; optimised version of poke for sprites
 (define (emit-animate-sprites-2x2! x)
   (append
    (emit-expr (list-ref x 2)) ;; value
@@ -571,21 +600,21 @@
 ;;    (emit "lda" "$203,y") ;; sprite 2 x coord
 
 
-
-
 ;; (loop var from to expr)
+;; todo: fix branch limit
 (define (emit-loop x)
-  (let ((label (generate-label "loop")))
+  (let ((label-start (generate-label "loop_start"))
+	(label-end (generate-label "loop_end")))
     (append
      (emit-expr (list-ref x 2))
      (emit "sta" (immediate-value (list-ref x 1)))
-     (emit-label label)
+     (emit-label label-start)
      (emit-expr-list (cddddr x))
      (emit "sta" working-reg) ;; store return in case we need it
      (emit "inc" (immediate-value (list-ref x 1)))
      (emit-expr (list-ref x 3))
      (emit "cmp" (immediate-value (list-ref x 1)))
-     (emit "bcs" label)
+     (emit "bcs" label-start)
      (emit "lda" working-reg)))) ;; retrieve return
 
 ;; (if pred then else)
@@ -891,6 +920,8 @@
    ((eq? (car x) 'get-sprite-id) (emit-get-sprite 1 x))
    ((eq? (car x) 'get-sprite-attr) (emit-get-sprite 2 x))
    ((eq? (car x) 'get-sprite-x) (emit-get-sprite 3 x))
+   ((eq? (car x) 'set-sprites-2x2-x!) (emit-set-sprites-x-2x2! x))
+   ((eq? (car x) 'set-sprites-2x2-y!) (emit-set-sprites-y-2x2! x))
    ((eq? (car x) 'add-sprites-x!) (emit-zzz-sprites! 3 "adc" x))
    ((eq? (car x) 'add-sprites-y!) (emit-zzz-sprites! 0 "adc" x))
    ((eq? (car x) 'sub-sprites-x!) (emit-zzz-sprites! 3 "sbc" x))

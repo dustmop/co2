@@ -22,9 +22,6 @@
  (defconst pad-data      "$400") ;; cache of the current pad state
  (defconst entity-data   "$500") ;; entity state list
 
- (defconst entity-x "#1")
- (defconst entity-x-h "#2")
- 
  ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
  ;; display commands
  ;; ----------------
@@ -77,10 +74,6 @@
 
  (defvar gscroll-x 0)
  (defvar gscroll-y 0)
-
- (defvar player-x 0)
- (defvar player-y 0)
- (defvar player-screen 0)
 
  ;; random locals for use anywhere
  (defvar n 0)
@@ -405,14 +398,14 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
  ;; textbox for character chat
 
-;; gtext-box is used both as activation and countdown
-;; to avoid repeated activation when next to characters
+ ;; gtext-box is used both as activation and countdown
+ ;; to avoid repeated activation when next to characters
 
-(defconst text-box-deactivated "#0")
-(defconst text-box-activated "#254")
-(defconst text-box-start-delay "#253")
+ (defconst text-box-deactivated "#0")
+ (defconst text-box-activated "#254")
+ (defconst text-box-start-delay "#253")
 
-;; create the text box
+ ;; create the text box
  (defun (show-textbox)   
    (when (eq? gtext-box text-box-deactivated)  ;; not shown already
      (set! text-pos 0)                         ;; reset typing pos
@@ -428,7 +421,7 @@
    (when (and (< gtext-box text-box-activated) 
 	      (not (eq? gtext-box text-box-deactivated))) 
      (dec gtext-box)))
-   
+ 
 
  ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
  ;; sprite stuff
@@ -484,23 +477,23 @@
 
  (defun (bb-collide-sprite-left sprite-id)
    (set! sprite-id (+ sprite-id 2))
-   (bb-collide-pos (get-sprite-x sprite-id) 
-		   (get-sprite-y sprite-id)))
+   (bb-collide-pos (- (get-sprite-x sprite-id) gscroll-x) 
+		   (- (get-sprite-y sprite-id) gscroll-y)))
 
  (defun (bb-collide-sprite-right sprite-id)
    (set! sprite-id (+ sprite-id 3))
-   (bb-collide-pos (+ (get-sprite-x sprite-id) 8) 
-		   (get-sprite-y sprite-id)))
+   (bb-collide-pos (- (+ (get-sprite-x sprite-id) 8) gscroll-x)
+		   (- (get-sprite-y sprite-id) gscroll-y)))
 
  (defun (bb-collide-sprite-up sprite-id)
    (set! sprite-id (+ sprite-id 1))
-   (bb-collide-pos (get-sprite-x sprite-id) 
-		   (get-sprite-y sprite-id)))
+   (bb-collide-pos (- (get-sprite-x sprite-id) gscroll-x) 
+		   (- (get-sprite-y sprite-id) gscroll-y)))
 
  (defun (bb-collide-sprite-down sprite-id)
    (set! sprite-id (+ sprite-id 3))
-   (bb-collide-pos (get-sprite-x sprite-id) 
-		   (+ (get-sprite-y sprite-id) 8)))
+   (bb-collide-pos (- (get-sprite-x sprite-id) gscroll-x)
+		   (- (+ (get-sprite-y sprite-id) 8) gscroll-y)))
 
  (defun (bb-collide-pos x y)
    ;; read the length of rects to get the end
@@ -521,7 +514,7 @@
      (set! i (+ i 4))) ;; next bbox
    j)
 
-;; doors to other dimensions
+ ;; doors to other dimensions
 
  (defun (doorway-collide-pos x y)
    (and ;; check bounding boxes
@@ -534,8 +527,64 @@
 
  (defun (doorway-collide-sprite-right sprite-id)
    (set! sprite-id (+ sprite-id 3))
-   (doorway-collide-pos (+ (get-sprite-x sprite-id) 8) 
+   (doorway-collide-pos (+ (get-sprite-x sprite-id) 8)
 			(get-sprite-y sprite-id)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+ ;; entity system
+
+ (defconst entity-id "#0") ;; the sprite id
+ (defconst entity-x "#1")
+ (defconst entity-screen "#2") ;; the high byte of x
+ (defconst entity-y "#3")
+ (defconst entity-state "#4") ;; for whatever
+ (defconst entity-size "#5")
+
+ (defconst num-entities "#4")
+
+ (defconst player-entity "#0")
+ (defconst npc1-entity "#5")
+ (defconst npc2-entity "#10")
+ (defconst npc3-entity "#15")
+
+ (defconst player-sprite "#0")
+
+ (defconst player-sprite-pattern-id "#$00")
+ (defconst dancer-sprite-pattern-id "#$c0")
+
+ (defun (setup-npc-entity eaddr x y col)
+   (set! n (peek entity-data (+ eaddr entity-id))) ;; entity/sprite id
+   (setup-character dancer-sprite-pattern-id n)
+   (or-sprites-attr! n 4 col)
+   (poke! entity-data (+ eaddr entity-x) x)
+   (poke! entity-data (+ eaddr entity-y) y))
+
+ (defun (init-entities)
+   (set! j 0)
+   (loop i 0 num-entities
+	 (poke! entity-data (+ j entity-id) (<< i 2)) ;; * 4 sprite id
+	 (set! j (+ j entity-size)))
+
+   (set! n (peek entity-data (+ player-entity entity-id)))
+   (setup-character player-sprite-pattern-id n)
+   (poke! entity-data (+ n entity-x) 20)
+   (poke! entity-data (+ n entity-y) 100)
+   
+   (setup-npc-entity npc1-entity 200 170 10)
+   (setup-npc-entity npc2-entity 220 140 11)
+   (setup-npc-entity npc3-entity 170 200 01)
+   )
+
+ (defun (update-entities)
+   (set! n 0) ;; entity addr
+   (set! j 0) ;; sprite addr
+   (set! i 0) ;; entity id
+   (while (< i num-entities)
+     (set-sprites-2x2-x! j (- (peek entity-data (+ n entity-x)) gscroll-x))
+     (set-sprites-2x2-y! j (- (peek entity-data (+ n entity-y)) gscroll-y))
+     (set! j (+ j 16)) ;; 4 sprites in bytes
+     (set! n (+ n entity-size))
+     (inc i)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
  ;; game modes
@@ -597,36 +646,12 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
  ;; eighties
 
- (defconst player-sprite "#0")
- (defconst npc1-sprite "#4")
- (defconst npc2-sprite "#8")
- (defconst npc3-sprite "#12")
-
- (defconst dancer-id "#$c0")
 
  (defun (init-sprites-eighties)
    ;; clear page #2, which we'll use to hold sprite data
    ;; (memset writes 256 bytes in one go)
    (memset sprite-shadow #xff)
-   
-   (setup-character #x0 player-sprite)
-   (add-sprites-x! player-sprite 4 player-x)
-   (add-sprites-y! player-sprite 4 player-y)
-   
-   (setup-character dancer-id npc1-sprite)
-   (add-sprites-x! npc1-sprite 4 200)
-   (add-sprites-y! npc1-sprite 4 170)
-   (or-sprites-attr! npc1-sprite 4 10)
-   
-   (setup-character dancer-id npc2-sprite)
-   (add-sprites-x! npc2-sprite 4 220)
-   (add-sprites-y! npc2-sprite 4 140)
-   (or-sprites-attr! npc2-sprite 4 11)
-   
-   (setup-character dancer-id npc3-sprite)
-   (add-sprites-x! npc3-sprite 4 170)
-   (add-sprites-y! npc3-sprite 4 200)
-   (or-sprites-attr! npc3-sprite 4 01)
+   (init-entities)
    
    (defvar direction 1)
    (defvar last-dir 1)
@@ -639,24 +664,20 @@
       ((eq? gdraw-phase 1) 
        (mmc1-chrbank0 2)
        (mmc1-chrbank1 3)
-       ;;(clear-tiles2)
-       (set! player-x 25)
-       (set! player-y 100)
-       (set! player-screen 0)
        (init-sprites-eighties))
-     ;; separate phase so the textbox can redraw on clear
-     ;; but leave the sprites where they are etc
-     ((eq? gdraw-phase 2) 
-      (draw-screen (low bgtiles) (high bgtiles))
-      ;; try writing stuff to screen 2
-      (display-list-add-byte 128)
-      (display-list-add-byte #x17)
-      (display-list-end-packet command-tile-value 4 0 2)
-      )
-     ;; wait before reveal
-     ((eq? gdraw-phase screen-blank-delay)
-      (display-list-add-byte eighties-palette-id) 
-      (display-list-end-packet command-palette-change 0 0 1)))
+      ;; separate phase so the textbox can redraw on clear
+      ;; but leave the sprites where they are etc
+      ((eq? gdraw-phase 2) 
+       (draw-screen (low bgtiles) (high bgtiles))
+       ;; try writing stuff to screen 2
+       (display-list-add-byte 128)
+       (display-list-add-byte #x17)
+       (display-list-end-packet command-tile-value 4 0 2)
+       )
+      ;; wait before reveal
+      ((eq? gdraw-phase screen-blank-delay)
+       (display-list-add-byte eighties-palette-id) 
+       (display-list-end-packet command-palette-change 0 0 1)))
 
      (when (not (eq? gtext-box text-box-activated))
        (update-sprites-eighties))
@@ -666,7 +687,7 @@
 
    (update-textbox))
 
- (defun (update-sprites-eighties)
+ (defun (update-player player-sprite)
    ;; is the player character moving?
    (defvar running 1)
    (set! i 0)
@@ -681,30 +702,24 @@
      (set! direction (+ i #x26))
      ;; move the 4 sprites a bit
      (when (not (bb-collide-sprite-up player-sprite))
-       (set! player-y (- player-y 1))
-       (sub-sprites-y! player-sprite 4 1)))
+       (poke! entity-data entity-y (- (peek entity-data entity-y) 1))))
     
     ((pressed joypad-down)
      (set! direction (+ i #x20))
      (when (not (bb-collide-sprite-down player-sprite))
-       (set! player-y (+ player-y 1))
-       (add-sprites-y! player-sprite 4 1)))
+       (poke! entity-data entity-y (+ (peek entity-data entity-y) 1))))
 
     ((pressed joypad-left)
      (set! direction (+ i #x0a))
      (when (not (bb-collide-sprite-left player-sprite))
-       (set! player-x (- player-x 1))
-       ;;(if (> player-x 128)
-       ;;(set! gscroll-x (- gscroll-x 1))
-  	   (sub-sprites-x! player-sprite 4 1)));)
+       ;;(when (> (peek entity-data entity-x) 128) (set! gscroll-x (- gscroll-x 1)))
+       (poke! entity-data entity-x (- (peek entity-data entity-x) 1))))
 
     ((pressed joypad-right)
      (set! direction (+ i #x04))
      (when (not (bb-collide-sprite-right player-sprite))
-       (set! player-x (+ player-x 1))
-       ;;(if (> player-x 128)
-	 ;;  (set! gscroll-x (+ gscroll-x 1))
-	   (add-sprites-x! player-sprite 4 1)));)
+       ;;(when (> (peek entity-data entity-x) 128) (set! gscroll-x (+ gscroll-x 1)))
+       (poke! entity-data entity-x (+ (peek entity-data entity-x) 1))))
 
     (else
      ;; we are not moving
@@ -727,47 +742,41 @@
        (animate-sprites-2x2! player-sprite #x0)))
    
    (when running
-     (set! last-dir direction))
+     (set! last-dir direction)))
 
-   ;; the NPC's
+ (defun (update-npc id)
+   ;; convert from entity id to sprite id
+   (set! id (peek entity-data (+ id entity-id)))
+   (when (sprite-collide-sprite player-sprite id)
+     (cond 
+      ((eq? (and (>> ganim-frame 3) #x3) 0)
+       (animate-sprites-2x2! id dancer-sprite-pattern-id))
+      ((eq? (and (>> ganim-frame 3) #x3) 1)
+       (animate-sprites-2x2! id (+ dancer-sprite-pattern-id 2)))
+      (else
+       (animate-sprites-2x2! id (+ dancer-sprite-pattern-id 4))))))
+
+ (defun (update-sprites-eighties)
+   (update-player player-sprite)
+   (update-npc npc1-entity)
+   (update-npc npc2-entity)
+   (update-npc npc3-entity)
+
    ;; get them to react to the player
-   (when (sprite-collide-sprite player-sprite npc1-sprite)
+   (when (sprite-collide-sprite 0 (peek entity-data (+ npc1-entity entity-id)))
      (set16! text-addr npcsays) ;; what to say
      (show-textbox))
-
-   (cond 
-    ((eq? (and (>> ganim-frame 3) #x3) 0)
-     (animate-sprites-2x2! npc1-sprite dancer-id))
-    ((eq? (and (>> ganim-frame 3) #x3) 1)
-     (animate-sprites-2x2! npc1-sprite (+ dancer-id 2)))
-    (else
-     (animate-sprites-2x2! npc1-sprite (+ dancer-id 4))))
-
-   (when (sprite-collide-sprite player-sprite npc2-sprite)
-     (cond 
-      ((eq? (and (>> ganim-frame 3) #x3) 0)
-       (animate-sprites-2x2! npc2-sprite dancer-id))
-      ((eq? (and (>> ganim-frame 3) #x3) 1)
-       (animate-sprites-2x2! npc2-sprite (+ dancer-id 2)))
-      (else
-       (animate-sprites-2x2! npc2-sprite (+ dancer-id 4)))))
-
-   (when (sprite-collide-sprite player-sprite npc3-sprite)
-     (cond 
-      ((eq? (and (>> ganim-frame 3) #x3) 0)
-       (animate-sprites-2x2! npc3-sprite dancer-id))
-      ((eq? (and (>> ganim-frame 3) #x3) 1)
-       (animate-sprites-2x2! npc3-sprite (+ dancer-id 2)))
-      (else
-       (animate-sprites-2x2! npc3-sprite (+ dancer-id 4)))))
 
    ;; exit to future level
    (when (doorway-collide-sprite-right player-sprite)
      (switch-game-mode future-mode))
+
+   (update-entities)
    
    (inc ganim-frame)
    (when (> ganim-frame 23)
      (set! ganim-frame 0))
+
 
    )
 
@@ -805,7 +814,7 @@
    (when (pressed joypad-select)
      (switch-game-mode eighties-mode))
 
-      
+   
    (update-sprites-future))
 
  (defun (update-sprites-future)
@@ -843,8 +852,8 @@
    (display-list-execute)
 
    ;; update scroll pos
-   ;;(set! reg-ppu-scroll gscroll-x)
-   ;;(set! reg-ppu-scroll gscroll-y)
+   (set! reg-ppu-scroll gscroll-x)
+   (set! reg-ppu-scroll gscroll-y)
 
    ;; precious ppu update time ends
 
@@ -891,14 +900,14 @@
  ;; bounding box data
  (asm "collision_bboxes")
  (byte "5") ;; number of boxes
-(byte "58, 90, 156, 155")
-(byte "80, 82, 173, 147")
-(byte "0, 0, 22, 238")
-(byte "0, 0, 255, 45")
-(byte "197, 0, 255, 91")
+ (byte "58, 90, 156, 155")
+ (byte "80, 82, 173, 147")
+ (byte "0, 0, 22, 238")
+ (byte "0, 0, 255, 45")
+ (byte "197, 0, 255, 91")
 
-(asm "doorway_bbox")
-(byte "246, 164, 255, 197")
+ (asm "doorway_bbox")
+ (byte "230, 164, 255, 197")
 
  ;; screen tiles
  (asm ".align $100") ;; align so we don't need 16 address maths!
