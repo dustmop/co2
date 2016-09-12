@@ -695,10 +695,8 @@
      (emit-expr (list-ref x 2))
      (emit "sta" working-reg)
      (emit "pla")
-     (emit "clc")
-     (emit "adc" "#1")
-     (emit "sbc" working-reg)
-     (emit instr true-label) ;; branch on minus
+     (emit "cmp" working-reg)
+     (emit instr true-label) 
      (emit "lda" "#0")
      (emit "jmp" end-label)
      (emit-label true-label)
@@ -768,6 +766,26 @@
          (list-ref x 2)
          (lambda (i) "lsr")))))
 
+(define (emit-sub x)
+  (append
+   (emit-expr (cadr x))
+   (emit "pha")
+   (emit-expr (caddr x))
+   (emit "sta" working-reg)
+   (emit "pla")
+   (emit "sec")
+   (emit "sbc" working-reg)))
+
+(define (emit-add x)
+  (append
+   (emit-expr (cadr x))
+   (emit "pha")
+   (emit-expr (caddr x))
+   (emit "sta" working-reg)
+   (emit "pla")
+   (emit "clc")
+   (emit "adc" working-reg)))
+
 (define (emit-mul x)
   (let ((label (generate-label "mul")))
     (append
@@ -791,8 +809,8 @@
    (emit "pha")
    (emit-expr (list-ref x 3)) ; low 8 bit num
    (emit "sta" working-reg)
-   (emit "lda" (string-append "(" (immediate-value (list-ref x 1)) ")") )
    (emit "clc")
+   (emit "lda" (string-append "(" (immediate-value (list-ref x 1)) ")") )
    (emit "adc" working-reg)
    (emit "sta" (string-append "(" (immediate-value (list-ref x 1)) ")"))
    (emit "pla")
@@ -808,8 +826,8 @@
    (emit "pha")
    (emit-expr (list-ref x 3)) ; low 8 bit num
    (emit "sta" working-reg)
-   (emit "lda" (string-append "(" (immediate-value (list-ref x 1)) ")") )
    (emit "sec")
+   (emit "lda" (string-append "(" (immediate-value (list-ref x 1)) ")") )
    (emit "sbc" working-reg)
    (emit "sta" (string-append "(" (immediate-value (list-ref x 1)) ")"))
    (emit "pla")
@@ -886,9 +904,9 @@
    ((eq? (car x) '<=s) (emit-<= x "bmi"))
    ((eq? (car x) '>s) (emit-> x "bpl"))
    ((eq? (car x) 'not) (emit-not x))
-   ((eq? (car x) '+) (append (emit "clc") (binary-procedure "adc" x)))
-   ((eq? (car x) '-) (append (emit "sec") (binary-procedure "sbc" x)))
-   ((eq? (car x) '*) (append (emit "clc") (emit-mul x)))
+   ((eq? (car x) '+) (emit-add x))
+   ((eq? (car x) '-) (emit-sub x))
+   ((eq? (car x) '*) (emit-mul x))
    ((eq? (car x) 'and) (binary-procedure "and" x))
    ((eq? (car x) 'or) (binary-procedure "ora" x))
    ((eq? (car x) 'xor) (binary-procedure "eor" x))

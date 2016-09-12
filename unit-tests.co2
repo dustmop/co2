@@ -178,6 +178,20 @@
    (assert (eq? n16 238))
    (assert (eq? n16-h 0))
 
+   (set! n16 0)
+   (set! n16-h 1)
+   (-16! n16 0 1)
+   (assert (eq? n16 255))
+   (assert (eq? n16-h 0))
+
+   ;; stupid cmp error check
+   (assert (not (< 255 255))) 
+   (set! n 255)
+   (assert (not (< n 255)))
+
+   (assert (not (> 1 1)))
+
+
    ;; set basic ppu registers.  load background from $0000,
    ;; sprites from $1000, and the name table from $2000.
    (set! reg-ppu-ctl #b10001000)
