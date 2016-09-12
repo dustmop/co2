@@ -972,7 +972,7 @@
      (inc gdraw-phase))
 
    ;; update sound driver
-;;   (asm "jsr FamiToneUpdate")
+   (asm "jsr FamiToneUpdate")
 
    ;; (asm "
    ;; 	lda #%00001110
