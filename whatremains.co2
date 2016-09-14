@@ -10,7 +10,7 @@
  (asm
   ".byte \"NES\",$1a" ;; "NES" followed by MS-DOS end-of-file
    ".byte $02" ;; number of prg-rom blocks in 16 KB units
-   ".byte $03"  ;; number of chr-rom blocks 8 KB units (value 0 means the board uses CHR RAM)   
+   ".byte $04"  ;; number of chr-rom blocks 8 KB units (value 0 means the board uses CHR RAM)   
    ".byte $11" ;; flags 6 (mapper = 1 in high nybble), vertical mirror in lower nybble
    ".byte $00" ;; flags 7 - more rom control bytes
    ".byte $00,$00,$00,$00,$00,$00,$00,$00")
@@ -681,6 +681,8 @@
  (defun (update-title)
    (cond
     ((eq? gdraw-phase 1) 
+     (set! gscroll-x 0)
+     (set! setup-eighties 0)
      (mmc1-chrbank0 0)
      (mmc1-chrbank1 1)
      (update-sprites-title))
@@ -920,13 +922,15 @@
  (defint (reset)
    (init-system)
    (disable-rendering)
+
+   ;; set mmc1 so we can update tiles/sprites separately
+   ;; (using 4k blocks rather than 8k ones, mirror vertically)
+   (mmc1-control #b00010010)
+
    (init-sound)
    (enable-rendering)
    ;; clear sprite shadow
    (memset sprite-shadow #xff)
-   ;; set mmc1 so we can update tiles/sprites separately
-   ;; (using 4k blocks rather than 8k ones, mirror vertically)
-   (mmc1-control #b00010010)
 
    ;; load first palette
    (display-list-add-byte black-palette-id) 
@@ -1078,22 +1082,21 @@
 
  ;; finally ppu-rom 
  (asm 
-  ".incbin \"binary/whatremains-title-tiles.chr\""
   ".align $1000"
-  ".incbin \"binary/whatremains-title-sprites.chr\""
-  ".align $1000")
+  ".incbin \"binary/whatremains-title-tiles.chr\""
+  ".incbin \"binary/whatremains-title-sprites.chr\"")
 
  (asm 
   ".incbin \"binary/whatremains-eighties-tiles.chr\""
-  ".align $1000"
-  ".incbin \"binary/whatremains-eighties-sprites.chr\""
-  ".align $1000")
+  ".incbin \"binary/whatremains-eighties-sprites.chr\"")
  
  (asm 
   ".incbin \"binary/whatremains-future-tiles.chr\""
-  ".align $1000"
-  ".incbin \"binary/whatremains-future-sprites.chr\""
-  ".align $1000")
+  ".incbin \"binary/whatremains-future-sprites.chr\"")
+
+ (asm 
+  ".incbin \"binary/whatremains-future-tiles.chr\""
+  ".incbin \"binary/whatremains-future-sprites.chr\"")
  
 
 
