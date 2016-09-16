@@ -6,7 +6,7 @@ A lisp for building NES/Famicom games.
 
 More impressive screenshots to follow.
 
-Generates 6502 assembly tested with ![asm6](https://github.com/freem/asm6f) and ![nestopia](http://nestopia.sourceforge.net/).
+Generates 6502 assembly tested with [asm6](https://github.com/freem/asm6f) and [nestopia](http://nestopia.sourceforge.net/).
 
 Quite close to asm, no garbage collection, variables and direct memory
 peek/poke only. Supports decent recursion compatible function calling
