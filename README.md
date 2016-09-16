@@ -47,6 +47,12 @@ Small example code, for reading the joypad button state:
             
 See example.co2 for more of this.
 
+## Quick start
+
+Requires racket, asm6 and nestopia
+
+    $ ./build.sh example/example.co2
+
 ## Memory use
 
     $000 - $0fa : defvar reserves it's addresses here
