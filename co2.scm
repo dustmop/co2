@@ -1038,10 +1038,10 @@
   (list 'and (list '>> (list 'get-sprite-attr (cadr x)) 6) #x01))
 
 (define (preprocess-set-sprite-vflip! x)
-  (list 'or-sprite-attr! (list-ref x 1) (list '<< (list-ref x 2) 6)))
+  (list 'set-sprite-attr! (list-ref x 1) (list '<< (list-ref x 2) 6)))
 
 (define (preprocess-set-sprite-hflip! x)
-  (list 'or-sprite-attr! (list-ref x 1) (list '<< (list-ref x 2) 7)))
+  (list 'set-sprite-attr! (list-ref x 1) (list '<< (list-ref x 2) 7)))
 
 ;; basically diy-macro from the main tinyscheme stuff
 (define (pre-process s)

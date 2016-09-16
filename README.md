@@ -8,13 +8,14 @@ More impressive screenshots to follow.
 
 Generates 6502 assembly tested with ![asm6](https://github.com/freem/asm6f) and ![nestopia](http://nestopia.sourceforge.net/).
 
-Everything 8 bit currently, no garbage collection, variables and
-direct memory peek/poke only. Supports function calling with arguments
-stored on the stack. We are working on NES specific calls for sprites,
-backgrounds and sound. All that is experimental for now.
+Quite close to asm, no garbage collection, variables and direct memory
+peek/poke only. Supports decent recursion compatible function calling
+with arguments stored on the stack. Comes with NES specific calls for
+sprites, backgrounds and sound as used in a game.
 
 16bit base addresses are generally specified via constants or
-predefined registers with 8 bit offsets.
+predefined registers with 8 bit offsets. Some 16bit functionality, but
+not fully there yet.
 
 Small example code, for reading the joypad button state:
 
@@ -152,6 +153,26 @@ false (0):
 
     (when (> (sprite-x player-sprite) 100) 
         (do-something))
+
+### (<= a b)
+
+returns true (1) if a byte is less than or equal to another otherwise
+returns false (0):
+
+    (when (<= (sprite-x player-sprite) 100) 
+        (do-something))
+
+### (<s a b)
+
+signed version of <
+
+### (>s a b)
+
+signed version of >
+
+### (<=s a b)
+
+signed version of <=
 
 ### (not a)
 
@@ -307,6 +328,80 @@ decrement a variable by one - maps to a single instruction
     (defvar num-poodles 10)
     (set! num-poodles (>> num-poodles 1)) ;; 5 = 10/2
 
+# 16 bit commands
+
+some stuff to simplify 16bit operations - very unpolished
+
+### (set16! variable value)
+
+a special two byte assignment from 16bit address label
+
+    ;; must be contiguous
+    (defvar addr-l 0)
+    (defvar addr-h 0)
+
+    (set16! addr-l mydata)
+
+    ...
+
+    (asm "mydata:")
+    (bytes "0,1,2,3,4,5")
+
+### (peek16 addr-l offset)
+
+returns memory at address specified by two bytes
+
+    (defvar addr-l 0)
+    (defvar addr-h 0)
+    (set16! addr-l mydata)
+
+    (peek16 addr-l 4) ;; returns 4
+
+    ...
+
+    (asm "mydata:")
+    (bytes "0,1,2,3,4,5")
+
+### (high label)
+
+returns the high byte of an address
+
+    (set! addr-h (high mydata))
+
+    ...
+
+    (asm "mydata:")
+    (bytes "0,1,2,3,4,5")
+
+### (low label)
+
+returns the low byte of an address
+
+    (set! addr-l (low mydata))
+
+    ...
+
+    (asm "mydata:")
+    (bytes "0,1,2,3,4,5")
+
+### (+16! val-h h l)
+
+two byte in-place addition for 16bit maths
+
+    (defvar h 0)
+    (defvar l 255)
+    (+16! h 0 1) 
+    ;; h is now 1, l is 0
+
+### (-16! val-h h l)
+
+two byte in-place subtraction for 16bit maths
+
+    (defvar h 1)
+    (defvar l 9)
+    (-16! h 0 10) 
+    ;; h is now 0, l is 255
+
 # Experimental
 
 NES/Famicom specific commands. These are subject to much change, while
@@ -338,6 +433,8 @@ block writes an entire page of PRG-RAM - 256 bytes to a 16bit address
     ;; clear sprite data
     (memset sprite-data 0)
 
+
+
 ## PPU DMA commands
 
 ## (ppu-memset base-ppuaddr ppu-offset-h ppu-offset-l length value)
@@ -362,27 +459,70 @@ copy a load of prg bytes to the ppu. dst and src addresses need to be 16bit cons
 
 ## OAM commands
 
-sprites: still working on the best way to do these...
+these commands write into sprite shadow ram, which is dma-ed to the
+PPU every frame
 
-- set-sprite-x!
-- set-sprite-y!
-- set-sprite-id!
-- set-sprite-attr!
-- get-sprite-x
-- get-sprite-y
-- get-sprite-id
-- get-sprite-attr
-- add-sprite-x!
-- add-sprite-y!
-- sub-sprite-x!
-- sub-sprite-y!
-- or-sprite-attr!
-- animate-sprites-2x2!
+### (set-sprite-x! sprite-id val)
+### (set-sprite-y! sprite-id val)
+### (set-sprite-id! sprite-id val)
+### (set-sprite-attr! sprite-id val)
 
-- get-sprite-vflip
-- get-sprite-hflip
-- set-sprite-vflip
-- set-sprite-hflip
+sets sprite values for the specified sprite
+
+### (get-sprite-x sprite-id)
+### (get-sprite-y sprite-id)
+### (get-sprite-id sprite-id)
+### (get-sprite-attr sprite-id)
+
+gets sprite values for the specified sprite
+
+### (get-sprite-vflip sprite-id)
+### (get-sprite-hflip sprite-id)
+### (set-sprite-vflip sprite-id value)
+### (set-sprite-hflip sprite-id value)
+
+macros for setting v/hflip on a sprite
+
+## multiple sprite handling
+
+often we are dealing with large collections of sprites, or metasprites.
+these commands optimise for quickly dealing with contiguous groups of
+sprites (see below for 2x2 metasprite commands)
+
+### (add-sprites-x! sprite-id sprite-count value)
+### (add-sprites-y! sprite-id sprite-count value)
+### (sub-sprites-x! sprite-id sprite-count value)
+### (sub-sprites-y! sprite-id sprite-count value)
+
+add or subtract from the current sprite location
+
+### (or-sprites-attr sprite-id sprite-count value)
+
+binary or-s the value to the current set of sprites
+
+## 2x2 metasprite handling
+
+the most common size of sprites are 2x2 square, these commands produce
+code optimised for this type of metasprite
+
+## (animate-sprites-2x2! sprite-id pattern-location)
+
+sets the 4 sprite metasprite starting at sprite-id to the patterns
+starting at pattern-location. the patterns are arranged to form a
+visible block for the sprite pattern data in a 16x16 grid for easier
+drawing/editing. the first is the top left, second top right
+(pattern-location+1), third bottom left (pattern-location+16), fourth
+bottom right (pattern-location+17).
+
+## (set-sprites-2x2-x! sprite-id x-value)
+
+sets the top left x coordinate of the metasprite, keeping them 'stuck'
+together.
+
+## (set-sprites-2x2-y! sprite-id y-value)
+
+sets the top left y coordinate of the metasprite, keeping them 'stuck'
+together.
 
 # registers
 
@@ -461,7 +601,9 @@ follows normal NES/Famicom behaviour
       (defun ...)
       ...
       (defint (vblank) ...)
-      (defint (reset) ...)
+      (defint (reset) 
+         (init-system)
+	 ...)
       (defint (irq) ...)
       data
       ;; set up the interrupt vectors
