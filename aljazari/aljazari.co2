@@ -587,6 +587,6 @@
 
  ;; finally all the chr data
  (asm 
-  ".incbin \"binary/aljazari.chr\"")
+  ".incbin \"aljazari/binary/aljazari.chr\"")
  
  )

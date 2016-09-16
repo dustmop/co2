@@ -1,4 +1,4 @@
-;; -*- mode: lisp; -*-
+;; -*- mode: scheme; -*-
 ;; co2 Copyright (C) 2016 Dave Griffiths
 ;;
 ;; This program is free software: you can redistribute it and/or modify
@@ -69,8 +69,6 @@
 
    ;; a global frame counter
    (defvar gframe 0)
-   (defvar n 0)
-   (defvar rnd-v 200)
 
    (asm
     ;; restart interrupts again
@@ -80,60 +78,33 @@
 
  (defun (init-graphics)
    (init-sprites)
-   (load-palette)
-   (set-background-tiles))
-
- (defun (setup-character block id)
-   (set-sprite-x! id 0)
-   (set-sprite-y! id 0)
-   (set-sprite-id! id (+ 1 block))
-
-   (set-sprite-x! (+ 1 id) 8)
-   (set-sprite-y! (+ 1 id) 0)
-   (set-sprite-id! (+ 1 id) (+ 2 block))
-
-   (set-sprite-x! (+ 2 id) 0)
-   (set-sprite-y! (+ 2 id) 8)
-   (set-sprite-id! (+ 2 id) (+ 17 block))
-
-   (set-sprite-x! (+ 3 id) 8)
-   (set-sprite-y! (+ 3 id) 8)
-   (set-sprite-id! (+ 3 id) (+ 18 block)))
+   (load-palette))
 
  (defun (init-sprites)
    ;; clear page #2, which we'll use to hold sprite data
    ;; (memset writes 256 bytes in one go)
    (memset sprite-data 0)
-
-   (setup-character #x0 0)
-
-   (setup-character #x0 4)
-   (add-sprites-x! 4 4 100)
-   (add-sprites-y! 4 4 100)
-   (or-sprites-attr! 4 4 10)
-
-   (setup-character #x70 8)
-   (add-sprites-x! 8 4 130)
-   (add-sprites-y! 8 4 80)
-   (or-sprites-attr! 8 4 11)
-
-   (setup-character #x50 12)
-   (add-sprites-x! 12 4 70)
-   (add-sprites-y! 12 4 120)
-   (or-sprites-attr! 12 4 01)
-
-   (defvar direction 1)
-   )
-
-
+   (defvar n 0)
+   (loop n 0 63
+         ;; set up 16 sprites
+         (set-sprite-x! n (* n 10)) ;; x pos
+         (set-sprite-y! n (* n 10)) ;; y pos
+         (set-sprite-id! n (+ n 2)) ;; spr id
+         (set-sprite-attr! n 0) ;; attributes
+         ))
 
  (defun (load-palette)
    ;; copy 32 bytes of bg and sprite palette
-   (ppu-memcpy ppu-palette #x20 palette))
+   (ppu-memcpy ppu-palette 0 0 #x20 palette 0))
 
+
+ (defvar rnd-v 200)
  (defun (rnd)
    (set! rnd-v (+ (xor rnd-v 103) 5))
    rnd-v)
+ ;; (defun (rnd)
+ ;;   (set! rnd-v (>> (+ (* rnd-v 3) 5) 2))
+ ;;   rnd-v)
 
  (defun (read-joypad)
    ;; need to 'strobe' register before reading
@@ -143,91 +114,93 @@
          (poke! pad-data n (and (peek reg-joypad-0) #x1))))
 
  (defun (pressed key)
-   (peek pad-data key))
+   (loop n 0 key
+         (peek pad-data n)))
+
+ (defvar sx 0)
+ (defvar sy 0)
 
  (defun (update-sprite)
    ;; start sprite data dma to the oam
    (set! reg-oam-dma sprite-dma)
-
-   ;; reads the joypad state into memory to save time
-   ;; probably premature optimisation
+   (set! sx (+ sx (>> (rnd) 5)))
+   (set! sy (+ sy (>> (rnd) 5)))
+   ;(set! reg-ppu-scroll sx)
+   ;(set! reg-ppu-scroll sy)
    (read-joypad)
 
-   ;; is the player character moving?
-   (defvar running 1)
+   ;; (cond
+   ;;  ((pressed joypad-up) (sub-sprites-y! 0 1 1))
+   ;;  ((pressed joypad-down) (add-sprites-y! 0 1 2))
+   ;;  (else 0))
 
-   (cond
-    ((pressed joypad-up)
-     ;; set direction to be the sprite offset for the
-     ;; (2 frame) animation start facing in this direction
-     (set! direction 5)
-     ;; move the 4 sprites a bit
-     (sub-sprites-y! 0 4 1))
-    ((pressed joypad-down)
-     (set! direction 1)
-     (add-sprites-y! 0 4 1))
-    ((pressed joypad-left)
-     (set! direction 9)
-     (sub-sprites-x! 0 4 1))
-    ((pressed joypad-right)
-     (set! direction 13)
-     (add-sprites-x! 0 4 1))
-    (else
-     ;; we are not moving
-     (set! running 0)))
+   ;; (cond
+   ;;  ((pressed joypad-left) (sub-sprites-x! 0 1 1))
+   ;;  ((pressed joypad-right) (add-sprites-x! 0 1 2))
+   ;;  (else 0))
 
-   ;; player character
-   (if (and running (>> (and gframe #x08) 3))
-       (animate-sprites-2x2! 0 direction)
-       (animate-sprites-2x2! 0 (+ 2 direction)))
+   ;; (loop n
+   ;;       (and gframe #x3f)
+   ;;       (and (+ gframe 12) #x3f)
+   ;;       (if (< (rnd) 127)
+   ;;           (add-sprites-x! n 1 (>> (rnd) 4))
+   ;;           (sub-sprites-x! n 1 (>> (rnd) 4)))
+   ;;       )
+   ;; (loop n
+   ;;       (and (+ gframe 7) #x3f)
+   ;;       (and (+ gframe 22) #x3f)
+   ;;       (if (< (rnd) 127)
+   ;;           (add-sprites-y! n 1 (>> (rnd) 4))
+   ;;           (sub-sprites-y! n 1 (>> (rnd) 4)))
+   ;;       )
 
-   ;; the NPC's
-   (if (and gframe #x08) ;; animation speed
-       ;; offset to sprite, offset to pattern
-       (animate-sprites-2x2! 4 #x51)
-       (animate-sprites-2x2! 4 #x53))
+   (ppu-memset ppu-name-table-1 0 (rnd) 1 (rnd))
 
-   (if (and gframe #x10) ;; try different speeds
-       (animate-sprites-2x2! 8 #x71)
-       (animate-sprites-2x2! 8 #x73))
-
-   (if (and gframe #x20)
-       (animate-sprites-2x2! 12 #x51)
-       (animate-sprites-2x2! 12 #x53))
-
+   (ppu-memcpy ppu-palette 0 0 #x20 palette 0)
 
    )
 
  (defvar tile-id 0)
 
- (defun (set-background-tiles)
-   (set! tile-id 58)
-   ;; off by one so size #x0 wraps to mean #xff...
-   (ppu-memset ppu-name-table-1 #x0 tile-id)
-   (ppu-memset-carry-on #x0 tile-id)
-   (ppu-memset-carry-on #x0 tile-id)
-   (ppu-memset-carry-on #xc0 tile-id))
 
  (defvar snd 0)
 
  (defint (vblank)
    ;; move a sprite or two
    (update-sprite)
+
+   ;; test scrolling
+   (set! reg-ppu-scroll gframe)
+   (set! reg-ppu-scroll gframe)
+
+   ;; do some stuff with sound
+   (set! reg-apu-channel (xor (rnd) 123))
+
+   (set! reg-apu-pulse1-control #b10011111)
+   (set! reg-apu-pulse1-ft (>> (rnd) 5))
+   (set! reg-apu-pulse1-ramp (<< (rnd) 5))
+   (set! reg-apu-pulse1-ct #b11111000)
+   (set! reg-apu-pulse2-control #b10011111)
+   (set! reg-apu-pulse2-ft (>> (rnd) 4))
+   (set! reg-apu-pulse2-ct #b11111000)
+   (set! reg-apu-tri-control (xor (rnd) 321))
+   (set! reg-apu-tri-ft (xor (rnd) 244))
+   (set! reg-apu-tri-ct (xor (rnd) 82))
+   (set! reg-apu-noise-env (xor (rnd) 321))
+   (set! reg-apu-noise-ft (xor (rnd) 323))
+   (set! reg-apu-noise-ct (xor (rnd) 21))
+   (set! reg-apu-dmc-control (xor (rnd) 22))
+   (set! reg-apu-dmc-dac (xor (rnd) 22))
+   (set! reg-apu-dmc-addr (xor (rnd) 22))
+   (set! reg-apu-dmc-size (xor (rnd) 22))
    (inc gframe))
 
  (defint (irq))
 
  ;; stuff still to tidy up follows...
 
-
-
  ;; load palettes and most chr-rom from binary files
-; (asm "palette: .incbin \"example.pal\"")
- (asm
-  "palette:"
-  ".byte $01,$02,$01,$04,$05,$06,$07,$08,$09,$0a,$0b,$0c,$01,$10,$39,$10"
-  ".byte $11,$18,$28,$38,$0c,$1c,$2c,$3c,$03,$13,$23,$33,$09,$19,$29,$39")
-
+ (asm "palette: .incbin \"example/example.pal\"")
 
  (asm "bg:
   ;; attribute table
@@ -239,7 +212,7 @@
 
  (asm ".word vblank, reset, irq")
 
- (asm ".incbin \"binary/sprites.chr\"
+ (asm ".incbin \"example/sprites.chr\"
 ; fill the rest of the first chr-rom block with zeroes.
 .align $1000
 
@@ -247,7 +220,7 @@
 ; from this page.
 
 .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00 ; character 0: blank
-.incbin \"binary/sprites.chr\"
+.incbin \"example/sprites.chr\"
 .byte $18,$24,$66,$99,$99,$66,$24,$18,$00,$18,$18,$66,$66,$18,$18,$00 ; character 1: diamond sprite
 
 ; fill the rest of the chr-rom block with zeroes, giving us exactly 8k of data, which

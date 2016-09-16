@@ -1019,8 +1019,8 @@
  (byte "28, 27, 28, 3, 16, 39, 39, 35, 27, 28, 27, 28, 27, 28, 27, 28, 27, 28, 4, 94, 12, 16, 17, 17, 18, 3, 3, 3, 3, 3, 3, 3, 13, 14, 4, 3, 16, 39, 39, 18, 11, 12, 11, 12, 4, 4, 11, 12, 11, 12, 4, 110, 28, 16, 17, 17, 18, 3, 3, 3, 3, 3, 3, 3, 29, 30, 23, 3, 16, 39, 39, 18, 27, 28, 27, 28, 5, 6, 27, 28, 27, 28, 4, 63, 23, 16, 17, 17, 18, 3, 3, 3, 3, 3, 3, 3, 10, 3, 3, 3, 16, 39, 39, 18, 20, 19, 19, 19, 21, 22, 19, 19, 19, 19, 23, 0, 1, 37, 17, 17, 38, 1, 2, 3, 3, 3, 3, 3, 70, 0, 1, 1, 37, 39, 39, 38, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 37, 17, 17, 17, 17, 17, 17, 38, 1, 2, 3, 3, 3, 70, 16, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 17, 17, 17, 17, 17, 17, 17, 17, 38, 1, 1, 1, 70, 16, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 74, 9, 76, 39, 39, 39, 35, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 36, 39, 39, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 3, 3, 26, 39, 39, 39, 38, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 37, 39, 39, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 127, 41, 44, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 17, 17, 17, 17, 17, 17, 35, 33, 33, 33, 94, 12, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 33, 36, 39, 39, 17, 17, 17, 17, 17, 35, 34, 3, 3, 3, 110, 28, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 32, 33, 36, 17, 17, 17, 35, 33, 34, 3, 3, 3, 3, 94, 12, 3, 3, 3, 3, 3, 3, 3, 75, 9, 9, 9, 9, 9, 9, 9, 9, 9, 10, 3, 32, 33, 33, 33, 34, 3, 3, 3, 3, 3, 3, 110, 28, 3, 3, 3, 3, 3, 3, 3, 71, 3, 3, 3, 3, 3, 3, 3, 3, 3, 70, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 9, 9, 9, 9, 9, 9, 9, 10, 3, 71, 3, 3, 3, 3, 3, 3, 3, 3, 3, 70, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3")
 
  ;; sound code
- (asm ".include \"famitone2_asm6.asm\"")
- (asm ".include \"danger_streets.asm\"")
+ (asm ".include \"whatremains/music/famitone2_asm6.asm\"")
+ (asm ".include \"whatremains/music/danger_streets.asm\"")
 
  ;; the palettes
  (asm "title_palette:")
@@ -1083,20 +1083,20 @@
  ;; finally ppu-rom 
  (asm 
   ".align $1000"
-  ".incbin \"binary/whatremains-title-tiles.chr\""
-  ".incbin \"binary/whatremains-title-sprites.chr\"")
+  ".incbin \"whatremains/binary/whatremains-title-tiles.chr\""
+  ".incbin \"whatremains/binary/whatremains-title-sprites.chr\"")
 
  (asm 
-  ".incbin \"binary/whatremains-eighties-tiles.chr\""
-  ".incbin \"binary/whatremains-eighties-sprites.chr\"")
+  ".incbin \"whatremains/binary/whatremains-eighties-tiles.chr\""
+  ".incbin \"whatremains/binary/whatremains-eighties-sprites.chr\"")
  
  (asm 
-  ".incbin \"binary/whatremains-future-tiles.chr\""
-  ".incbin \"binary/whatremains-future-sprites.chr\"")
+  ".incbin \"whatremains/binary/whatremains-future-tiles.chr\""
+  ".incbin \"whatremains/binary/whatremains-future-sprites.chr\"")
 
  (asm 
-  ".incbin \"binary/whatremains-future-tiles.chr\""
-  ".incbin \"binary/whatremains-future-sprites.chr\"")
+  ".incbin \"whatremains/binary/whatremains-future-tiles.chr\""
+  ".incbin \"whatremains/binary/whatremains-future-sprites.chr\"")
  
 
 

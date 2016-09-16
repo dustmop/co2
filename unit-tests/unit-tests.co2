@@ -231,7 +231,7 @@
 
  ;; finally all the chr data
  (asm 
-  ".incbin \"binary/test.chr\"")
+  ".incbin \"unit-tests/binary/test.chr\"")
  
 
  )
