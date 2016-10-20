@@ -51,6 +51,10 @@
 
  (defconst doorway-aerobic-in "#0")
  (defconst doorway-aerobic-out "#1")
+ (defconst doorway-tobacco-in "#2")
+ (defconst doorway-tobacco-out "#3")
+ (defconst doorway-michael-in "#4")
+ (defconst doorway-michael-out "#5")
  
  ;; famitone stuff
  (asm "FT_BASE_ADR = $0600 ;; page in the RAM used for FT2 variables, should be $xx00
@@ -283,7 +287,7 @@
 	 ((eq? o title2-palette-id) (ppu-memcpy ppu-palette 0 0 #x10 title2_palette 0))
 	 ((eq? o title3-palette-id) (ppu-memcpy ppu-palette 0 0 #x10 title3_palette 0))
 	 ((eq? o eighties-palette-id) (ppu-memcpy ppu-palette 0 0 #x20 eighties_palette 0)) ;; + sprites
-	 ((eq? o indoor-palette-id) (ppu-memcpy ppu-palette 0 0 #x10 indoor_palette 0)) 
+	 ((eq? o indoor-palette-id) (ppu-memcpy ppu-palette 0 0 #x20 indoor_palette 0)) 
 	 ((eq? o future-palette-id) (ppu-memcpy ppu-palette 0 0 #x10 future_palette 0))
 	 (else (ppu-memcpy ppu-palette 0 0 #x20 black_palette 0))))
       
@@ -856,6 +860,7 @@
       ((eq? gdraw-phase 1) 
        (mmc1-chrbank0 8)
        (mmc1-chrbank1 9)
+       (set! gdisable-scroll 0)
        (init-sprites-eighties))
       ;; separate phase so the textbox can redraw on clear
       ;; but leave the sprites where they are etc
@@ -901,25 +906,27 @@
      (set! direction (+ i #x0a))
      (when (not (bb-collide-entity-left player-entity))
        (entity-move-left player-entity)
-       (when (or (and
-		  (eq? (peek entity-data entity-screen) 0)
-		  (> (peek entity-data entity-x) 127))
-		 (and
-		  (eq? (peek entity-data entity-screen) 1)
-		  (< (peek entity-data entity-x) 127)))
-	 (set! gscroll-x (- (peek entity-data entity-x) 127)))))
+       (when (not gdisable-scroll)
+	 (when (or (and
+		    (eq? (peek entity-data entity-screen) 0)
+		    (> (peek entity-data entity-x) 127))
+		   (and
+		    (eq? (peek entity-data entity-screen) 1)
+		    (< (peek entity-data entity-x) 127)))
+	   (set! gscroll-x (- (peek entity-data entity-x) 127))))))
 		 
     ((pressed joypad-right)
      (set! direction (+ i #x04))
      (when (not (bb-collide-entity-right player-entity))
        (entity-move-right player-entity)
-       (when (or (and
-		  (eq? (peek entity-data entity-screen) 0)
-		  (> (peek entity-data entity-x) 127))
-		 (and
-		  (eq? (peek entity-data entity-screen) 1)
-		  (< (peek entity-data entity-x) 127)))
-	 (set! gscroll-x (- (peek entity-data entity-x) 127)))))
+       (when (not gdisable-scroll)
+	 (when (or (and
+		    (eq? (peek entity-data entity-screen) 0)
+		    (> (peek entity-data entity-x) 127))
+		   (and
+		    (eq? (peek entity-data entity-screen) 1)
+		    (< (peek entity-data entity-x) 127)))
+	   (set! gscroll-x (- (peek entity-data entity-x) 127))))))
        
     (else
      ;; we are not moving
@@ -967,11 +974,14 @@
      (set16! text-addr npcsays) ;; what to say
      (show-textbox))
 
-   ;; exit to future level, but wait
-   (when (and (eq? gdraw-phase 255) 
-	      (doorway-collide-entity 0 doorway-aerobic-in player-entity))
+   ;; exits, after redrawing?
+   (when (doorway-collide-entity 0 doorway-aerobic-in player-entity)
      (switch-game-mode aerobic-mode))
-
+   (when (doorway-collide-entity 1 doorway-tobacco-in player-entity)
+     (switch-game-mode tobacco-mode))
+   (when (doorway-collide-entity 1 doorway-michael-in player-entity)
+     (switch-game-mode michael-mode))
+   
    (update-entities)
    
    (inc ganim-frame)
@@ -988,13 +998,28 @@
    (when (not (eq? gtext-box 255))
      (cond 
       ((eq? gdraw-phase 1) 
+       (set! gscroll-x 0)
+       (set! gdisable-scroll 1)
        (mmc1-chrbank0 10)
        (mmc1-chrbank1 9)
-       (init-sprites-eighties))
+       (init-sprites-eighties)
+       ;; put player by door
+       (if (eq? ggame-mode tobacco-mode)
+	 (poke! entity-data entity-x 142)
+	 (poke! entity-data entity-x 64))
+       (poke! entity-data entity-screen 0)
+       (poke! entity-data entity-y 98)
+       )
       ;; separate phase so the textbox can redraw on clear
       ;; but leave the sprites where they are etc
       ((eq? gdraw-phase 2) 
-       (draw-screen (low aerobic_nam) (high aerobic_nam))
+       (cond
+	((eq? ggame-mode aerobic-mode)
+	 (draw-screen (low aerobic_nam) (high aerobic_nam)))
+	((eq? ggame-mode tobacco-mode)
+	 (draw-screen (low tobacco_nam) (high tobacco_nam)))
+	((eq? ggame-mode michael-mode)
+	 (draw-screen (low michael_nam) (high michael_nam))))
        )
       ;; wait before reveal
       ((eq? gdraw-phase screen-blank-delay)
@@ -1003,7 +1028,6 @@
 
      (when (not (eq? gtext-box text-box-activated))
        (update-sprites-indoors))
-
      )
    
    (update-textbox))
@@ -1019,10 +1043,32 @@
      (set16! text-addr npcsays) ;; what to say
      (show-textbox))
 
-   ;; exit to future level, but wait
-   (when (and (eq? gdraw-phase 255) 
-	      (doorway-collide-entity 0 doorway-aerobic-out player-entity))
-     (switch-game-mode eighties-mode))
+
+
+   ;; exits
+   (cond
+    ((eq? ggame-mode aerobic-mode)
+     (when (doorway-collide-entity 0 doorway-aerobic-out player-entity)
+       ;; put player by door
+       (poke! entity-data entity-x 32)
+       (poke! entity-data entity-y 39)
+       (switch-game-mode eighties-mode)))
+    ((eq? ggame-mode tobacco-mode)
+     (when (doorway-collide-entity 0 doorway-tobacco-out player-entity)
+       ;; put player by door
+       (poke! entity-data entity-x 213)
+       (poke! entity-data entity-screen 1)
+       (poke! entity-data entity-y 32)
+       (set! gscroll-x 255)
+       (switch-game-mode eighties-mode)))
+    ((eq? ggame-mode michael-mode)
+     (when (doorway-collide-entity 0 doorway-michael-out player-entity)
+       ;; put player by door
+       (poke! entity-data entity-x 82)
+       (poke! entity-data entity-screen 1)
+       (poke! entity-data entity-y 109)
+       (set! gscroll-x 200)
+       (switch-game-mode eighties-mode))))
 
    (update-entities)
    
@@ -1108,9 +1154,9 @@
    (display-list-execute)
 
    ;; update scroll pos
-   (when (not gdisable-scroll)
+   ;;(when (not gdisable-scroll)
      (set! reg-ppu-scroll gscroll-x)
-     (set! reg-ppu-scroll gscroll-y))
+     (set! reg-ppu-scroll gscroll-y);)
 
    ;; precious ppu update time ends
 
@@ -1181,6 +1227,10 @@
  (asm "doorway_bbox")
  (byte "32, 16, 48, 32") ;; aerobic in
  (byte "65, 81, 80, 97") ;; aerobic out
+ (byte "210, 17, 226, 32") ;; tobacco in
+ (byte "144, 80, 160, 96") ;; tobacco out
+ (byte "90, 97, 106, 113") ;; michael in
+ (byte "65, 81, 80, 97") ;; michael out
 
 
 
@@ -1200,10 +1250,19 @@
 
  (asm "eighties_palette:")
  (asm ".incbin \"whatremains/binary/eighties-palette.pal\"")
- (asm ".incbin \"whatremains/binary/sprites_color_palette.pal\"")
+ ;; general sprite palette
+ (byte "$30,$21,$26,$36")
+ (byte "$0f,$25,$2d,$36")
+ (byte "$0f,$23,$0b,$36")
+ (byte "$0f,$2b,$06,$16")
 
  (asm "indoor_palette:")
  (asm ".incbin \"whatremains/binary/INDOOR_color_palette.pal\"")
+ ;; general sprite palette
+ (byte "$30,$21,$26,$36")
+ (byte "$0f,$25,$2d,$36")
+ (byte "$0f,$23,$0b,$36")
+ (byte "$0f,$2b,$06,$16")
 
  (asm "future_palette:")
 
