@@ -112,6 +112,13 @@
 
  (defvar setup-eighties 0)
 
+ (defconst title-mode "#0")
+ (defconst eighties-mode "#1")
+ (defconst aerobic-mode "#2")
+ (defconst tobacco-mode "#3")
+ (defconst michael-mode "#4")
+ (defconst future-mode "#5")
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
  ;; library code follows
 
@@ -522,10 +529,17 @@
      (< y (+ (get-sprite-y (+ sprite-id 2)) 16)))))
 
  (defun (bb-collide-pos screen x y)
-   (if (eq? screen 0)
-       (bb-collide-pos-screen0 x y)
-     (bb-collide-pos-screen1 x y)))
-   
+   (cond
+    ((eq? ggame-mode eighties-mode)
+     (if (eq? screen 0) (bb-collide-pos-screen0 x y)
+       (bb-collide-pos-screen1 x y)))
+    ((eq? ggame-mode aerobic-mode)
+     (bb-collide-pos-aerobic x y))
+    ((eq? ggame-mode tobacco-mode)
+     (bb-collide-pos-tobacco x y))
+    (else
+     (bb-collide-pos-michael x y))))
+  
  ;; bounding box list collisions for level terrain
  ;; different directions use different hotspots
  ;; still some tweaks todo here
@@ -566,6 +580,64 @@
 	     (< y (peek collision_bboxes1 (+ i 3))))))
      (set! i (+ i 4))) ;; next bbox
    j)
+
+ (defun (bb-collide-pos-aerobic x y)
+   ;; read the length of rects to get the end
+   (set! end (+ 1 (<< (peek collision_bboxes_aerobic) 2))) ;; rect so * 4   
+   ;; setup for the loop
+   (set! i 1) ;; address
+   (set! j 0) ;; return value (1=collision)
+   ;; loop through all the collision rects (or until we are inside one)
+   (while (and (< i end) (eq? j 0))
+     (set! j
+	   (and ;; check bounding boxes
+	    (and
+	     (> x (peek collision_bboxes_aerobic i)) 
+	     (< x (peek collision_bboxes_aerobic (+ i 2))))
+	    (and 
+	     (> y (peek collision_bboxes_aerobic (+ i 1)))
+	     (< y (peek collision_bboxes_aerobic (+ i 3))))))
+     (set! i (+ i 4))) ;; next bbox
+   j)
+
+ (defun (bb-collide-pos-tobacco x y)
+   ;; read the length of rects to get the end
+   (set! end (+ 1 (<< (peek collision_bboxes_tobacco) 2))) ;; rect so * 4   
+   ;; setup for the loop
+   (set! i 1) ;; address
+   (set! j 0) ;; return value (1=collision)
+   ;; loop through all the collision rects (or until we are inside one)
+   (while (and (< i end) (eq? j 0))
+     (set! j
+	   (and ;; check bounding boxes
+	    (and
+	     (> x (peek collision_bboxes_tobacco i)) 
+	     (< x (peek collision_bboxes_tobacco (+ i 2))))
+	    (and 
+	     (> y (peek collision_bboxes_tobacco (+ i 1)))
+	     (< y (peek collision_bboxes_tobacco (+ i 3))))))
+     (set! i (+ i 4))) ;; next bbox
+   j)
+
+ (defun (bb-collide-pos-michael x y)
+   ;; read the length of rects to get the end
+   (set! end (+ 1 (<< (peek collision_bboxes_michael) 2))) ;; rect so * 4   
+   ;; setup for the loop
+   (set! i 1) ;; address
+   (set! j 0) ;; return value (1=collision)
+   ;; loop through all the collision rects (or until we are inside one)
+   (while (and (< i end) (eq? j 0))
+     (set! j
+	   (and ;; check bounding boxes
+	    (and
+	     (> x (peek collision_bboxes_michael i)) 
+	     (< x (peek collision_bboxes_michael (+ i 2))))
+	    (and 
+	     (> y (peek collision_bboxes_michael (+ i 1)))
+	     (< y (peek collision_bboxes_michael (+ i 3))))))
+     (set! i (+ i 4))) ;; next bbox
+   j)
+
 
  ;; doors to other dimensions
 
@@ -674,7 +746,7 @@
    (bb-collide-pos
     (peek entity-data (+ addr entity-screen))
     (peek entity-data (+ addr entity-x)) 
-    (+ (peek entity-data (+ addr entity-y)) 8)))
+    (+ (peek entity-data (+ addr entity-y)) 9)))
       
  (defun (bb-collide-entity-right addr)
    ;; check 16 bit left/right
@@ -683,13 +755,13 @@
    (+16! i 0 16) ;; add 16 to current x pos
    (bb-collide-pos 
     j ;; screen id
-    i (+ (peek entity-data (+ addr entity-y)) 8)))
+    i (+ (peek entity-data (+ addr entity-y)) 9)))
    
  (defun (bb-collide-entity-up addr)
    (bb-collide-pos 
     (peek entity-data (+ addr entity-screen))
     (+ (peek entity-data (+ addr entity-x)) 8)
-    (peek entity-data (+ addr entity-y))))
+    (+ (peek entity-data (+ addr entity-y)) 8)))
 
  (defun (bb-collide-entity-down addr)
    (bb-collide-pos 
@@ -728,12 +800,6 @@
  ;; game specific code follows
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
- (defconst title-mode "#0")
- (defconst eighties-mode "#1")
- (defconst aerobic-mode "#2")
- (defconst tobacco-mode "#3")
- (defconst michael-mode "#4")
- (defconst future-mode "#5")
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
  ;; title
@@ -994,6 +1060,28 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
  ;; indoor
 
+ (defun (init-sprites-indoor)
+   (memset sprite-shadow #xff)
+   (cond
+    ((eq? ggame-mode aerobic-mode)
+     (set! j 0)
+     (loop i 0 num-entities
+	   (poke! entity-data (+ j entity-id) (<< i 2)) ;; * 4 sprite id
+	   (set! j (+ j entity-size)))
+     
+     (set! n (peek entity-data (+ player-entity entity-id)))
+     (setup-character player-sprite-pattern-id n)
+     (poke! entity-data (+ n entity-x) 35)
+     (poke! entity-data (+ n entity-y) 100)
+     
+     (setup-npc-entity npc1-entity 0 200 170 10)
+     (setup-npc-entity npc2-entity 0 220 140 11)
+     (setup-npc-entity npc3-entity 1 170 100 01)))
+    
+   (set! setup-eighties 1)   
+   (defvar direction 1)
+   (defvar last-dir 1))
+     
  (defun (update-indoor)
    (when (not (eq? gtext-box 255))
      (cond 
@@ -1002,7 +1090,7 @@
        (set! gdisable-scroll 1)
        (mmc1-chrbank0 10)
        (mmc1-chrbank1 9)
-       (init-sprites-eighties)
+       (init-sprites-indoor)
        ;; put player by door
        (if (eq? ggame-mode tobacco-mode)
 	 (poke! entity-data entity-x 142)
@@ -1134,7 +1222,8 @@
    ;; clear sprite shadow
    (memset sprite-shadow #xff)
 
-   (set! ggame-mode eighties-mode)
+   ;(set! ggame-mode 0)
+   (set! ggame-mode aerobic-mode)
 
    ;; load first palette
    (display-list-add-byte black-palette-id) 
@@ -1215,14 +1304,36 @@
  (asm "futureblurb:")(text "welcome to the future")(byte "0")
 
  ;; bounding box data
- (asm "collision_bboxes0")
+ (asm "collision_bboxes0:")
+ (byte "15") ;; number of boxes
+ (byte "0, 0, 255, 32")
+ (byte "0, 0, 16, 238")
+ (byte "96, 0, 128, 64")
+ (byte "176, 0, 223, 65")
+ (byte "208, 53, 224, 81")
+ (byte "212, 0, 255, 10")
+ (byte "238, 0, 255, 17")
+ (byte "15, 81, 32, 160")
+ (byte "13, 96, 47, 160")
+ (byte "80, 96, 160, 160")
+ (byte "96, 80, 128, 112")
+ (byte "144, 80, 160, 109")
+ (byte "199, 96, 240, 177")
+ (byte "191, 128, 255, 176")
+ (byte "238, 112, 255, 134")
+
+
+ (asm "collision_bboxes1:")
  (byte "2") ;; number of boxes
  (byte "0, 0, 23, 82")
  (byte "0, 0, 33, 64")
 
- (asm "collision_bboxes1")
- (byte "1") ;; number of boxes
- (byte "82, 71, 131, 90")
+ (asm "collision_bboxes_aerobic:")
+ (byte "0")
+ (asm "collision_bboxes_tobacco:")
+ (byte "0")
+ (asm "collision_bboxes_michael:")
+ (byte "0")
 
  (asm "doorway_bbox")
  (byte "32, 16, 48, 32") ;; aerobic in
@@ -1231,8 +1342,6 @@
  (byte "144, 80, 160, 96") ;; tobacco out
  (byte "90, 97, 106, 113") ;; michael in
  (byte "65, 81, 80, 97") ;; michael out
-
-
 
  ;; sound code
  (asm ".include \"whatremains/music/famitone2_asm6.asm\"")
