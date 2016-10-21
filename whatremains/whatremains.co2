@@ -80,6 +80,7 @@
  ;; sequencing initialisation/drawlist updates 
  (defvar gdraw-phase 0)
  (defvar gdisable-scroll 0)
+ (defvar ggame-state 0)
  
  ;; the current display list index 
  (defvar display-list-index 0)
@@ -465,12 +466,13 @@
  ;; create the text box
  (defun (show-textbox)   
    (when (eq? gtext-box text-box-deactivated)  ;; not shown already
+     (reset-text)
      (set! text-pos 0)                         ;; reset typing pos
      (set! gtext-box  text-box-activated)))    ;; set to shown
 
  (defun (update-textbox)   
    (when (eq? gtext-box text-box-activated)   ;; shown activated
-     (update-typed-text 2 76)  ;; update typing
+     (update-typed-text 3 5)  ;; update typing
      (when (pressed joypad-b)  ;; exit pressed
        (set! gdraw-phase 1)    ;; redraw background
        (set! gtext-box text-box-start-delay)))  ;; start countdown running
@@ -658,25 +660,34 @@
  (defconst entity-x "#1")
  (defconst entity-screen "#2") ;; the high byte of x
  (defconst entity-y "#3")
- (defconst entity-state "#4") ;; for whatever
+ (defconst entity-pattern "#4") ;; for whatever
  (defconst entity-size "#5")
 
- (defconst num-entities "#4")
+ (defconst num-entities "#7")
 
  (defconst player-entity "#0")
  (defconst npc1-entity "#5")
  (defconst npc2-entity "#10")
  (defconst npc3-entity "#15")
+ (defconst npc4-entity "#20")
+ (defconst npc5-entity "#25")
+ (defconst npc6-entity "#30")
 
  (defconst player-sprite "#0")
 
  (defconst player-sprite-pattern-id "#$00")
- (defconst dancer-sprite-pattern-id "#$c0")
+ (defconst teacher-sprite-pattern-id "#$a0")
+ (defconst dancer1-sprite-pattern-id "#$c0")
+ (defconst dancer2-sprite-pattern-id "#$a6")
+ (defconst dancer3-sprite-pattern-id "#$c6")
+ (defconst dancer4-sprite-pattern-id "#$e0")
+ (defconst dancer5-sprite-pattern-id "#$e6")
 
- (defun (setup-npc-entity eaddr screen x y col)
+ (defun (setup-npc-entity type eaddr screen x y col)
    (set! n (peek entity-data (+ eaddr entity-id))) ;; entity/sprite id
-   (setup-character dancer-sprite-pattern-id n)
+   (setup-character type n)
    (or-sprites-attr! n 4 col)
+   (poke! entity-data (+ eaddr entity-pattern) type)
    (poke! entity-data (+ eaddr entity-x) x)
    (poke! entity-data (+ eaddr entity-screen) screen)
    (poke! entity-data (+ eaddr entity-y) y))
@@ -692,9 +703,7 @@
    (poke! entity-data (+ n entity-x) 35)
    (poke! entity-data (+ n entity-y) 100)
    
-   (setup-npc-entity npc1-entity 0 200 170 10)
-   (setup-npc-entity npc2-entity 0 220 140 11)
-   (setup-npc-entity npc3-entity 1 170 100 01))
+   )
 
  ;; convert the logical 16bit entity positions into 
  ;; 8bit screen positions
@@ -1017,28 +1026,19 @@
    (when running
      (set! last-dir direction)))
 
- (defun (update-npc id)
+ (defun (animate-npc pattern id)
    ;; convert from entity id to sprite id
    (set! id (peek entity-data (+ id entity-id)))
-   (when (sprite-collide-sprite player-sprite id)
-     (cond 
-      ((eq? (and (>> ganim-frame 3) #x3) 0)
-       (animate-sprites-2x2! id dancer-sprite-pattern-id))
-      ((eq? (and (>> ganim-frame 3) #x3) 1)
-       (animate-sprites-2x2! id (+ dancer-sprite-pattern-id 2)))
-      (else
-       (animate-sprites-2x2! id (+ dancer-sprite-pattern-id 4))))))
+   (cond 
+    ((eq? (and (>> ganim-frame 3) 3) 0)
+     (animate-sprites-2x2! id pattern))
+    ((eq? (and (>> ganim-frame 3) 3) 1)
+     (animate-sprites-2x2! id (+ pattern 2)))
+    (else
+     (animate-sprites-2x2! id (+ pattern 4)))))
 
  (defun (update-sprites-eighties)
    (update-player player-sprite)
-   (update-npc npc1-entity)
-   (update-npc npc2-entity)
-   (update-npc npc3-entity)
-
-   ;; get them to react to the player
-   (when (sprite-collide-sprite 0 (peek entity-data (+ npc1-entity entity-id)))
-     (set16! text-addr npcsays) ;; what to say
-     (show-textbox))
 
    ;; exits, after redrawing?
    (when (doorway-collide-entity 0 doorway-aerobic-in player-entity)
@@ -1074,9 +1074,27 @@
      (poke! entity-data (+ n entity-x) 35)
      (poke! entity-data (+ n entity-y) 100)
      
-     (setup-npc-entity npc1-entity 0 200 170 10)
-     (setup-npc-entity npc2-entity 0 220 140 11)
-     (setup-npc-entity npc3-entity 1 170 100 01)))
+     (setup-npc-entity 
+      teacher-sprite-pattern-id 
+      npc1-entity 0 162 99 1)
+     (setup-npc-entity 
+      dancer1-sprite-pattern-id 
+      npc2-entity 0 167 139 2)
+     (setup-npc-entity 
+      dancer2-sprite-pattern-id 
+      npc3-entity 0 191 113 3)
+     (setup-npc-entity 
+      dancer3-sprite-pattern-id 
+      npc4-entity 0 151 113 0)
+     (setup-npc-entity 
+      dancer4-sprite-pattern-id 
+      npc5-entity 0 131 117 3)
+     (setup-npc-entity 
+      dancer5-sprite-pattern-id 
+      npc6-entity 0 141 123 2)
+
+
+     ))
     
    (set! setup-eighties 1)   
    (defvar direction 1)
@@ -1086,6 +1104,8 @@
    (when (not (eq? gtext-box 255))
      (cond 
       ((eq? gdraw-phase 1) 
+       ;; register that we've been here
+       (set! ggame-state (or ggame-state 1))
        (set! gscroll-x 0)
        (set! gdisable-scroll 1)
        (mmc1-chrbank0 10)
@@ -1122,16 +1142,32 @@
 
  (defun (update-sprites-indoors)
    (update-player player-sprite)
-   (update-npc npc1-entity)
-   (update-npc npc2-entity)
-   (update-npc npc3-entity)
-
+   (animate-npc teacher-sprite-pattern-id npc1-entity)
+   (animate-npc dancer1-sprite-pattern-id npc2-entity)
+   (animate-npc dancer2-sprite-pattern-id npc3-entity)
+   (animate-npc dancer3-sprite-pattern-id npc3-entity)
+   (animate-npc dancer4-sprite-pattern-id npc4-entity)
+   (animate-npc dancer5-sprite-pattern-id npc5-entity)
+ 
    ;; get them to react to the player
-   (when (sprite-collide-sprite 0 (peek entity-data (+ npc1-entity entity-id)))
-     (set16! text-addr npcsays) ;; what to say
+   (when (sprite-collide-sprite 
+	  0 (peek entity-data (+ npc1-entity entity-id)))
+     (set16! text-addr teachersays) ;; what to say
      (show-textbox))
 
-
+   (when (or (sprite-collide-sprite 
+	      0 (peek entity-data (+ npc2-entity entity-id)))
+	     (sprite-collide-sprite 
+	      0 (peek entity-data (+ npc3-entity entity-id)))
+	     (sprite-collide-sprite 
+	      0 (peek entity-data (+ npc4-entity entity-id)))
+	     (sprite-collide-sprite 
+	      0 (peek entity-data (+ npc5-entity entity-id)))
+	     (sprite-collide-sprite 
+	      0 (peek entity-data (+ npc6-entity entity-id))))
+     (set16! text-addr dancersays) ;; what to say
+     (show-textbox))
+   
 
    ;; exits
    (cond
@@ -1222,6 +1258,7 @@
    ;; clear sprite shadow
    (memset sprite-shadow #xff)
 
+   (set! ggame-state 0)
    ;(set! ggame-mode 0)
    (set! ggame-mode aerobic-mode)
 
@@ -1300,7 +1337,8 @@
  (asm "intro_3_3:")(text "        TOO LATE") (byte "0")
  (asm "intro_3_4:")(text " CAUGHT A GLIMPSE OF A   BLACK FORD SCORPIO     TURNING THE CORNER") (byte "0")
 
- (asm "npcsays:")(text "HEY, WATCH MY MOVES")(byte "0")
+ (asm "teachersays:")(text "   WELCOME TO STUDIO    FOND O'FONDA! PLEASE    HELP, I CAN'T STOP     MOVING! HIGH IMPACT  STEP AEROBICS YEAAAAAH!")(byte "0")
+ (asm "dancersays:")(text "      FEEL MY ABS!")(byte "0")
  (asm "futureblurb:")(text "welcome to the future")(byte "0")
 
  ;; bounding box data
