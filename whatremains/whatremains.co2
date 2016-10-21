@@ -682,6 +682,8 @@
  (defconst dancer3-sprite-pattern-id "#$c6")
  (defconst dancer4-sprite-pattern-id "#$e0")
  (defconst dancer5-sprite-pattern-id "#$e6")
+ (defconst smoker1-sprite-pattern-id "#$40")
+ (defconst smoker2-sprite-pattern-id "#$60")
 
  (defun (setup-npc-entity type eaddr screen x y col)
    (set! n (peek entity-data (+ eaddr entity-id))) ;; entity/sprite id
@@ -1062,38 +1064,28 @@
 
  (defun (init-sprites-indoor)
    (memset sprite-shadow #xff)
+   (set! j 0)
+   (loop i 0 num-entities
+	 (poke! entity-data (+ j entity-id) (<< i 2)) ;; * 4 sprite id
+	 (set! j (+ j entity-size)))
+   
+   (set! n (peek entity-data (+ player-entity entity-id)))
+   (setup-character player-sprite-pattern-id n)
+   (poke! entity-data (+ n entity-x) 35)
+   (poke! entity-data (+ n entity-y) 100)
+   
    (cond
-    ((eq? ggame-mode aerobic-mode)
-     (set! j 0)
-     (loop i 0 num-entities
-	   (poke! entity-data (+ j entity-id) (<< i 2)) ;; * 4 sprite id
-	   (set! j (+ j entity-size)))
-     
-     (set! n (peek entity-data (+ player-entity entity-id)))
-     (setup-character player-sprite-pattern-id n)
-     (poke! entity-data (+ n entity-x) 35)
-     (poke! entity-data (+ n entity-y) 100)
-     
-     (setup-npc-entity 
-      teacher-sprite-pattern-id 
-      npc1-entity 0 162 99 1)
-     (setup-npc-entity 
-      dancer1-sprite-pattern-id 
-      npc2-entity 0 167 139 2)
-     (setup-npc-entity 
-      dancer2-sprite-pattern-id 
-      npc3-entity 0 191 113 3)
-     (setup-npc-entity 
-      dancer3-sprite-pattern-id 
-      npc4-entity 0 151 113 0)
-     (setup-npc-entity 
-      dancer4-sprite-pattern-id 
-      npc5-entity 0 131 117 3)
-     (setup-npc-entity 
-      dancer5-sprite-pattern-id 
-      npc6-entity 0 141 123 2)
-
-
+    ((eq? ggame-mode aerobic-mode)  
+     (setup-npc-entity teacher-sprite-pattern-id npc1-entity 0 162 99 1)
+     (setup-npc-entity dancer1-sprite-pattern-id npc2-entity 0 167 139 2)
+     (setup-npc-entity dancer2-sprite-pattern-id npc3-entity 0 191 113 3)
+     (setup-npc-entity dancer3-sprite-pattern-id npc4-entity 0 151 113 0)
+     (setup-npc-entity dancer4-sprite-pattern-id npc5-entity 0 131 117 3)
+     (setup-npc-entity dancer5-sprite-pattern-id npc6-entity 0 141 123 2)
+     )
+    ((eq? ggame-mode tobacco-mode)     
+     (setup-npc-entity smoker1-sprite-pattern-id npc1-entity 0 162 99 1)
+     (setup-npc-entity smoker2-sprite-pattern-id npc2-entity 0 167 139 2)
      ))
     
    (set! setup-eighties 1)   
@@ -1104,8 +1096,6 @@
    (when (not (eq? gtext-box 255))
      (cond 
       ((eq? gdraw-phase 1) 
-       ;; register that we've been here
-       (set! ggame-state (or ggame-state 1))
        (set! gscroll-x 0)
        (set! gdisable-scroll 1)
        (mmc1-chrbank0 10)
@@ -1123,6 +1113,8 @@
       ((eq? gdraw-phase 2) 
        (cond
 	((eq? ggame-mode aerobic-mode)
+	 ;; register that we've been here
+	 (set! ggame-state (or ggame-state 1))
 	 (draw-screen (low aerobic_nam) (high aerobic_nam)))
 	((eq? ggame-mode tobacco-mode)
 	 (draw-screen (low tobacco_nam) (high tobacco_nam)))
@@ -1142,33 +1134,44 @@
 
  (defun (update-sprites-indoors)
    (update-player player-sprite)
-   (animate-npc teacher-sprite-pattern-id npc1-entity)
-   (animate-npc dancer1-sprite-pattern-id npc2-entity)
-   (animate-npc dancer2-sprite-pattern-id npc3-entity)
-   (animate-npc dancer3-sprite-pattern-id npc3-entity)
-   (animate-npc dancer4-sprite-pattern-id npc4-entity)
-   (animate-npc dancer5-sprite-pattern-id npc5-entity)
- 
-   ;; get them to react to the player
-   (when (sprite-collide-sprite 
-	  0 (peek entity-data (+ npc1-entity entity-id)))
-     (set16! text-addr teachersays) ;; what to say
-     (show-textbox))
+   (cond 
+    ((eq? ggame-mode aerobic-mode)
+     (animate-npc teacher-sprite-pattern-id npc1-entity)
+     (animate-npc dancer1-sprite-pattern-id npc2-entity)
+     (animate-npc dancer2-sprite-pattern-id npc3-entity)
+     (animate-npc dancer3-sprite-pattern-id npc3-entity)
+     (animate-npc dancer4-sprite-pattern-id npc4-entity)
+     (animate-npc dancer5-sprite-pattern-id npc5-entity)
+     (when (sprite-collide-sprite 
+	    0 (peek entity-data (+ npc1-entity entity-id)))
+       (set16! text-addr teachersays) ;; what to say
+       (show-textbox))
+     
+     (when (or (sprite-collide-sprite 
+		0 (peek entity-data (+ npc2-entity entity-id)))
+	       (sprite-collide-sprite 
+		0 (peek entity-data (+ npc3-entity entity-id)))
+	       (sprite-collide-sprite 
+		0 (peek entity-data (+ npc4-entity entity-id)))
+	       (sprite-collide-sprite 
+		0 (peek entity-data (+ npc5-entity entity-id)))
+	       (sprite-collide-sprite 
+		0 (peek entity-data (+ npc6-entity entity-id))))
+       (set16! text-addr dancersays) ;; what to say
+       (show-textbox)))
+    ((eq? ggame-mode tobacco-mode)
+     (animate-npc smoker1-sprite-pattern-id npc1-entity)
+     (animate-npc smoker2-sprite-pattern-id npc2-entity)
 
-   (when (or (sprite-collide-sprite 
-	      0 (peek entity-data (+ npc2-entity entity-id)))
-	     (sprite-collide-sprite 
-	      0 (peek entity-data (+ npc3-entity entity-id)))
-	     (sprite-collide-sprite 
-	      0 (peek entity-data (+ npc4-entity entity-id)))
-	     (sprite-collide-sprite 
-	      0 (peek entity-data (+ npc5-entity entity-id)))
-	     (sprite-collide-sprite 
-	      0 (peek entity-data (+ npc6-entity entity-id))))
-     (set16! text-addr dancersays) ;; what to say
-     (show-textbox))
+     (when (sprite-collide-sprite 
+	    0 (peek entity-data (+ npc1-entity entity-id)))
+       (set16! text-addr smoker2says) ;; what to say
+       (show-textbox))
+     (when (sprite-collide-sprite 
+	    0 (peek entity-data (+ npc2-entity entity-id)))
+       (set16! text-addr smoker1says) ;; what to say
+       (show-textbox))))
    
-
    ;; exits
    (cond
     ((eq? ggame-mode aerobic-mode)
@@ -1260,7 +1263,7 @@
 
    (set! ggame-state 0)
    ;(set! ggame-mode 0)
-   (set! ggame-mode aerobic-mode)
+   (set! ggame-mode tobacco-mode)
 
    ;; load first palette
    (display-list-add-byte black-palette-id) 
@@ -1339,6 +1342,12 @@
 
  (asm "teachersays:")(text "   WELCOME TO STUDIO    FOND O'FONDA! PLEASE    HELP, I CAN'T STOP     MOVING! HIGH IMPACT  STEP AEROBICS YEAAAAAH!")(byte "0")
  (asm "dancersays:")(text "      FEEL MY ABS!")(byte "0")
+
+ (asm "smoker1says:")(text "THERE IS NO PROOF THAT CIGARETTE SMOKING IS A CAUSE FOR *COUGH* LUNG      CANCER")(byte "0")
+ (asm "smoker2says:")(text "DON'T LET THEM TAKE    YOUR *COUGH* FREEDOM    AWAY!")(byte "0")
+ (asm "smoker3says:")(text "YOU CAN STOP *COUGH* ANYTIME")(byte "0")
+ (asm "smoker4says:")(text "THERE IS NO *COUGH* SCIENTIFIC CONSENSUS")(byte "0")
+
  (asm "futureblurb:")(text "welcome to the future")(byte "0")
 
  ;; bounding box data
