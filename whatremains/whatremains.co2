@@ -662,6 +662,13 @@
      (set! n (+ n entity-size))
      (inc i)))
 
+ (defun (hide-entities)
+   (set! j 0)
+   (loop i 0 num-entities
+     (set-sprites-2x2-y! j 255)
+     (set! j (+ j entity-size)))
+   (update-entities))
+
  (defun (entity-move-left addr)
    (set! i (peek entity-data (+ addr entity-x)))
    (set! j (peek entity-data (+ addr entity-screen)))
@@ -850,22 +857,27 @@
  (defun (init-sprites-eighties)
    ;; coming back from another mode?
    (when (eq? setup-eighties 0)
-     (memset sprite-shadow #xff)
      (set! j 0)
      (loop i 0 num-entities
 	   (poke! entity-data (+ j entity-id) (<< i 2)) ;; * 4 sprite id
 	   (set! j (+ j entity-size)))
      
      (set! n (peek entity-data (+ player-entity entity-id)))
-     (setup-character player-sprite-pattern-id n)
      (poke! entity-data (+ n entity-x) 48)
      (poke! entity-data (+ n entity-y) 191))
    
-   (set! setup-eighties 1)
+   (set! j entity-size)
+   (loop i 1 num-entities
+	 (poke! entity-data (+ j entity-y) #xf0) 
+	 (poke! entity-data (+ j entity-x) #xf0) 
+	 (set! j (+ j entity-size)))
+
+   ;;(set! setup-eighties 1)
    
    (defvar direction 1)
    (defvar last-dir 1)
-
+   
+   (setup-character player-sprite-pattern-id n)
    (setup-npc-entity friend-sprite-pattern-id npc1-entity 1 95 108 3)
    
    )
@@ -978,6 +990,22 @@
     (else
      (animate-sprites-2x2! id (+ pattern 4)))))
 
+ (defun (pingpong-npc pattern id)
+   ;; convert from entity id to sprite id
+   (set! id (peek entity-data (+ id entity-id)))
+   (set! i (and (>> ganim-frame 3) 7))
+   (cond 
+    ((eq? i 0)
+     (animate-sprites-2x2! id pattern))
+    ((eq? i 1)
+     (animate-sprites-2x2! id (+ pattern 2)))
+    ((eq? i 2)
+     (animate-sprites-2x2! id (+ pattern 4)))
+    ((eq? i 3)
+     (animate-sprites-2x2! id (+ pattern 2)))
+    ((eq? i 4)
+     (animate-sprites-2x2! id pattern))))
+
  (defun (update-sprites-eighties)
    (update-player player-sprite)
    (animate-npc friend-sprite-pattern-id npc1-entity)
@@ -1034,11 +1062,13 @@
      (setup-npc-entity dancer5-sprite-pattern-id npc6-entity 0 141 123 2)
      )
     ((eq? ggame-mode tobacco-mode)     
-     (setup-npc-entity smoker1-sprite-pattern-id npc1-entity 0 162 99 1)
-     (setup-npc-entity smoker2-sprite-pattern-id npc2-entity 0 167 139 2)
+     (setup-npc-entity smoker1-sprite-pattern-id npc1-entity 0 96 111 1)
+     (setup-npc-entity smoker2-sprite-pattern-id npc2-entity 0 184 125 2)
+     (setup-npc-entity smoker1-sprite-pattern-id npc3-entity 0 171 93 0)
+     (setup-npc-entity smoker2-sprite-pattern-id npc4-entity 0 126 124 0)
      )
     ((eq? ggame-mode michael-mode)     
-     (setup-npc-entity michael-sprite-pattern-id npc1-entity 0 162 99 3)
+     (setup-npc-entity michael-sprite-pattern-id npc1-entity 0 100 122 3)
      ))
     
    (set! setup-eighties 1)   
@@ -1116,6 +1146,8 @@
     ((eq? ggame-mode tobacco-mode)
      (animate-npc smoker1-sprite-pattern-id npc1-entity)
      (animate-npc smoker2-sprite-pattern-id npc2-entity)
+     (animate-npc smoker1-sprite-pattern-id npc3-entity)
+     (animate-npc smoker2-sprite-pattern-id npc4-entity)
 
      (when (sprite-collide-sprite 
 	    0 (peek entity-data (+ npc1-entity entity-id)))
@@ -1255,9 +1287,8 @@
    ;; clear sprite shadow
    (memset sprite-shadow #xff)
 
-   (set! ggame-state 3)
-   ;(set! ggame-mode 0)
-   (set! ggame-mode future-mode)
+   (set! ggame-state 0)
+   (set! ggame-mode 0)
 
    ;; load first palette
    (display-list-add-byte black-palette-id) 
@@ -1337,12 +1368,12 @@
  (asm "teachersays:")(text "   WELCOME TO STUDIO    FOND O'FONDA! PLEASE    HELP, I CAN'T STOP     MOVING! HIGH IMPACT  STEP AEROBICS YEAAAAAH!")(byte "0")
  (asm "dancersays:")(text "      FEEL MY ABS!")(byte "0")
 
- (asm "smoker1says:")(text "THERE IS NO PROOF THAT CIGARETTE SMOKING IS A CAUSE FOR *COUGH* LUNG      CANCER")(byte "0")
- (asm "smoker2says:")(text "DON'T LET THEM TAKE    YOUR *COUGH* FREEDOM    AWAY!")(byte "0")
+ (asm "smoker1says:")(text "THERE IS NO PROOF THAT CIGARETTE SMOKING IS A CAUSE FOR *COUGH* LUNG        CANCER")(byte "0")
+ (asm "smoker2says:")(text " DON'T LET THEM TAKE   YOUR *COUGH* FREEDOM          AWAY!")(byte "0")
  (asm "smoker3says:")(text "YOU CAN STOP *COUGH* ANYTIME")(byte "0")
  (asm "smoker4says:")(text "THERE IS NO *COUGH* SCIENTIFIC CONSENSUS")(byte "0")
 
- (asm "michaelsaysfirst:")(text "WOW, A NES GAME! THAT'S TOTALLY TUBULAR! MY PARENTS GOT ME ONE AT CHRISTMAS! LET'S TRY IT!")(byte "0")
+ (asm "michaelsaysfirst:")(text "    WOW, A NES GAME!   THAT'S TOTALLY TUBULAR! MY PARENTS GOT ME ONE AT CHRISTMAS! LET'S TRY         IT!")(byte "0")
 
  (asm "friendsays:")(text "MICHAEL IS NOT HOME YET YOU SHOULD COME BACK           LATER         ")(byte "0")
  (asm "friendsays2:")(text "YOU'RE IN LUCK, MICHAEL     JUST GOT HOME    ")(byte "0")
