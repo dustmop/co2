@@ -181,12 +181,12 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
  ;; sound
  (defun (init-sound)
-   ;(asm "ldx #<whatremains_music_data	;play second song
-  ; 	ldy #>whatremains_music_data
-  ; 	lda x#80
-  ; 	jsr FamiToneInit
-  ; 	lda #0
-  ; 	jsr FamiToneMusicPlay")
+   (asm "ldx #<whatremains_music_data	
+   	ldy #>whatremains_music_data
+   	lda #80
+   	jsr FamiToneInit
+   	lda #0
+   	jsr FamiToneMusicPlay")
 
    ;; (asm "ldx #<danger_streets_music_data	;play second song
    ;; 	ldy #>danger_streets_music_data
@@ -785,16 +785,18 @@
      (display-list-end-packet command-palette-change 0 0 1))
     ;; let clear happen first
     ((> gdraw-phase screen-blank-delay)
-     (update-typed-text 1 100)     
+     (if (< title-screen 5)
+	 (update-typed-text 1 100)     
+	 (update-typed-text 2 100))
      ))
   
    ;; timed section
    (cond
-    ((and (eq? title-screen 0) (eq? (and gframe #x7f) 127))
+    ((and (eq? title-screen 0) (eq? gframe 127))
      (reset-text)
      (set16! text-addr titles_1)     
      (set! title-screen 1))
-    ((and (eq? title-screen 1) (eq? (and gframe #x7f) 127))
+    ((and (eq? title-screen 1) (eq? gframe 255))
      (reset-text)
      (display-list-add-byte 96)
      (display-list-add-byte 32)
@@ -809,13 +811,13 @@
      (display-list-end-packet command-tile-value 1 100 2)
      (set16! text-addr titles_3)
      (set! title-screen 3))
-    ((and (eq? title-screen 3) (eq? (and gframe #x7f) 127))
+    ((and (eq? title-screen 3) (eq? gframe 255))
      (display-list-add-byte 96)
      (display-list-add-byte 32)
      (display-list-end-packet command-tile-value 1 100 2)
      ;; clear
      (set! title-screen 4))
-    ((and (eq? title-screen 4) (eq? (and gframe #x7f) 127))
+    ((and (eq? title-screen 4) (eq? gframe 255))
      (draw-screen (low title_nam) (high title_nam))
      (display-list-add-byte title-palette-id) 
      (display-list-end-packet command-palette-change 0 0 1)
@@ -829,6 +831,9 @@
      (set! debounce 0)
      (cond 
       ((eq? title-screen 5)
+       (asm
+	"lda #1
+         jsr FamiToneMusicPlay")
        (update-screen 2 title1-palette-id (low title1_nam) (high title1_nam))
        (set16! text-addr intro_1_1)
        (set! title-screen 6))
@@ -879,6 +884,9 @@
      	 (set! title-text-line 3)
      	 (reset-text))
      	((eq? title-text-line 3)
+	 (asm
+	  "lda #2
+           jsr FamiToneMusicPlay")
 	 (switch-game-mode eighties-mode)))))))) 
 
  (defun (update-sprites-title)
@@ -1251,6 +1259,9 @@
  (defun (update-future)
     (cond
      ((eq? gdraw-phase 1) 
+      (asm
+       "lda #3
+        jsr FamiToneMusicPlay")
       (set! debounce 1)
       (set16! text-addr null_text)
       (set! title-screen 0)
@@ -1290,6 +1301,9 @@
 	 ((eq? title-text-line 0)
 	  (cond 
 	   ((pressed joypad-b) 
+	    (asm
+	     "lda #2
+              jsr FamiToneMusicPlay")
 	    (switch-game-mode michael-mode))
 	   (else
 	    (draw-screen (low future2_nam) (high future2_nam))
@@ -1302,6 +1316,9 @@
 	  (display-list-add-byte 42)       
 	  (display-list-end-packet command-tile-data 2 password-pos 1)
 	  (when (> password-pos 19)
+	    (asm
+	     "lda #2
+              jsr FamiToneMusicPlay")
 	    (switch-game-mode michael-mode)))))))))
  
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -1463,8 +1480,8 @@
  ;; sound code
  (asm ".include \"whatremains/music/famitone2_asm6.asm\"")
 ;; (asm ".include \"whatremains/music/danger_streets.asm\"")
- ;; (asm ".include \"whatremains/music/whatremains.asm\"")
-
+ (asm ".include \"whatremains/music/whatremains.asm\"")
+ 
  ;; the palettes
  (asm "title_palette:")
  (asm ".incbin \"whatremains/binary/title-screen-main.pal\"")
