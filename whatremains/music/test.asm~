@@ -1,0 +1,10 @@
+whatremains_music_data:
+	db 4
+	dw @instruments
+	dw @samples-3
+	dw @song0ch0,@song0ch1,@song0ch2,@song0ch3,@song0ch4,245,204
+	dw @song1ch0,@song1ch1,@song1ch2,@song1ch3,@song1ch4,163,136
+	dw @song2ch0,@song2ch1,@song2ch2,@song2ch3,@song2ch4,258,215
+	dw @song3ch0,@song3ch1,@song3ch2,@song3ch3,@song3ch4,368,307
+
+	

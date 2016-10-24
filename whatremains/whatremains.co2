@@ -59,13 +59,13 @@
  
  ;; famitone stuff
  (asm "FT_BASE_ADR = $0600 ;; page in the RAM used for FT2 variables, should be $xx00
-       FT_TEMP = $f9 ;; 3 bytes in zeropage used by the library as a scratchpad
-       FT_DPCM_OFF = $c000  
+       FT_TEMP = $a5 ;; 3 bytes in zeropage used by the library as a scratchpad
+       FT_DPCM_OFF = dmc_data
        FT_SFX_STREAMS = 4 ;; number of sound effects played at once, 1..4
-       FT_DPCM_ENABLE	;; undefine to exclude all DMC code
-       FT_SFX_ENABLE	;; undefine to exclude all sound effects code
+      ;; FT_DPCM_ENABLE	;; undefine to exclude all DMC code
+      ;; FT_SFX_ENABLE	;; undefine to exclude all sound effects code
        FT_THREAD	;; undefine if you are calling sound effects from the same thread as the sound update call
-       FT_PAL_SUPPORT   ;; undefine to exclude PAL support
+      ;; FT_PAL_SUPPORT   ;; undefine to exclude PAL support
        FT_NTSC_SUPPORT	;; undefine to exclude NTSC support
   ")
 
@@ -1249,6 +1249,35 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
  ;; future
 
+ (defun (clear-future)
+   (display-list-add-byte 30)
+   (display-list-add-byte 32)
+   (display-list-end-packet command-tile-value 0 129 2)
+   (display-list-add-byte 30)
+   (display-list-add-byte 32)
+   (display-list-end-packet command-tile-value 0 161 2)
+   (display-list-add-byte 30)
+   (display-list-add-byte 32)
+   (display-list-end-packet command-tile-value 0 193 2)
+   (display-list-add-byte 30)
+   (display-list-add-byte 32)
+   (display-list-end-packet command-tile-value 1 97 2)
+   (display-list-add-byte 30)
+   (display-list-add-byte 32)
+   (display-list-end-packet command-tile-value 1 129 2)
+   (display-list-add-byte 30)
+   (display-list-add-byte 32)
+   (display-list-end-packet command-tile-value 1 161 2)
+   (display-list-add-byte 30)
+   (display-list-add-byte 32)
+   (display-list-end-packet command-tile-value 1 193 2)
+   (display-list-add-byte 30)
+   (display-list-add-byte 32)
+   (display-list-end-packet command-tile-value 1 225 2)
+   (display-list-add-byte 30)
+   (display-list-add-byte 32)
+   (display-list-end-packet command-tile-value 3 33 2))
+
  (defun (fuzz)
    ;; random fuzz
    (display-list-add-byte (rnd)) 
@@ -1291,7 +1320,7 @@
       (set! debounce 0)
       (cond 
        ((eq? title-screen 0)
-	(draw-screen (low future2_nam) (high future2_nam))
+	(clear-future)
 	(set16! text-addr future_1) ;; can you do something for me
 	(set! title-screen 1)
 	(reset-text))
@@ -1306,7 +1335,7 @@
               jsr FamiToneMusicPlay")
 	    (switch-game-mode michael-mode))
 	   (else
-	    (draw-screen (low future2_nam) (high future2_nam))
+	    (clear-future)
 	    (set16! text-addr future_2)
 	    (set! title-text-line 1)
 	    (reset-text)
@@ -1455,6 +1484,10 @@
  (byte "191, 128, 255, 176")
  (byte "238, 112, 255, 134")
 
+ ;; dmc samples
+;; (asm "	.org $c000")
+ (asm "dmc_data:")
+ (asm ".incbin \"whatremains/music/whatremains.dmc\"")
 
  (asm "collision_bboxes1:")
  (byte "2") ;; number of boxes
@@ -1547,14 +1580,7 @@
 
  (asm "future1_nam:")
  (asm ".incbin \"whatremains/binary/cart-startup.nam\"")
- (asm "future2_nam:")
- (asm ".incbin \"whatremains/binary/cart-frame.nam\"")
-
- ;; dmc samples
-; (asm "	.org $c000
-;        .incbin \"whatremains/music/whatremains.dmc\"")
  
-
  ;; interrupt vectors (addresses for functions)
  (asm ".pad $fffa") ;; jump to the end of prg-rom
  (asm ".word vblank, reset, irq")
