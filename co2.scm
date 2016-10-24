@@ -985,7 +985,7 @@
     )))
 
 
-(define debug #t)
+(define debug #f)
 
 (define histogram '())
 
@@ -1012,9 +1012,9 @@
      ;; (display x)(newline)
       (set! histogram (add-histogram (car x) (length r) histogram))
       (append
-       (emit ";; starting " (symbol->string (car x)))
+       ;;(emit ";; starting " (symbol->string (car x)))
        r
-       (emit ";; ending " (symbol->string (car x)))
+       ;;(emit ";; ending " (symbol->string (car x)))
        )))
    (else
     (display "don't understand ")(display x)(newline) '())))
@@ -1066,7 +1066,10 @@
 (define (compile-program x)
   (set! variables '())
   (set! constants '())
-  (emit-expr (pre-process x)))
+  (let ((done (emit-expr (pre-process x))))
+    (display "size: ")(display (length done))(newline)
+    (histogram-print (sort histogram (lambda (a b) (> (cadr a) (cadr b)))))
+    done))
 
 (define (output fn x)
   (let ((f (open-output-file fn #:exists 'replace)))

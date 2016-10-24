@@ -777,17 +777,50 @@
      (mmc1-chrbank1 1)
      (update-sprites-title))
     ((eq? gdraw-phase 2)
-     (draw-screen (low title_nam) (high title_nam))
+    
      )
     ;; wait before reveal
     ((eq? gdraw-phase screen-blank-delay)
-     (display-list-add-byte title-palette-id) 
+     (display-list-add-byte title1-palette-id) 
      (display-list-end-packet command-palette-change 0 0 1))
     ;; let clear happen first
     ((> gdraw-phase screen-blank-delay)
-     (update-typed-text 2 100)     
+     (update-typed-text 1 100)     
      ))
   
+   ;; timed section
+   (cond
+    ((and (eq? title-screen 0) (eq? (and gframe #x7f) 127))
+     (reset-text)
+     (set16! text-addr titles_1)     
+     (set! title-screen 1))
+    ((and (eq? title-screen 1) (eq? (and gframe #x7f) 127))
+     (reset-text)
+     (display-list-add-byte 96)
+     (display-list-add-byte 32)
+     (display-list-end-packet command-tile-value 1 100 2)
+     (set16! text-addr titles_2)
+     (set! gframe 0)
+     (set! title-screen 2))
+    ((and (eq? title-screen 2) (eq? gframe 255))
+     (reset-text)
+     (display-list-add-byte 96)
+     (display-list-add-byte 32)
+     (display-list-end-packet command-tile-value 1 100 2)
+     (set16! text-addr titles_3)
+     (set! title-screen 3))
+    ((and (eq? title-screen 3) (eq? (and gframe #x7f) 127))
+     (display-list-add-byte 96)
+     (display-list-add-byte 32)
+     (display-list-end-packet command-tile-value 1 100 2)
+     ;; clear
+     (set! title-screen 4))
+    ((and (eq? title-screen 4) (eq? (and gframe #x7f) 127))
+     (draw-screen (low title_nam) (high title_nam))
+     (display-list-add-byte title-palette-id) 
+     (display-list-end-packet command-palette-change 0 0 1)
+     (set! title-screen 5)))
+
    (when (not (any-key)) (set! debounce 1))
 
    ;; slideshow mode
@@ -795,12 +828,12 @@
     ((and debounce (any-key))     
      (set! debounce 0)
      (cond 
-      ((eq? title-screen 0)
+      ((eq? title-screen 5)
        (update-screen 2 title1-palette-id (low title1_nam) (high title1_nam))
        (set16! text-addr intro_1_1)
-       (set! title-screen 1))
+       (set! title-screen 6))
 
-      ((eq? title-screen 1)
+      ((eq? title-screen 6)
        (cond 
      	((eq? title-text-line 0)
 	 (draw-screen (low title1_nam) (high title1_nam))
@@ -812,9 +845,9 @@
      	 (set16! text-addr intro_2_1)
      	 (reset-text)
      	 (set! title-text-line 0)
-     	 (set! title-screen 2))))
+     	 (set! title-screen 7))))
 
-      ((eq? title-screen 2)
+      ((eq? title-screen 7)
        (cond 
      	((eq? title-text-line 0)
 	 (draw-screen (low title2_nam) (high title2_nam))
@@ -826,9 +859,9 @@
      	 (set16! text-addr intro_3_1)
      	 (reset-text)
      	 (set! title-text-line 0)
-     	 (set! title-screen 3))))
+     	 (set! title-screen 8))))
        
-      ((eq? title-screen 3)
+      ((eq? title-screen 8)
        (cond 
      	((eq? title-text-line 0)
 	 (draw-screen (low title3_nam) (high title3_nam))
@@ -1354,6 +1387,11 @@
 
  ;; text
  (asm "null_text:")(byte "0")
+
+ (asm "titles_1:")(text "PLUTONIAN CORP.        PRESENTS")(byte "0")
+ (asm "titles_2:")(text "WITH SUPPORT FROM      CREATIVE INDUSTRIES    FUND NL")(byte "0")
+ (asm "titles_3:")(text "AND                    HET NIEUWE INSTITUUT")(byte "0")
+
  (asm "intro_1_1:")(text "TODAY STARTED OUT SOLIDWITH A BOWL OF FROSTED  STRAWBERRY POP-TARTS")(byte "0")
  (asm "intro_1_2:")(text "AFTER THAT I HAD A RAD  SKATE SESSION AROUND        THE BLOCK") (byte "0")
 
