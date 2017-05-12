@@ -165,12 +165,12 @@
 
 (define (set-fnarg-mapping! args)
   (set! fnarg-mapping
-	(foldl
-	 (lambda (arg r)
-	   ;; map the argument name to the address
-	   (cons (list arg (fnarg (length r))) r))
-	 '()
-	 args)))
+        (foldl
+         (lambda (arg r)
+           ;; map the argument name to the address
+           (cons (list arg (fnarg (length r))) r))
+         '()
+         args)))
 
 (define (clear-fnarg-mapping!)
   (set! fnarg-mapping '()))
@@ -189,7 +189,7 @@
   (append
    (emit "ldy" (string-append "#" (fnarg-lookup name)))
    (emit "lda" (string-append "(" stack-frame-l "),y"))))
-  
+
 ;;----------------------------------------------------------------
 
 ;; lookup a symbol everywhere, in order...
@@ -200,8 +200,8 @@
         ;; then constants
         (let ((const (constant-lookup name)))
           (if const const
-	      ;; finally variables
-	      (variable-lookup name))))))
+              ;; finally variables
+              (variable-lookup name))))))
 
 ;;----------------------------------------------------------------
 
@@ -303,9 +303,8 @@
                     (symbol->string (car (cadr x)))) ":"))
             (emit-expr-list (cddr x))
             (emit "rts"))))
-    (clear-fnarg-mapping!) 
-    r)) 
-      
+    (clear-fnarg-mapping!)
+    r))
 
 (define (emit-defint x)
   (append
@@ -322,13 +321,13 @@
    ;; push the arguments on the stack
    (foldl
     (lambda (arg r)
-      (append 
+      (append
        r
        (emit-expr arg)
        (emit "pha")))
     '()
     (reverse (cdr x))) ;; in reverse order
-   (emit "tsx") ;; sture current top as stack frame 
+   (emit "tsx") ;; sture current top as stack frame
    (emit "stx" stack-frame-l) ;; to find arguments later
    ;; call the function
    (emit "jsr" (dash->underscore (symbol->string (car x))))
@@ -358,15 +357,15 @@
 (define (emit-set16! x)
   (if (is-fnarg? (cadr x))
       (begin
-	(display "ERROR: trying to set fn arg to 16bit value...")
-	(newline))
+        (display "ERROR: trying to set fn arg to 16bit value...")
+        (newline))
       (append
        (emit "lda" (string-append "#<" (symbol->string (caddr x))))
        (emit "sta" (immediate-value (cadr x)))
        (emit "ldx" "#1")
        (emit "lda" (string-append "#>" (symbol->string (caddr x))))
        (emit "sta" (immediate-value (cadr x)) ",x"))))
-       
+
 (define (emit-write! x)
   (append
    (emit-expr (list-ref x 3))
@@ -403,10 +402,12 @@
       (append
        (emit-expr (list-ref x 2)) ;; address offset
        (emit "tay")
-       (emit "lda" (string-append "(" (immediate-value (list-ref x 1)) ")") ",y"))
+       (emit "lda" (string-append "(" (immediate-value (list-ref x 1)) ")")
+             ",y"))
       (append
        (emit "ldy" "#0")
-       (emit "lda" (string-append "(" (immediate-value (list-ref x 1)) ")") ",y"))))
+       (emit "lda" (string-append "(" (immediate-value (list-ref x 1)) ")")
+             ",y"))))
 
 
 ;; sets blocks of 256 bytes
@@ -481,7 +482,8 @@
    (emit "adc" (cadr (immediate-value (list-ref x 1))))
    (emit "sta" (reg-table-lookup 'reg-ppu-addr))
    (emit "ldy #0")
-   (emit "- lda" (string-append "(" (immediate-value (list-ref x 5)) ")") ",y") ;; base addr
+   (emit "- lda" (string-append "(" (immediate-value (list-ref x 5)) ")")
+         ",y") ;; base addr
    (emit "sta" (reg-table-lookup 'reg-ppu-data))
    (emit "iny")
    (emit "cpy" (immediate-value (list-ref x 4))) ;; end addr
@@ -564,7 +566,7 @@
    (emit "sta" "$203,y")
    (emit "sta" "$20b,y")
    (emit "clc")
-   (emit "adc" "#8") 
+   (emit "adc" "#8")
    (emit "sta" "$207,y")
    (emit "sta" "$20f,y")))
 
@@ -578,7 +580,7 @@
    (emit "sta" "$200,y")
    (emit "sta" "$204,y")
    (emit "clc")
-   (emit "adc" "#8") 
+   (emit "adc" "#8")
    (emit "sta" "$208,y")
    (emit "sta" "$20c,y")))
 
@@ -625,7 +627,7 @@
 ;; todo: fix branch limit
 (define (emit-loop x)
   (let ((label-start (generate-label "loop_start"))
-	(label-end (generate-label "loop_end")))
+        (label-end (generate-label "loop_end")))
     (append
      (emit-expr (list-ref x 2))
      (emit "sta" (immediate-value (list-ref x 1)))
@@ -641,7 +643,7 @@
 ;; (if pred then else)
 (define (emit-if x)
   (let ((false-label (generate-label "if_false"))
-	(true-label (generate-label "if_true"))
+        (true-label (generate-label "if_true"))
         (end-label (generate-label "if_end")))
     (append
      (emit-expr (list-ref x 1))
@@ -658,7 +660,7 @@
 ;; (when pred then)
 (define (emit-when x)
   (let ((end-label (generate-label "when_end"))
-	(do-label (generate-label "when_do")))
+        (do-label (generate-label "when_do")))
     (append
      (emit-expr (list-ref x 1))
      (emit "cmp" "#0")
@@ -671,9 +673,9 @@
 ;; (while pred then)
 (define (emit-while x)
   (let ((loop-label (generate-label "while_loop"))
-	(end-label (generate-label "while_loop_end"))
-	(next-label (generate-label "while_loop_next"))
-	(pred-label (generate-label "while_loop_pred")))
+        (end-label (generate-label "while_loop_end"))
+        (next-label (generate-label "while_loop_next"))
+        (pred-label (generate-label "while_loop_pred")))
     (append
      (emit "jmp" pred-label) ;; check first
      (emit-label loop-label)
@@ -856,7 +858,7 @@
    (emit "lda" (string-append "(" (immediate-value (list-ref x 1)) "+1)"))
    (emit "sbc" working-reg)
    (emit "sta" (string-append "(" (immediate-value (list-ref x 1)) "+1)"))))
- 
+
 
 ;; (define (emit-mod x)
 ;; Mod:
@@ -865,7 +867,7 @@
 ;; Modulus:	SBC $01  ; memory addr B
 ;; 		BCS Modulus
 ;; 		ADC $01
- 
+
 ;; 		;division, rounds up, returns in reg A
 ;; Division:
 ;; 		LDA $00
@@ -936,8 +938,10 @@
    ((eq? (car x) 'dec) (emit "dec" (immediate-value (cadr x))))
    ((eq? (car x) '<<) (emit-left-shift x))
    ((eq? (car x) '>>) (emit-right-shift x))
-   ((eq? (car x) 'high) (emit "lda" (string-append "#>" (symbol->string (cadr x)))))
-   ((eq? (car x) 'low) (emit "lda" (string-append "#<" (symbol->string (cadr x)))))
+   ((eq? (car x) 'high) (emit "lda" (string-append "#>"
+                                                   (symbol->string (cadr x)))))
+   ((eq? (car x) 'low) (emit "lda" (string-append "#<"
+                                                  (symbol->string (cadr x)))))
    ((eq? (car x) '+16!) (emit-add16 x))
    ((eq? (car x) '-16!) (emit-sub16 x))
    ((eq? (car x) '_rnd) (emit-rnd x))
@@ -974,7 +978,7 @@
      ;; disable interrupts while we set stuff up
      (emit "sei")
      ;; make sure we're not using decimal mode
-     (emit "cld")     
+     (emit "cld")
      ;; wait for 2 vblanks
      (emit "- lda $2002")
      (emit "bpl -")
@@ -1047,8 +1051,10 @@
   (define (_ l)
     (cond
       ((null? l) 0)
-      ((eq? (pre-process (caar l)) 'else) (cons 'do (pre-process (cdr (car l)))))
-      (else (list 'if (pre-process (caar l)) (cons 'do (pre-process (cdr (car l))))
+      ((eq? (pre-process (caar l)) 'else) (cons 'do
+                                                (pre-process (cdr (car l)))))
+      (else (list 'if (pre-process (caar l))
+                  (cons 'do (pre-process (cdr (car l))))
                   (_ (cdr l))))))
   (_ (cdr x)))
 
@@ -1112,10 +1118,12 @@
 
 (define (test)
   (assert "emit" (equal? (emit "1" "2" "3") (list "1 2 3")))
-  (assert "reg-table-lookup 1" (equal? (reg-table-lookup 'reg-apu-pulse1-control) "$4000"))
+  (assert "reg-table-lookup 1" (equal? (reg-table-lookup
+                                        'reg-apu-pulse1-control) "$4000"))
   (assert "reg-table-lookup 2" (not (reg-table-lookup 'nonsense)))
   (assert "emit-load-variable 1"
-          (equal? (emit-load-variable 'reg-apu-pulse1-control) (list "lda $4000")))
+          (equal? (emit-load-variable 'reg-apu-pulse1-control)
+                  (list "lda $4000")))
   (make-variable! 'poodle)
   (assert "emit-load-variable 2"
           (equal? (emit-load-variable 'poodle) (list "lda $00")))
