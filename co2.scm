@@ -95,15 +95,46 @@
          (mirroring (cadr (assoc 'mirroring x)))
          (third-byte (+ (* mapper-num #x10)
                         (if (eq? mirroring 'vertical) 1 0))))
-    (emit-asm (list 'unused
-                    ".byte \"NES\",$1a"
-                    (string-append ".byte $" (number->string num-prg-banks 16))
-                    (string-append ".byte $" (number->string num-chr-banks 16))
-                    (string-append ".byte $" (number->string third-byte 16))
-                    (string-append ".byte "
-                                   (string-join (build-list 9 (lambda (x) "$0"))
-                                                ","))))))
+    (emit-raw-lines
+     ".byte \"NES\",$1a"
+     (string-append ".byte $" (number->string num-prg-banks 16))
+     (string-append ".byte $" (number->string num-chr-banks 16))
+     (string-append ".byte $" (number->string third-byte 16))
+     (string-append ".byte "
+                    (string-join (build-list 9 (lambda (x) "$0")) ",")))))
 
+(define (emit-init-system)
+  (emit-raw-lines
+   ;; disable interrupts while we set stuff up
+   "sei"
+   ;; make sure we're not using decimal mode
+   "cld"
+   ;; wait for 2 vblanks
+   "- lda $2002"
+   "bpl -"
+   "- lda $2002"
+   "bpl -"
+   ;; clear out all ram
+   "lda #$00"
+   "ldx #$00"
+   "- sta $000,x"
+   "sta $100,x"
+   "sta $200,x"
+   "sta $300,x"
+   "sta $400,x"
+   "sta $500,x"
+   "sta $600,x"
+   "sta $700,x"
+   "inx"
+   "bne -"
+   ;; reset the stack pointer.
+   "ldx #$ff"
+   "txs"
+   ;; setup stack frame address high byte
+   "lda #1"
+   (string-append "sta " stack-frame-h)
+   "lda #123"
+   (string-append "sta " rnd-reg)))
 ;;-------------------------------------------------------------
 ;; a label generator
 
@@ -267,6 +298,9 @@
           (string-append r " " arg)))
     ""
     args)))
+
+(define (emit-raw-lines . args)
+  (emit-asm (cons "" args)))
 
 ;; append a bunch of expressions
 (define (emit-expr-list l)
@@ -732,7 +766,7 @@
      (emit "sta" working-reg)
      (emit "pla")
      (emit "cmp" working-reg)
-     (emit instr true-label) 
+     (emit instr true-label)
      (emit "lda" "#0")
      (emit "jmp" end-label)
      (emit-label true-label)
@@ -986,44 +1020,10 @@
    ((eq? (car x) 'sub-sprites-x!) (emit-zzz-sprites! 3 "sbc" x))
    ((eq? (car x) 'sub-sprites-y!) (emit-zzz-sprites! 0 "sbc" x))
    ((eq? (car x) 'or-sprites-attr!) (emit-zzz-sprites! 2 "eor" x))
-
    ((eq? (car x) 'animate-sprites-2x2!) (emit-animate-sprites-2x2! x))
-   ((eq? (car x) 'init-system)
-    (append
-     ;; disable interrupts while we set stuff up
-     (emit "sei")
-     ;; make sure we're not using decimal mode
-     (emit "cld")
-     ;; wait for 2 vblanks
-     (emit "- lda $2002")
-     (emit "bpl -")
-     (emit "- lda $2002")
-     (emit "bpl -")
-     ;; clear out all ram
-     (emit "lda #$00")
-     (emit "ldx #$00")
-     (emit "- sta $000,x")
-     (emit "sta $100,x")
-     (emit "sta $200,x")
-     (emit "sta $300,x")
-     (emit "sta $400,x")
-     (emit "sta $500,x")
-     (emit "sta $600,x")
-     (emit "sta $700,x")
-     (emit "inx")
-     (emit "bne -")
-     ;; reset the stack pointer.
-     (emit "ldx #$ff")
-     (emit "txs")
-     ;; setup stack frame address high byte
-     (emit "lda #1")
-     (emit "sta" stack-frame-h)
-     (emit "lda #123")
-     (emit "sta" rnd-reg)))
-
+   ((eq? (car x) 'init-system) (emit-init-system))
    (else
-    (emit-fncall x)
-    )))
+    (emit-fncall x))))
 
 
 (define debug #f)
