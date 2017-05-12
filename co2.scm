@@ -147,6 +147,19 @@
                 (display " is not a string: ")(display value)(newline)))
     (set! constants (cons (list name text) constants))))
 
+(define (make-addr! name value)
+  (when (not (string? value))
+        (display "ERROR: addr ")(display name)
+        (display " is not a number: ")(display value)(newline))
+  (set! constants (cons (list name value) constants)))
+
+(define (make-immed! name value)
+  (when (not (number? value))
+        (display "ERROR: immed ")(display name)
+        (display " is not a number: ")(display value)(newline))
+  (let ((text (string-append "#" (number->string value))))
+    (set! constants (cons (list name text) constants))))
+
 (define (constant-lookup name)
   (let ((t (assoc name constants)))
     (if t (cadr t) #f)))
@@ -912,6 +925,8 @@
    ((eq? (car x) 'defun) (emit-defun x))
    ((eq? (car x) 'defint) (emit-defint x))
    ((eq? (car x) 'defconst) (make-constant! (cadr x) (caddr x)) '())
+   ((eq? (car x) 'defaddr) (make-constant! (cadr x) (caddr x)) '())
+   ((eq? (car x) 'defimmed) (make-immed! (cadr x) (caddr x)) '())
    ((eq? (car x) 'set!) (emit-set! x))
    ((eq? (car x) 'set16!) (emit-set16! x))
    ;;        ((eq? (car x) 'let) (emit-let x))

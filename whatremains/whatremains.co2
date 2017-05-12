@@ -12,46 +12,46 @@
              (mirroring     vertical))
 
  ;; our memory layout
- (defconst sprite-shadow #x200) ;; where the sprite control data is
- (defconst sprite-dma    "#$2") ;; dma address is 100X this = $200
- (defconst display-list  #x300) ;; the display list
- (defconst pad-data      #x400) ;; cache of the current pad state
- (defconst entity-data   #x500) ;; entity state list
+ (defaddr sprite-shadow #x200) ;; where the sprite control data is
+ (defimmed sprite-dma       2) ;; dma address is 100X this = $200
+ (defaddr display-list  #x300) ;; the display list
+ (defaddr pad-data      #x400) ;; cache of the current pad state
+ (defaddr entity-data   #x500) ;; entity state list
 
  ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
  ;; display commands
  ;; ----------------
  ;;
  ;; tile-data display primitive: [list of bytes to copy as tile ids]
- (defconst command-tile-data "#$01")
+ (defimmed command-tile-data 1)
  ;; tile-value display primitive: [length tile-id]
  ;; for clearing screen etc - 128 long is about max for timing
- (defconst command-tile-value "#$02")
+ (defimmed command-tile-value 2)
  ;; 2x2 tile quad [tile top left id]
- (defconst command-quad "#$03")
+ (defimmed command-quad 3)
  ;; rom dump [high low length] - 64 maxish
- (defconst command-rom-data "#$04")
+ (defimmed command-rom-data 4)
  ;; palette change [palette-id]
- (defconst command-palette-change "#$05")
+ (defimmed command-palette-change 5)
 
- (defconst screen-blank-delay "#30")
+ (defimmed screen-blank-delay 30)
 
- (defconst title-palette-id "#0")
- (defconst title1-palette-id "#1")
- (defconst title2-palette-id "#2")
- (defconst title3-palette-id "#3")
- (defconst eighties-palette-id "#4")
- (defconst indoor-palette-id "#5")
- (defconst future-palette-id "#6")
- (defconst black-palette-id "#7")
+ (defimmed title-palette-id 0)
+ (defimmed title1-palette-id 1)
+ (defimmed title2-palette-id 2)
+ (defimmed title3-palette-id 3)
+ (defimmed eighties-palette-id 4)
+ (defimmed indoor-palette-id 5)
+ (defimmed future-palette-id 6)
+ (defimmed black-palette-id 7)
 
- (defconst doorway-aerobic-in "#0")
- (defconst doorway-aerobic-out "#1")
- (defconst doorway-tobacco-in "#2")
- (defconst doorway-tobacco-out "#3")
- (defconst doorway-michael-in "#4")
- (defconst doorway-michael-out "#5")
- (defconst doorway-michael-future "#6")
+ (defimmed doorway-aerobic-in 0)
+ (defimmed doorway-aerobic-out 1)
+ (defimmed doorway-tobacco-in 2)
+ (defimmed doorway-tobacco-out 3)
+ (defimmed doorway-michael-in 4)
+ (defimmed doorway-michael-out 5)
+ (defimmed doorway-michael-future 6)
 
  ;; famitone stuff
  (asm "FT_BASE_ADR = $0600 ;; page in the RAM used for FT2 variables, should be $xx00
@@ -111,12 +111,12 @@
  (defvar setup-eighties 0)
  (defvar password-pos 0)
 
- (defconst title-mode "#0")
- (defconst eighties-mode "#1")
- (defconst aerobic-mode "#2")
- (defconst tobacco-mode "#3")
- (defconst michael-mode "#4")
- (defconst future-mode "#5")
+ (defimmed title-mode 0)
+ (defimmed eighties-mode 1)
+ (defimmed aerobic-mode 2)
+ (defimmed tobacco-mode 3)
+ (defimmed michael-mode 4)
+ (defimmed future-mode 5)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
  ;; library code follows
@@ -390,9 +390,9 @@
  ;; gtext-box is used both as activation and countdown
  ;; to avoid repeated activation when next to characters
 
- (defconst text-box-deactivated "#0")
- (defconst text-box-activated "#254")
- (defconst text-box-start-delay "#253")
+ (defimmed text-box-deactivated 0)
+ (defimmed text-box-activated #xfe)
+ (defimmed text-box-start-delay #xfd)
 
  ;; create the text box
  (defun (show-textbox)
@@ -598,36 +598,36 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
  ;; entity system
 
- (defconst entity-id "#0") ;; the sprite id
- (defconst entity-x "#1")
- (defconst entity-screen "#2") ;; the high byte of x
- (defconst entity-y "#3")
- (defconst entity-pattern "#4") ;; for whatever
- (defconst entity-size "#5")
+ (defimmed entity-id 0) ;; the sprite id
+ (defimmed entity-x 1)
+ (defimmed entity-screen 2) ;; the high byte of x
+ (defimmed entity-y 3)
+ (defimmed entity-pattern 4) ;; for whatever
+ (defimmed entity-size 5)
 
- (defconst num-entities "#7")
+ (defimmed num-entities 7)
 
- (defconst player-entity "#0")
- (defconst npc1-entity "#5")
- (defconst npc2-entity "#10")
- (defconst npc3-entity "#15")
- (defconst npc4-entity "#20")
- (defconst npc5-entity "#25")
- (defconst npc6-entity "#30")
+ (defimmed player-entity 0)
+ (defimmed npc1-entity 5)
+ (defimmed npc2-entity 10)
+ (defimmed npc3-entity 15)
+ (defimmed npc4-entity 20)
+ (defimmed npc5-entity 25)
+ (defimmed npc6-entity 30)
 
- (defconst player-sprite "#0")
+ (defimmed player-sprite 0)
 
- (defconst player-sprite-pattern-id "#$00")
- (defconst teacher-sprite-pattern-id "#$a0")
- (defconst dancer1-sprite-pattern-id "#$c0")
- (defconst dancer2-sprite-pattern-id "#$a6")
- (defconst dancer3-sprite-pattern-id "#$c6")
- (defconst dancer4-sprite-pattern-id "#$e0")
- (defconst dancer5-sprite-pattern-id "#$e6")
- (defconst smoker1-sprite-pattern-id "#$60")
- (defconst smoker2-sprite-pattern-id "#$80")
- (defconst michael-sprite-pattern-id "#$40")
- (defconst friend-sprite-pattern-id "#$86")
+ (defimmed player-sprite-pattern-id #x00)
+ (defimmed teacher-sprite-pattern-id #xa0)
+ (defimmed dancer1-sprite-pattern-id #xc0)
+ (defimmed dancer2-sprite-pattern-id #xa6)
+ (defimmed dancer3-sprite-pattern-id #xc6)
+ (defimmed dancer4-sprite-pattern-id #xe0)
+ (defimmed dancer5-sprite-pattern-id #xe6)
+ (defimmed smoker1-sprite-pattern-id #x60)
+ (defimmed smoker2-sprite-pattern-id #x80)
+ (defimmed michael-sprite-pattern-id #x40)
+ (defimmed friend-sprite-pattern-id #x86)
 
  (defun (setup-npc-entity type eaddr screen x y col)
    (set! n (peek entity-data (+ eaddr entity-id))) ;; entity/sprite id
@@ -1033,7 +1033,7 @@
    ;; convert from entity id to sprite id
    (set! id (peek entity-data (+ id entity-id)))
    (set! i (and (>> ganim-frame 3) 7))
-   (cond 
+   (cond
     ((eq? i 0)
      (animate-sprites-2x2! id pattern))
     ((eq? i 1)
