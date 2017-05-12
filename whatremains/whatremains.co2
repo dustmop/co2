@@ -5,17 +5,13 @@
 ;; Licence TBD
 
 (do
- ;; NES header follows
 
- (asm
-  ".byte \"NES\",$1a" ;; "NES" followed by MS-DOS end-of-file
-   ".byte $02" ;; number of prg-rom blocks in 16 KB units
-   ".byte $06"  ;; number of chr-rom blocks 8 KB units (value 0 means the board uses CHR RAM)   
-   ".byte $11" ;; flags 6 (mapper = 1 in high nybble), vertical mirror in lower nybble
-   ".byte $00" ;; flags 7 - more rom control bytes
-   ".byte $00,$00,$00,$00,$00,$00,$00,$00")
- 
-    ;; our memory layout
+ (nes-header (num-prg-banks 2)
+             (num-chr-banks 6)
+             (mapper-num    1)
+             (mirroring     vertical))
+
+ ;; our memory layout
  (defconst sprite-shadow #x200) ;; where the sprite control data is
  (defconst sprite-dma    "#$2") ;; dma address is 100X this = $200
  (defconst display-list  #x300) ;; the display list

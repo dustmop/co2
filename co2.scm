@@ -86,6 +86,25 @@
     (if lu (cadr lu) #f)))
 
 ;;-------------------------------------------------------------
+;; nes header
+
+(define (emit-nes-header x)
+  (let* ((num-prg-banks (cadr (assoc 'num-prg-banks x)))
+         (num-chr-banks (cadr (assoc 'num-chr-banks x)))
+         (mapper-num (cadr (assoc 'mapper-num x)))
+         (mirroring (cadr (assoc 'mirroring x)))
+         (third-byte (+ (* mapper-num #x10)
+                        (if (eq? mirroring 'vertical) 1 0))))
+    (emit-asm (list 'unused
+                    ".byte \"NES\",$1a"
+                    (string-append ".byte $" (number->string num-prg-banks 16))
+                    (string-append ".byte $" (number->string num-chr-banks 16))
+                    (string-append ".byte $" (number->string third-byte 16))
+                    (string-append ".byte "
+                                   (string-join (build-list 9 (lambda (x) "$0"))
+                                                ","))))))
+
+;;-------------------------------------------------------------
 ;; a label generator
 
 (define label-id 99)
@@ -886,6 +905,7 @@
    ((eq? (car x) 'asm) (emit-asm x))
    ((eq? (car x) 'byte) (list (string-append ".byte " (cadr x) "\n")))
    ((eq? (car x) 'text) (list (string-append ".byte \"" (cadr x) "\"\n")))
+   ((eq? (car x) 'nes-header) (emit-nes-header (cdr x)))
    ((eq? (car x) 'defvar) (emit-defvar x))
    ((eq? (car x) 'defun) (emit-defun x))
    ((eq? (car x) 'defint) (emit-defint x))
