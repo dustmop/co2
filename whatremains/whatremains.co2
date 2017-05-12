@@ -16,11 +16,11 @@
    ".byte $00,$00,$00,$00,$00,$00,$00,$00")
  
     ;; our memory layout
- (defconst sprite-shadow "$200") ;; where the sprite control data is
+ (defconst sprite-shadow #x200) ;; where the sprite control data is
  (defconst sprite-dma    "#$2") ;; dma address is 100X this = $200
- (defconst display-list  "$300") ;; the display list
- (defconst pad-data      "$400") ;; cache of the current pad state
- (defconst entity-data   "$500") ;; entity state list
+ (defconst display-list  #x300) ;; the display list
+ (defconst pad-data      #x400) ;; cache of the current pad state
+ (defconst entity-data   #x500) ;; entity state list
 
  ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
  ;; display commands

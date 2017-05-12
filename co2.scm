@@ -121,10 +121,12 @@
 (define constants '())
 
 (define (make-constant! name value)
-  (when (not (string? value))
-	(display "ERROR: constant ")(display name)(display " is not a string: ")
-	(display value)(newline))
-  (set! constants (cons (list name value) constants)))
+  (let ((text null))
+    (cond ((string? value) (set! text value))
+          ((number? value) (set! text (number->string value)))
+          (else (display "ERROR: constant ")(display name)
+                (display " is not a string: ")(display value)(newline)))
+    (set! constants (cons (list name text) constants))))
 
 (define (constant-lookup name)
   (let ((t (assoc name constants)))
