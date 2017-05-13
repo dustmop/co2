@@ -133,6 +133,21 @@
    (set! reg-ppu-scroll 0)
    (set! reg-ppu-scroll 0))
 
+(defun (clear-nametables)
+   (asm "bit $2002")
+   (asm "lda #$20")
+   (asm "sta $2006")
+   (asm "lda #$00")
+   (asm "sta $2006")
+   (asm "ldx #$00")
+   (asm "ldy #$08")
+   (asm "- sta $2007")
+   (asm "dex")
+   (asm "bne -")
+   (asm "dey")
+   (asm "bne -")
+   (asm "rts"))
+
  ;; mmc1 stuff
  (defun (mmc1-control a)
    a ;; get argument into register
@@ -211,12 +226,12 @@
 
  ;; adds a byte to the list
  (defun (display-list-add-byte data)
-   (poke! display-list display-list-index data) 
+   (poke! display-list display-list-index data)
    (inc display-list-index))
 
  ;; finishes a packet for rendering
  (defun (display-list-end-packet command-id x y nbytes)
-   (poke! display-list display-list-index command-id) 
+   (poke! display-list display-list-index command-id)
    (inc display-list-index)
    (poke! display-list display-list-index x)
    (inc display-list-index)
@@ -1354,6 +1369,7 @@
  (defint (reset)
    (init-system)
    (disable-rendering)
+   (clear-nametables)
 
    ;; set mmc1 so we can update tiles/sprites separately
    ;; (using 4k blocks rather than 8k ones, mirror vertically)
