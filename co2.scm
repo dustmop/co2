@@ -153,6 +153,24 @@
   (when (not (memq name variables))
         (set! variables (append variables (list name)))))
 
+(define (left-pad text pad len)
+  (string-append (make-string (- len (string-length text)) pad) text))
+
+(define (output-source-map fn)
+  (let ((f (open-output-file fn #:exists 'replace))
+        (i 0))
+    (for-each
+     (lambda (n)
+       (display "$" f)
+       (display (left-pad (number->string i 16) #\0 4) f)
+       (display "#" f)
+       (display n f)
+       (display "#" f)
+       (newline f)
+       (set! i (+ 1 i)))
+     variables)
+    (close-output-port f)))
+
 (define (byte->string byte)
   (string-upcase (string-append
                   (number->string (quotient byte 16) 16)
@@ -1153,4 +1171,5 @@
 
 (let ((f (open-input-file (command-line #:args (input) input))))
   (output "out.asm" (read f))
+  (output-source-map "out.map")
   (close-input-port f))
