@@ -157,18 +157,10 @@
   (string-append (make-string (- len (string-length text)) pad) text))
 
 (define (output-source-map fn)
-  (let ((f (open-output-file fn #:exists 'replace))
-        (i 0))
-    (for-each
-     (lambda (n)
-       (display "$" f)
-       (display (left-pad (number->string i 16) #\0 4) f)
-       (display "#" f)
-       (display n f)
-       (display "#" f)
-       (newline f)
-       (set! i (+ 1 i)))
-     variables)
+  (let ((f (open-output-file fn #:exists 'replace)))
+    (for ([name variables] [i (in-naturals)])
+      (display "$" f)(display (left-pad (number->string i 16) #\0 4) f)
+      (display "#" f)(display name f)(display "#" f)(newline f))
     (close-output-port f)))
 
 (define (byte->string byte)
