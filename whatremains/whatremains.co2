@@ -189,6 +189,13 @@
  ;; calls the random number generator
  (defun (rnd) (_rnd))
 
+ (defun (wait-new-frame)
+   ; Assumes that gframe is at $00.
+   (asm "lda $00")
+   (asm "WaitLoop:")
+   (asm "cmp $00")
+   (asm "beq WaitLoop"))
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
  ;; sound
  (defun (init-sound)
@@ -1387,25 +1394,9 @@
    (display-list-add-byte black-palette-id)
    (display-list-end-packet command-palette-change 0 0 1)
 
-   (asm
-    "cli"            ;; restart interrupts again
-    "loop: jmp loop" ;; go into in infinite loop - vblank interrupt takes over
-    ))
-
- ;; main loop is here
- (defint (vblank)
-   ;; precious ppu update time starts
-   ;; start sprite data dma to the oam now
-   (set! reg-oam-dma sprite-dma)
-   ;; dma the display list now
-   (display-list-execute)
-
-   ;; update scroll pos
-   ;;(when (not gdisable-scroll)
-     (set! reg-ppu-scroll gscroll-x)
-     (set! reg-ppu-scroll gscroll-y);)
-
-   ;; precious ppu update time ends
+   ;; main loop is here
+   (asm "MainLoop:")
+   (wait-new-frame)
 
    ;; profiling display (breaks sprite update)
    ;; (asm "
@@ -1424,7 +1415,6 @@
 
    ;; read the joypad state into memory
    (read-joypad)
-   (inc gframe)
 
    ;; increment the draw phase
    (when (not (eq? gdraw-phase 255))
@@ -1438,9 +1428,38 @@
    ;;   sta $2001
    ;;  ")
 
-   )
+   (asm "jmp MainLoop"))
 
-  (defint (irq))
+
+ (defint (vblank)
+   ;; preserve registers for the main thread
+   (asm "pha")
+   (asm "txa")
+   (asm "pha")
+   (asm "tya")
+   (asm "pha")
+   ;; precious ppu update time starts
+   ;; start sprite data dma to the oam now
+   (set! reg-oam-dma sprite-dma)
+   ;; dma the display list now
+   (display-list-execute)
+
+   ;; update scroll pos
+   ;;(when (not gdisable-scroll)
+     (set! reg-ppu-scroll gscroll-x)
+     (set! reg-ppu-scroll gscroll-y);)
+
+   ;; precious ppu update time ends
+   (inc gframe)
+   ;; restore registers for the main thread
+   (asm "pla")
+   (asm "tay")
+   (asm "pla")
+   (asm "tax")
+   (asm "pla"))
+
+
+ (defint (irq))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
  ;; game data follows
