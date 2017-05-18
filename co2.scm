@@ -1248,7 +1248,7 @@
     ; TODO: Add number of parameters to table, to check when called.
     (make-function! name)
     (printf "\n~a\n" (co2-source-context))
-    (printf "~a:\n" name)
+    (printf "~a:\n" (normalize-name name))
     (for ([stmt body])
          (process-statement stmt))
     (printf "  rts\n")))
@@ -1294,6 +1294,14 @@
      ([symbol? value] (printf "  ~a ~a\n" instr (normalize-name value)))
      (else (error (format "ERROR: ~a\n" value))))))
 
+(define (process-instruction-branch instr target)
+  (assert instr symbol?)
+  (assert target syntax?)
+  (let ((value (syntax->datum target)))
+    (assert value symbol?)
+    (printf "~a\n" (co2-source-context))
+    (printf "  ~a ~a\n" instr (cadr (assoc value (lexical-scope))))))
+
 (define (process-expression expr)
   (assert expr syntax?)
   (let* ((value (syntax->datum expr)))
@@ -1302,6 +1310,18 @@
      ([number? value] (printf "  lda #x~x\n" value))
      ([symbol? value] (printf "  lda ~a\n" (variable-lookup-name value)))
      (else (error (format "ERROR: ~a\n" value))))))
+
+(define lexical-scope (make-parameter '()))
+
+(define (process-block label body)
+  (assert label symbol?)
+  (assert body list?)
+  (let ((gen-label (generate-label (symbol->string label))))
+    (printf "~a:\n" gen-label)
+    (parameterize ([lexical-scope (cons (list label gen-label)
+                                        (lexical-scope))])
+      (for ([stmt body])
+           (process-statement stmt)))))
 
 (define (process-loop-down reg start body)
   (assert reg symbol?)
@@ -1346,7 +1366,7 @@
       (printf "  bne ~a\n" loop-label))))
 
 (define (process-jump-subroutine fname)
-  (printf "  jsr ~a\n" fname))
+  (printf "  jsr ~a\n" (normalize-name fname)))
 
 (define (process-statement stmt)
   ; TODO: Rename to process-inner-form
@@ -1362,6 +1382,8 @@
           (case symbol
             ; Main expression walker.
             [(set!) (process-set-bang (syntax->datum (car rest)) (cadr rest))]
+            [(block) (process-block (syntax->datum (car rest))
+                                    (cdr rest))]
             [(loop-down-from) (process-loop-down (syntax->datum (car rest))
                                                  (syntax->datum (cadr rest))
                                                  (cddr rest))]
@@ -1371,8 +1393,10 @@
                                            (cdddr rest))]
             [(and asl eor lda lsr ora rol)
              (process-instruction-expression symbol (car rest))]
-            [(bit sta)
+            [(bit cmp cpx cpy sta)
              (process-instruction-standalone symbol (car rest))]
+            [(bne jmp)
+             (process-instruction-branch symbol (car rest))]
             [else (process-todo symbol)])))))
 
 (define (process-unknown symbol)
