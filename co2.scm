@@ -135,26 +135,33 @@
    (string-append "sta " stack-frame-h)
    "lda #123"
    (string-append "sta " rnd-reg)))
-;;-------------------------------------------------------------
-;; a label generator
 
-(define label-id 99)
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Label generation
+
+(define label-id 0)
 
 (define (generate-label name)
   (set! label-id (+ label-id 1))
-  (string-append name "_" (number->string label-id)))
+  (string-append "_" name "_" (left-pad (number->string label-id 16) #\0 4)))
 
-;;----------------------------------------------------------------
-;; variables are just an address lookup table to the zero page
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; Variable definition
 
-(define variables '())
+(define variable-min #x10)
+
+(define variable-defs (make-hash))
 
 (define (make-variable! name)
-  (when (not (memq name variables))
-        (set! variables (append variables (list name)))))
+  (let ((n (+ (hash-count variable-defs) variable-min)))
+    (when (not (hash-has-key? variable-defs name))
+          (hash-set! variable-defs name n))
+    (hash-ref variable-defs name)))
 
-(define (left-pad text pad len)
-  (string-append (make-string (- len (string-length text)) pad) text))
+(define (variable? name)
+  (hash-has-key? variable-defs name))
+
+(define variables '())
 
 (define (output-source-map fn)
   (let ((f (open-output-file fn #:exists 'replace)))
@@ -1159,7 +1166,7 @@
   ;;(assert "emit-defvar" (equal? (emit-defvar '(defvar poodle2 30)) '("lda #30" "sta $01")))
   )
 
-(test)
+;(test)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Utilities
@@ -1175,6 +1182,9 @@
   (call-with-output-string
    (lambda (out)
      (display x out))))
+
+(define (left-pad text pad len)
+  (string-append (make-string (- len (string-length text)) pad) text))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Source file context information for debugging / compiler metadata
@@ -1201,6 +1211,12 @@
     (printf ".byte $~x\n" third-byte)
     (printf ".byte $~s\n" (string-join (build-list 9 (lambda (x) "$0")) ","))))
 
+(define (process-defvar name)
+  (let* ((def (dash->underscore (symbol->string name)))
+         (addr (make-variable! def)))
+    (printf "\n~a\n" (co2-source-context))
+    (printf "~a = $~a\n" def (left-pad (number->string addr 16) #\0 2))))
+
 (define (process-unknown symbol)
   (printf "\n~a\n" (co2-source-context))
   (printf "Unknown: ~a\n" symbol))
@@ -1208,9 +1224,13 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Syntax tree walker
 
-(define (process-args args allowed-keywords)
+(define (process-keys args allowed-keywords)
   (for/list ([k allowed-keywords])
     (find-keyword k (map syntax->datum args))))
+
+(define (process-args args num)
+  ; TODO: Validate that num == (length args), error otherwise
+  (map syntax->datum args))
 
 (define (process-top-level-form form)
   (let* ((inner (syntax-e form))
@@ -1220,8 +1240,9 @@
     (parameterize ([*co2-source-form* form])
       (case symbol
         [(nes-header) (apply process-nes-header
-                             (process-args rest '(#:num-prg #:num-chr
+                             (process-keys rest '(#:num-prg #:num-chr
                                                   #:mapper #:mirroring)))]
+        [(defvar) (apply process-defvar (process-args rest 1))]
         [else (process-unknown symbol)]))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
