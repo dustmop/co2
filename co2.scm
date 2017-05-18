@@ -1186,6 +1186,9 @@
 (define (left-pad text pad len)
   (string-append (make-string (- len (string-length text)) pad) text))
 
+(define (normalize-name name)
+  (dash->underscore (symbol->string name)))
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Source file context information for debugging / compiler metadata
 
@@ -1209,17 +1212,65 @@
     (printf ".byte $~x\n" (or num-prg 1))
     (printf ".byte $~x\n" (or num-chr 0))
     (printf ".byte $~x\n" third-byte)
-    (printf ".byte $~s\n" (string-join (build-list 9 (lambda (x) "$0")) ","))))
+    (printf ".byte $~a\n" (string-join (build-list 9 (lambda (x) "$0")) ","))))
 
 (define (process-defvar name)
-  (let* ((def (dash->underscore (symbol->string name)))
+  (let* ((def (normalize-name name))
          (addr (make-variable! def)))
     (printf "\n~a\n" (co2-source-context))
     (printf "~a = $~a\n" def (left-pad (number->string addr 16) #\0 2))))
 
+(define (process-defun decl body)
+  (assert decl list?)
+  (assert body list?)
+  (let ((name (car decl))
+        (args (cdr decl)))
+    (if (equal? name 'clear-joypad)
+        (begin
+          ; TODO: Add to table, with number of parameters, to check when called.
+          (printf "\n~a\n" (co2-source-context))
+          (printf "~a:\n" (normalize-name name))
+          (for ([stmt body])
+               (process-statement stmt))
+          (printf "  rts\n"))
+        (begin
+          (printf "\n~a\n" (co2-source-context))
+          (printf ";TODO: ~a\n" body)))))
+
+(define (process-set-bang place expr)
+  (assert place symbol?)
+  (assert expr syntax?)
+  (process-expression expr) ; Result left in A
+  (printf "~a\n" (co2-source-context))
+  (printf "  sta ~a\n" (normalize-name place)))
+
+(define (process-expression expr)
+  (assert expr syntax?)
+  (let* ((value (syntax->datum expr)))
+    (if (list? value)
+        (begin
+          (process-statement expr))
+        (printf "  lda #x~x\n" value))))
+
+(define (process-statement stmt)
+  (assert stmt syntax?)
+  (let* ((inner (syntax-e stmt))
+         (first (car inner))
+         (rest (cdr inner))
+         (symbol (syntax->datum first)))
+    (parameterize ([*co2-source-form* stmt])
+      (case symbol
+        ; Main expression walker.
+        [(set!) (process-set-bang (syntax->datum (car rest)) (cadr rest))]
+        [else (display "ok")(newline)(process-todo symbol)]))))
+
 (define (process-unknown symbol)
   (printf "\n~a\n" (co2-source-context))
   (printf "Unknown: ~a\n" symbol))
+
+(define (process-todo symbol)
+  (printf "\n~a\n" (co2-source-context))
+  (printf "Todo: ~a\n" symbol))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Syntax tree walker
@@ -1228,9 +1279,9 @@
   (for/list ([k allowed-keywords])
     (find-keyword k (map syntax->datum args))))
 
-(define (process-args args num)
-  ; TODO: Validate that num == (length args), error otherwise
-  (map syntax->datum args))
+(define (process-args args num-required num-optional)
+  ; TODO: Implement num-required and num-optional
+  (map syntax-e args))
 
 (define (process-top-level-form form)
   (let* ((inner (syntax-e form))
@@ -1242,7 +1293,9 @@
         [(nes-header) (apply process-nes-header
                              (process-keys rest '(#:num-prg #:num-chr
                                                   #:mapper #:mirroring)))]
-        [(defvar) (apply process-defvar (process-args rest 1))]
+        [(defvar) (apply process-defvar (process-args rest 1 1))]
+        [(defun) (process-defun (syntax->datum (car rest))
+                                (cdr rest))]
         [else (process-unknown symbol)]))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
