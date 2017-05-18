@@ -1161,7 +1161,82 @@
 
 (test)
 
-(let ((f (open-input-file (command-line #:args (input) input))))
-  (output "out.asm" (read f))
-  (output-source-map "out.map")
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; Utilities
+
+(define (find-keyword keyword elems)
+  (if (or (empty? elems) (empty? (cdr elems)))
+      #f
+      (if (eq? keyword (car elems))
+          (cadr elems)
+          (find-keyword keyword (cddr elems)))))
+
+(define (->string x)
+  (call-with-output-string
+   (lambda (out)
+     (display x out))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; Source file context information for debugging / compiler metadata
+
+(define *co2-source-form* (make-parameter #f))
+
+(define (co2-source-context)
+  (let* ((form (*co2-source-form*))
+         (fname (syntax-source form))
+         (line-num (syntax-line form))
+         (source (->string (syntax->datum form)))
+         (len (min 40 (string-length source))))
+    (format ";~a:~a ~a" fname line-num (substring source 0 len))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; Built-in functions
+
+(define (process-nes-header num-prg num-chr mapper mirroring)
+  (let ((third-byte (+ (* mapper #x10) (if (eq? mirroring 'vertical) 1 0))))
+    (printf "\n~a\n" (co2-source-context))
+    (printf ".byte \"NES\",$1a\n")
+    (printf ".byte $~x\n" (or num-prg 1))
+    (printf ".byte $~x\n" (or num-chr 0))
+    (printf ".byte $~x\n" third-byte)
+    (printf ".byte $~s\n" (string-join (build-list 9 (lambda (x) "$0")) ","))))
+
+(define (process-unknown symbol)
+  (printf "\n~a\n" (co2-source-context))
+  (printf "Unknown: ~a\n" symbol))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; Syntax tree walker
+
+(define (process-args args allowed-keywords)
+  (for/list ([k allowed-keywords])
+    (find-keyword k (map syntax->datum args))))
+
+(define (process-top-level-form form)
+  (let* ((inner (syntax-e form))
+         (first (car inner))
+         (rest (cdr inner))
+         (symbol (syntax->datum first)))
+    (parameterize ([*co2-source-form* form])
+      (case symbol
+        [(nes-header) (apply process-nes-header
+                             (process-args rest '(#:num-prg #:num-chr
+                                                  #:mapper #:mirroring)))]
+        [else (process-unknown symbol)]))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; Entry point
+
+(define (process-co2 fname out-filename f)
+  (define (loop)
+    (let ((top-level-form (read-syntax fname f)))
+      (when (not (eof-object? top-level-form))
+            (process-top-level-form top-level-form)
+            (loop))))
+  (loop))
+
+(let* ((fname (command-line #:args (input) input))
+       (f (open-input-file fname)))
+  (port-count-lines! f)
+  (process-co2 fname "out.asm" f)
   (close-input-port f))
