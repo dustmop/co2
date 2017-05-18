@@ -188,6 +188,21 @@
      (else (_ (cdr l) (+ c 1)))))
   (_ variables 0))
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; Function definition
+
+(define function-defs (make-hash))
+
+(define (make-function! sym)
+  (let* ((name (normalize-name sym))
+         (n (hash-count function-defs)))
+    (when (not (hash-has-key? function-defs name))
+          (hash-set! function-defs name n))
+    (hash-ref function-defs name)))
+
+(define (function? name)
+  (hash-has-key? function-defs (normalize-name name)))
+
 ;;----------------------------------------------------------------
 ;; constants lookup
 (define constants '())
@@ -1230,9 +1245,10 @@
   (assert body list?)
   (let ((name (car decl))
         (args (cdr decl)))
-    ; TODO: Add to table, with number of parameters, to check when called.
+    ; TODO: Add number of parameters to table, to check when called.
+    (make-function! name)
     (printf "\n~a\n" (co2-source-context))
-    (printf "~a:\n" (normalize-name name))
+    (printf "~a:\n" name)
     (for ([stmt body])
          (process-statement stmt))
     (printf "  rts\n")))
@@ -1247,7 +1263,15 @@
 
 (define (process-instruction-expression instr expr)
   ; TODO: Currently assuming there's only operand.
-  ; Breaks things like (eor (lda joypad-last #xff))
+  ; Breaks things like (eor (lda joypad-last) #xff)
+  ; If these have one operand:
+  ;  If that is an expression: evaluate it, apply this instruction to A
+  ;  If that is an atom: apply this instruction to the atom
+  ; If two operands:
+  ;  Evaluate first expression / Load it with "lda"
+  ;  If second is an expression:
+  ;   Push A to the stack, evaluate the expression
+  ;  ...
   (assert instr symbol?)
   (assert expr syntax?)
   (let ((inner (syntax->datum expr)))
@@ -1299,6 +1323,31 @@
       (printf "  de~a\n" reg)
       (printf "  bne ~a\n" loop-label))))
 
+(define (process-loop-up reg start end body)
+  (assert reg symbol?)
+  (assert start number?)
+  ;end is (or number? list?)
+  (assert body list?)
+  (let ((initial-loop-value start)
+        ; TODO: Value reserved by implemention. Ensure `body` doesn't modify it.
+        (sentinal-value "_count"))
+    (when (not (= initial-loop-value 0))
+          (error "Start must be 0, other values not supported yet"))
+    (printf ";TODO: Evaluate ~s\n" end)
+    (printf "  sta ~a\n" sentinal-value)
+    (printf "  ld~a #~a\n" reg initial-loop-value)
+    (let ((loop-label (generate-label "loop_up_to")))
+      (printf "~a:\n" loop-label)
+      ; TODO: Disallow `reg` changes within `body`
+      (for ([stmt body])
+           (process-statement stmt))
+      (printf "  in~a\n" reg)
+      (printf "  cp~a ~a\n" reg sentinal-value)
+      (printf "  bne ~a\n" loop-label))))
+
+(define (process-jump-subroutine fname)
+  (printf "  jsr ~a\n" fname))
+
 (define (process-statement stmt)
   ; TODO: Rename to process-inner-form
   (assert stmt syntax?)
@@ -1306,18 +1355,25 @@
          (first (car inner))
          (rest (cdr inner))
          (symbol (syntax->datum first)))
-    (parameterize ([*co2-source-form* stmt])
-      (case symbol
-        ; Main expression walker.
-        [(set!) (process-set-bang (syntax->datum (car rest)) (cadr rest))]
-        [(loop-down-from) (process-loop-down (syntax->datum (car rest))
-                                             (syntax->datum (cadr rest))
-                                             (cddr rest))]
-        [(and asl eor lda lsr ora rol)
-         (process-instruction-expression symbol (car rest))]
-        [(bit sta)
-         (process-instruction-standalone symbol (car rest))]
-        [else (process-todo symbol)]))))
+    (if (function? symbol)
+        ; TODO: Pass parameters to function.
+        (process-jump-subroutine symbol)
+        (parameterize ([*co2-source-form* stmt])
+          (case symbol
+            ; Main expression walker.
+            [(set!) (process-set-bang (syntax->datum (car rest)) (cadr rest))]
+            [(loop-down-from) (process-loop-down (syntax->datum (car rest))
+                                                 (syntax->datum (cadr rest))
+                                                 (cddr rest))]
+            [(loop-up-to) (process-loop-up (syntax->datum (car rest))
+                                           (syntax->datum (cadr rest))
+                                           (syntax->datum (caddr rest))
+                                           (cdddr rest))]
+            [(and asl eor lda lsr ora rol)
+             (process-instruction-expression symbol (car rest))]
+            [(bit sta)
+             (process-instruction-standalone symbol (car rest))]
+            [else (process-todo symbol)])))))
 
 (define (process-unknown symbol)
   (printf "\n~a\n" (co2-source-context))
@@ -1351,6 +1407,8 @@
         [(defvar) (apply process-defvar (process-args rest 1 1))]
         [(defun) (process-defun (syntax->datum (car rest))
                                 (cdr rest))]
+        [(defvector) (process-defun (syntax->datum (car rest))
+                                    (cdr rest))]
         [else (process-unknown symbol)]))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
