@@ -152,14 +152,19 @@
 
 (define variable-defs (make-hash))
 
-(define (make-variable! name)
-  (let ((n (+ (hash-count variable-defs) variable-min)))
+(define (make-variable! sym)
+  (let* ((name (normalize-name sym))
+         (n (+ (hash-count variable-defs) variable-min)))
     (when (not (hash-has-key? variable-defs name))
           (hash-set! variable-defs name n))
     (hash-ref variable-defs name)))
 
 (define (variable? name)
   (hash-has-key? variable-defs name))
+
+(define (variable-lookup-name sym)
+  ; TODO: Assert that variable name exists.
+  (normalize-name sym))
 
 (define variables '())
 
@@ -1216,7 +1221,7 @@
 
 (define (process-defvar name)
   (let* ((def (normalize-name name))
-         (addr (make-variable! def)))
+         (addr (make-variable! name)))
     (printf "\n~a\n" (co2-source-context))
     (printf "~a = $~a\n" def (left-pad (number->string addr 16) #\0 2))))
 
@@ -1225,21 +1230,17 @@
   (assert body list?)
   (let ((name (car decl))
         (args (cdr decl)))
-    (if (equal? name 'clear-joypad)
-        (begin
-          ; TODO: Add to table, with number of parameters, to check when called.
-          (printf "\n~a\n" (co2-source-context))
-          (printf "~a:\n" (normalize-name name))
-          (for ([stmt body])
-               (process-statement stmt))
-          (printf "  rts\n"))
-        (begin
-          (printf "\n~a\n" (co2-source-context))
-          (printf ";TODO: ~a\n" body)))))
+    ; TODO: Add to table, with number of parameters, to check when called.
+    (printf "\n~a\n" (co2-source-context))
+    (printf "~a:\n" (normalize-name name))
+    (for ([stmt body])
+         (process-statement stmt))
+    (printf "  rts\n")))
 
 (define (process-set-bang place expr)
   (assert place symbol?)
   (assert expr syntax?)
+  ; TODO: Show source location here for literal values.
   (process-expression expr) ; Result left in A
   (printf "~a\n" (co2-source-context))
   (printf "  sta ~a\n" (normalize-name place)))
@@ -1247,12 +1248,14 @@
 (define (process-expression expr)
   (assert expr syntax?)
   (let* ((value (syntax->datum expr)))
-    (if (list? value)
-        (begin
-          (process-statement expr))
-        (printf "  lda #x~x\n" value))))
+    (cond
+     ([list? value] (process-statement expr))
+     ([number? value] (printf "  lda #x~x\n" value))
+     ([symbol? value] (printf "  lda ~a\n" (variable-lookup-name value)))
+     (else (printf "ERROR: ~a\n" value)))))
 
 (define (process-statement stmt)
+  ; TODO: Rename to process-inner-form
   (assert stmt syntax?)
   (let* ((inner (syntax-e stmt))
          (first (car inner))
@@ -1262,7 +1265,7 @@
       (case symbol
         ; Main expression walker.
         [(set!) (process-set-bang (syntax->datum (car rest)) (cadr rest))]
-        [else (display "ok")(newline)(process-todo symbol)]))))
+        [else (process-todo symbol)]))))
 
 (define (process-unknown symbol)
   (printf "\n~a\n" (co2-source-context))
