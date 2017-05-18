@@ -1245,6 +1245,31 @@
   (printf "~a\n" (co2-source-context))
   (printf "  sta ~a\n" (normalize-name place)))
 
+(define (process-instruction-expression instr expr)
+  ; TODO: Currently assuming there's only operand.
+  ; Breaks things like (eor (lda joypad-last #xff))
+  (assert instr symbol?)
+  (assert expr syntax?)
+  (let ((inner (syntax->datum expr)))
+    (cond
+     ([list? inner] (begin (process-expression expr)
+                           (printf "~a\n" (co2-source-context))
+                           (printf "  ~a\n" instr)))
+     ([symbol? inner] (printf "  ~a ~a\n" instr (normalize-name inner)))
+     ([number? inner] (printf "  ~a #~a\n" instr inner))
+     (else (error (format "ERROR: ~a\n" inner))))))
+
+(define (process-instruction-standalone instr rhs)
+  ;TODO: Rhs being an expression is an error
+  ;(printf ";****** alone ~a ~a\n" instr expr)
+  (assert instr symbol?)
+  (assert rhs syntax?)
+  (let ((value (syntax->datum rhs)))
+    (printf "~a\n" (co2-source-context))
+    (cond
+     ([symbol? value] (printf "  ~a ~a\n" instr (normalize-name value)))
+     (else (error (format "ERROR: ~a\n" value))))))
+
 (define (process-expression expr)
   (assert expr syntax?)
   (let* ((value (syntax->datum expr)))
@@ -1252,7 +1277,27 @@
      ([list? value] (process-statement expr))
      ([number? value] (printf "  lda #x~x\n" value))
      ([symbol? value] (printf "  lda ~a\n" (variable-lookup-name value)))
-     (else (printf "ERROR: ~a\n" value)))))
+     (else (error (format "ERROR: ~a\n" value))))))
+
+(define (process-loop-down reg start body)
+  (assert reg symbol?)
+  (assert start number?)
+  (assert body list?)
+  (let ((initial-loop-value #f))
+    (cond
+     ([= start 0] (error "Cannot start loop at 0"))
+     ([< start #x100] (set! initial-loop-value start))
+     ([= start #x100] (set! initial-loop-value 0))
+     (else (error "Initial loop value invalid")))
+    (printf "  ld~a #~a\n" reg initial-loop-value)
+    (let ((loop-label (generate-label "loop_down_from")))
+      (printf "~a:\n" loop-label)
+      ; TODO: Disallow `reg` changes within `body`
+      (for ([stmt body])
+           ;(printf ";TODO ~a\n" stmt)
+           (process-statement stmt))
+      (printf "  de~a\n" reg)
+      (printf "  bne ~a\n" loop-label))))
 
 (define (process-statement stmt)
   ; TODO: Rename to process-inner-form
@@ -1265,6 +1310,13 @@
       (case symbol
         ; Main expression walker.
         [(set!) (process-set-bang (syntax->datum (car rest)) (cadr rest))]
+        [(loop-down-from) (process-loop-down (syntax->datum (car rest))
+                                             (syntax->datum (cadr rest))
+                                             (cddr rest))]
+        [(and asl eor lda lsr ora rol)
+         (process-instruction-expression symbol (car rest))]
+        [(bit sta)
+         (process-instruction-standalone symbol (car rest))]
         [else (process-todo symbol)]))))
 
 (define (process-unknown symbol)
@@ -1273,7 +1325,7 @@
 
 (define (process-todo symbol)
   (printf "\n~a\n" (co2-source-context))
-  (printf "Todo: ~a\n" symbol))
+  (printf ";;;;;;;; TODO: ~a\n" symbol))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Syntax tree walker
