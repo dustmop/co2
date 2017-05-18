@@ -1225,7 +1225,7 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Built-in functions
 
-(define (process-nes-header num-prg num-chr mapper mirroring)
+(define (built-in-nes-header num-prg num-chr mapper mirroring)
   (let ((third-byte (+ (* mapper #x10) (if (eq? mirroring 'vertical) 1 0))))
     (printf "\n~a\n" (co2-source-context))
     (printf ".byte \"NES\",$1a\n")
@@ -1233,6 +1233,34 @@
     (printf ".byte $~x\n" (or num-chr 0))
     (printf ".byte $~x\n" third-byte)
     (printf ".byte $~a\n" (string-join (build-list 9 (lambda (x) "$0")) ","))))
+
+(define (built-in-init-system)
+  ;; disable interrupts while we set stuff up
+  (printf "  sei\n")
+  ;; make sure we're not using decimal mode
+  (printf "  cld\n")
+  ;; wait for 2 vblanks
+  (printf "  - lda $2002\n")
+  (printf "  bpl -\n")
+  (printf "  - lda $2002\n")
+  (printf "  bpl -\n")
+  ;; clear out all ram
+  (printf "  ldx #$00\n")
+  (printf "- lda #$00\n")
+  (printf "  sta $000,x\n")
+  (printf "  sta $100,x\n")
+  (printf "  sta $300,x\n")
+  (printf "  sta $400,x\n")
+  (printf "  sta $500,x\n")
+  (printf "  sta $600,x\n")
+  (printf "  sta $700,x\n")
+  (printf "  lda #$ff\n")
+  (printf "  sta $200,x\n")
+  (printf "  inx\n")
+  (printf "  bne -\n")
+  ;; reset the stack pointer.
+  (printf "  ldx #$ff\n")
+  (printf "  txs\n"))
 
 (define (process-defvar name)
   (let* ((def (normalize-name name))
@@ -1257,9 +1285,10 @@
   (assert place symbol?)
   (assert expr syntax?)
   ; TODO: Show source location here for literal values.
-  (process-expression expr) ; Result left in A
-  (printf "~a\n" (co2-source-context))
-  (printf "  sta ~a\n" (normalize-name place)))
+  (let ((result-need-context (process-expression expr))) ; Result left in A
+    (when result-need-context
+      (printf "~a\n" (co2-source-context)))
+    (printf "  sta ~a\n" (normalize-name place))))
 
 (define (process-instruction-expression instr expr)
   ; TODO: Currently assuming there's only operand.
@@ -1306,9 +1335,13 @@
   (assert expr syntax?)
   (let* ((value (syntax->datum expr)))
     (cond
-     ([list? value] (process-statement expr))
-     ([number? value] (printf "  lda #x~x\n" value))
-     ([symbol? value] (printf "  lda ~a\n" (variable-lookup-name value)))
+     ([list? value] (process-statement expr) #t)
+     ([number? value] (begin
+                        ; Output context here, then load value.
+                        (printf "~a\n" (co2-source-context))
+                        (printf "  lda #x~x\n" value)
+                        #f))
+     ([symbol? value] (printf "  lda ~a\n" (variable-lookup-name value)) #t)
      (else (error (format "ERROR: ~a\n" value))))))
 
 (define lexical-scope (make-parameter '()))
@@ -1327,6 +1360,7 @@
   (assert reg symbol?)
   (assert start number?)
   (assert body list?)
+  (printf "~a\n" (co2-source-context))
   (let ((initial-loop-value #f))
     (cond
      ([= start 0] (error "Cannot start loop at 0"))
@@ -1348,12 +1382,14 @@
   (assert start number?)
   ;end is (or number? list?)
   (assert body list?)
+  (printf "~a\n" (co2-source-context))
   (let ((initial-loop-value start)
         ; TODO: Value reserved by implemention. Ensure `body` doesn't modify it.
         (sentinal-value "_count"))
     (when (not (= initial-loop-value 0))
           (error "Start must be 0, other values not supported yet"))
-    (printf ";TODO: Evaluate ~s\n" end)
+    ; TODO: TOTAL HACK!
+    (printf "  lda #4\n")
     (printf "  sta ~a\n" sentinal-value)
     (printf "  ld~a #~a\n" reg initial-loop-value)
     (let ((loop-label (generate-label "loop_up_to")))
@@ -1366,6 +1402,7 @@
       (printf "  bne ~a\n" loop-label))))
 
 (define (process-jump-subroutine fname)
+  (printf "~a\n" (co2-source-context))
   (printf "  jsr ~a\n" (normalize-name fname)))
 
 (define (process-statement stmt)
@@ -1375,29 +1412,30 @@
          (first (car inner))
          (rest (cdr inner))
          (symbol (syntax->datum first)))
-    (if (function? symbol)
+    (parameterize ([*co2-source-form* stmt])
+      (if (function? symbol)
         ; TODO: Pass parameters to function.
         (process-jump-subroutine symbol)
-        (parameterize ([*co2-source-form* stmt])
-          (case symbol
-            ; Main expression walker.
-            [(set!) (process-set-bang (syntax->datum (car rest)) (cadr rest))]
-            [(block) (process-block (syntax->datum (car rest))
-                                    (cdr rest))]
-            [(loop-down-from) (process-loop-down (syntax->datum (car rest))
-                                                 (syntax->datum (cadr rest))
-                                                 (cddr rest))]
-            [(loop-up-to) (process-loop-up (syntax->datum (car rest))
-                                           (syntax->datum (cadr rest))
-                                           (syntax->datum (caddr rest))
-                                           (cdddr rest))]
-            [(and asl eor lda lsr ora rol)
-             (process-instruction-expression symbol (car rest))]
-            [(bit cmp cpx cpy sta)
-             (process-instruction-standalone symbol (car rest))]
-            [(bne jmp)
-             (process-instruction-branch symbol (car rest))]
-            [else (process-todo symbol)])))))
+        (case symbol
+          ; Main expression walker.
+          [(init-system) (built-in-init-system)]
+          [(set!) (process-set-bang (syntax->datum (car rest)) (cadr rest))]
+          [(block) (process-block (syntax->datum (car rest))
+                                  (cdr rest))]
+          [(loop-down-from) (process-loop-down (syntax->datum (car rest))
+                                               (syntax->datum (cadr rest))
+                                               (cddr rest))]
+          [(loop-up-to) (process-loop-up (syntax->datum (car rest))
+                                         (syntax->datum (cadr rest))
+                                         (syntax->datum (caddr rest))
+                                         (cdddr rest))]
+          [(and asl eor lda lsr ora rol)
+           (process-instruction-expression symbol (car rest))]
+          [(bit cmp cpx cpy sta)
+           (process-instruction-standalone symbol (car rest))]
+          [(bne jmp)
+           (process-instruction-branch symbol (car rest))]
+          [else (process-todo symbol)])))))
 
 (define (process-unknown symbol)
   (printf "\n~a\n" (co2-source-context))
@@ -1425,7 +1463,7 @@
          (symbol (syntax->datum first)))
     (parameterize ([*co2-source-form* form])
       (case symbol
-        [(nes-header) (apply process-nes-header
+        [(nes-header) (apply built-in-nes-header
                              (process-keys rest '(#:num-prg #:num-chr
                                                   #:mapper #:mirroring)))]
         [(defvar) (apply process-defvar (process-args rest 1 1))]
