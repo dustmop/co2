@@ -1232,7 +1232,7 @@
     (printf ".byte $~x\n" (or num-prg 1))
     (printf ".byte $~x\n" (or num-chr 0))
     (printf ".byte $~x\n" third-byte)
-    (printf ".byte $~a\n" (string-join (build-list 9 (lambda (x) "$0")) ","))))
+    (printf ".byte ~a\n" (string-join (build-list 9 (lambda (x) "$0")) ","))))
 
 (define (built-in-init-system)
   ;; disable interrupts while we set stuff up
@@ -1339,7 +1339,7 @@
      ([number? value] (begin
                         ; Output context here, then load value.
                         (printf "~a\n" (co2-source-context))
-                        (printf "  lda #x~x\n" value)
+                        (printf "  lda #$~x\n" value)
                         #f))
      ([symbol? value] (printf "  lda ~a\n" (variable-lookup-name value)) #t)
      (else (error (format "ERROR: ~a\n" value))))))
