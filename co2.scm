@@ -1268,7 +1268,7 @@
     (printf "\n~a\n" (co2-source-context))
     (printf "~a = $~a\n" def (left-pad (number->string addr 16) #\0 2))))
 
-(define (process-defun decl body)
+(define (process-proc type decl body)
   (assert decl list?)
   (assert body list?)
   (let ((name (car decl))
@@ -1279,7 +1279,9 @@
     (printf "~a:\n" (normalize-name name))
     (for ([stmt body])
          (process-statement stmt))
-    (printf "  rts\n")))
+    (cond
+     [(eq? type 'func) (printf "  rts\n")]
+     [(eq? type 'vector) (printf "  rti\n")])))
 
 (define (process-set-bang place expr)
   (assert place symbol?)
@@ -1401,6 +1403,23 @@
       (printf "  cp~a ~a\n" reg sentinal-value)
       (printf "  bne ~a\n" loop-label))))
 
+(define (process-stack action registers)
+  (assert action symbol?)
+  (assert registers list?)
+  ; TODO: Only push/pull what's in the `registers` parameter
+  (printf "~a\n" (co2-source-context))
+  (cond
+   [(eq? action 'push) (begin (printf "  pha\n")
+                              (printf "  txa\n")
+                              (printf "  pha\n")
+                              (printf "  tya\n")
+                              (printf "  pha\n"))]
+   [(eq? action 'pull) (begin (printf "  pla\n")
+                              (printf "  tay\n")
+                              (printf "  pla\n")
+                              (printf "  tax\n")
+                              (printf "  pla\n"))]))
+
 (define (process-jump-subroutine fname)
   (printf "~a\n" (co2-source-context))
   (printf "  jsr ~a\n" (normalize-name fname)))
@@ -1429,9 +1448,10 @@
                                          (syntax->datum (cadr rest))
                                          (syntax->datum (caddr rest))
                                          (cdddr rest))]
+          [(push pull) (process-stack symbol rest)]
           [(and asl eor lda lsr ora rol)
            (process-instruction-expression symbol (car rest))]
-          [(bit cmp cpx cpy sta)
+          [(bit cmp cpx cpy dec inc sta)
            (process-instruction-standalone symbol (car rest))]
           [(bne jmp)
            (process-instruction-branch symbol (car rest))]
@@ -1467,10 +1487,10 @@
                              (process-keys rest '(#:num-prg #:num-chr
                                                   #:mapper #:mirroring)))]
         [(defvar) (apply process-defvar (process-args rest 1 1))]
-        [(defun) (process-defun (syntax->datum (car rest))
-                                (cdr rest))]
-        [(defvector) (process-defun (syntax->datum (car rest))
-                                    (cdr rest))]
+        [(defun) (process-proc 'func (syntax->datum (car rest))
+                               (cdr rest))]
+        [(defvector) (process-proc 'vector (syntax->datum (car rest))
+                                   (cdr rest))]
         [else (process-unknown symbol)]))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
