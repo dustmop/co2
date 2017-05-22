@@ -1232,7 +1232,10 @@
     (printf ".byte $~x\n" (or num-prg 1))
     (printf ".byte $~x\n" (or num-chr 0))
     (printf ".byte $~x\n" third-byte)
-    (printf ".byte ~a\n" (string-join (build-list 9 (lambda (x) "$0")) ","))))
+    (printf ".byte ~a\n" (string-join (build-list 9 (lambda (x) "$0")) ","))
+    (printf "\n")
+    (printf ".org $c000\n")
+    (printf "\n")))
 
 (define (built-in-init-system)
   ;; disable interrupts while we set stuff up
@@ -1280,13 +1283,12 @@
     (for ([stmt body])
          (process-statement stmt))
     (cond
-     [(eq? type 'func) (printf "  rts\n")]
+     [(eq? type 'sub) (printf "  rts\n")]
      [(eq? type 'vector) (printf "  rti\n")])))
 
 (define (process-set-bang place expr)
   (assert place symbol?)
   (assert expr syntax?)
-  ; TODO: Show source location here for literal values.
   (let ((result-need-context (process-expression expr))) ; Result left in A
     (when result-need-context
       (printf "~a\n" (co2-source-context)))
@@ -1314,12 +1316,12 @@
      ([number? inner] (printf "  ~a #~a\n" instr inner))
      (else (error (format "ERROR: ~a\n" inner))))))
 
-(define (process-instruction-standalone instr rhs)
+(define (process-instruction-standalone instr operand)
   ;TODO: Rhs being an expression is an error
   ;(printf ";****** alone ~a ~a\n" instr expr)
   (assert instr symbol?)
-  (assert rhs syntax?)
-  (let ((value (syntax->datum rhs)))
+  (assert operand syntax?)
+  (let ((value (syntax->datum operand)))
     (printf "~a\n" (co2-source-context))
     (cond
      ([symbol? value] (printf "  ~a ~a\n" instr (normalize-name value)))
@@ -1449,9 +1451,9 @@
                                          (syntax->datum (caddr rest))
                                          (cdddr rest))]
           [(push pull) (process-stack symbol rest)]
-          [(and asl eor lda lsr ora rol)
+          [(and asl eor lda lsr ora rol sta)
            (process-instruction-expression symbol (car rest))]
-          [(bit cmp cpx cpy dec inc sta)
+          [(bit cmp cpx cpy dec inc)
            (process-instruction-standalone symbol (car rest))]
           [(bne jmp)
            (process-instruction-branch symbol (car rest))]
@@ -1487,8 +1489,8 @@
                              (process-keys rest '(#:num-prg #:num-chr
                                                   #:mapper #:mirroring)))]
         [(defvar) (apply process-defvar (process-args rest 1 1))]
-        [(defun) (process-proc 'func (syntax->datum (car rest))
-                               (cdr rest))]
+        [(defsub) (process-proc 'sub (syntax->datum (car rest))
+                                (cdr rest))]
         [(defvector) (process-proc 'vector (syntax->datum (car rest))
                                    (cdr rest))]
         [else (process-unknown symbol)]))))
@@ -1496,13 +1498,40 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Entry point
 
+(define (output-prefix)
+  (printf "ppu_ctrl  = $00\n")
+  (printf "ppu_mask  = $01\n")
+  (printf "frame_num = $02\n")
+  (printf "\n")
+  (printf "REG_JOYPAD_0   = $4016\n")
+  (printf "REG_JOYPAD_1   = $4017\n")
+  (printf "REG_PPU_CTRL   = $2000\n")
+  (printf "REG_PPU_MASK   = $2001\n")
+  (printf "REG_PPU_STATUS = $2002\n")
+  (printf "REG_PPU_ADDR   = $2006\n")
+  (printf "REG_PPU_DATA   = $2007\n")
+  (printf "\n")
+  (printf "PPU_CTRL_NMI = $80\n")
+  (printf "PPU_CTRL_SHOW_SPR = $01\n")
+  (printf "PPU_CTRL_SHOW_BG  = $08\n")
+  (printf "\n"))
+
+
+(define (output-suffix)
+  (printf "\n\n")
+  (printf ".pad $fffa\n")
+  ; TODO: Only output vectors that are defined.
+  (printf ".word nmi, reset, 0\n"))
+
 (define (process-co2 fname out-filename f)
+  (output-prefix)
   (define (loop)
     (let ((top-level-form (read-syntax fname f)))
       (when (not (eof-object? top-level-form))
             (process-top-level-form top-level-form)
             (loop))))
-  (loop))
+  (loop)
+  (output-suffix))
 
 (let* ((fname (command-line #:args (input) input))
        (f (open-input-file fname)))
