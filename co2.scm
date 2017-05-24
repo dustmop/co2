@@ -232,6 +232,17 @@
   (let ((t (assoc name constants)))
     (if t (cadr t) #f)))
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; Data definition
+
+(define data-segment '())
+
+(define (make-data! label value)
+  (set! data-segment (cons (list label value) data-segment)))
+
+(define (get-data-segment)
+  data-segment)
+
 ;;------------------------------------------------------------------
 ;; store function args here - this is not a proper call stack
 ;; (considered far too bloaty!), so these get clobbered with function
@@ -1204,7 +1215,9 @@
      (display x out))))
 
 (define (left-pad text pad len)
-  (string-append (make-string (- len (string-length text)) pad) text))
+  (if (>= (string-length text) len)
+      text
+      (string-append (make-string (- len (string-length text)) pad) text)))
 
 (define (normalize-name name)
   (dash->underscore (symbol->string name)))
@@ -1212,6 +1225,11 @@
 (define (atom? obj)
   (and (not (null? obj))
        (not (pair? obj))))
+
+(define (list->byte-string ls)
+  (string-join (map (lambda (x)
+                      (string-append "$" (left-pad (format "~x" x) #\0 2))) ls)
+               ","))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Source file context information for debugging / compiler metadata
@@ -1458,9 +1476,12 @@
       (printf "  bne ~a\n" loop-label))))
 
 (define (process-let bindings body)
-  (for ([stmt body])
-       (process-statement stmt))
-  )
+  ; TODO: This c(a|d)*r calls are awful.
+  (let ((label (caar bindings))
+        (value (cadr (cadar bindings))))
+    (make-data! label value)
+    (for ([stmt body])
+         (process-statement stmt))))
 
 (define (process-stack action registers)
   (assert action symbol?)
@@ -1590,6 +1611,14 @@
 
 (define (output-suffix)
   (printf "\n\n")
+  (let ((data (get-data-segment)))
+    (for/list ([elem data])
+      (let ((label (car elem))
+            (value (cadr elem)))
+        (printf "~a:\n" (normalize-name label))
+        (printf "  .byte ~a\n" (list->byte-string value))
+        (printf "~a_length = ~a\n" (normalize-name label) (length value))
+        (printf "\n"))))
   (printf ".pad $fffa\n")
   ; TODO: Only output vectors that are defined.
   (printf ".word nmi, reset, 0\n"))
