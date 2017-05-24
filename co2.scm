@@ -1209,6 +1209,10 @@
 (define (normalize-name name)
   (dash->underscore (symbol->string name)))
 
+(define (atom? obj)
+  (and (not (null? obj))
+       (not (pair? obj))))
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Source file context information for debugging / compiler metadata
 
@@ -1294,7 +1298,7 @@
       (printf "~a\n" (co2-source-context)))
     (printf "  sta ~a\n" (normalize-name place))))
 
-(define (process-instruction-expression instr expr)
+(define (process-instruction-expression instr lhs rhs)
   ; TODO: Currently assuming there's only operand.
   ; Breaks things like (eor (lda joypad-last) #xff)
   ; If these have one operand:
@@ -1306,15 +1310,45 @@
   ;   Push A to the stack, evaluate the expression
   ;  ...
   (assert instr symbol?)
-  (assert expr syntax?)
-  (let ((inner (syntax->datum expr)))
+  (assert lhs syntax?)
+  (when (and rhs (not (null? rhs))) (assert rhs syntax?))
+  (let ((left (syntax->datum lhs))
+        (right (if (and rhs (not (null? rhs))) (syntax->datum rhs) '())))
     (cond
-     ([list? inner] (begin (process-expression expr)
-                           (printf "~a\n" (co2-source-context))
-                           (printf "  ~a\n" instr)))
-     ([symbol? inner] (printf "  ~a ~a\n" instr (normalize-name inner)))
-     ([number? inner] (printf "  ~a #~a\n" instr inner))
-     (else (error (format "ERROR: ~a\n" inner))))))
+     ; Single argument, which is an atom.
+     ([and (atom? left) (null? right)]
+      (begin (printf "  ~a ~a\n" instr (regular-arg left))))
+     ; Two arguments, both atoms.
+     ([and (atom? left) (atom? right)]
+      (begin (printf "  lda ~a\n" (regular-arg left))
+             (printf "  ~a ~a\n" instr (regular-arg right))))
+     ; Two arguments, first is expression and second is atom.
+     ([and (list? left) (atom? right)]
+      (begin (process-expression lhs)
+             (printf "  ~a ~a\n" instr (regular-arg right))))
+     (else (error (format "ERROR expression: ~a ~a ~a\n" instr lhs rhs))))))
+
+(define (process-instruction-accumulator instr lhs)
+  (assert instr symbol?)
+  (assert lhs syntax?)
+  (let ((left (syntax->datum lhs)))
+    (cond
+     ; Single argument, which is an atom.
+     ([and (atom? left)]
+      (begin (printf "  ~a ~a\n" instr (regular-arg left))))
+     ; Single argument, an expression.
+     ([and (list? left)]
+      (begin (process-expression lhs)
+             (printf "  ~a a\n" instr)))
+     (else (error (format "ERROR accumulator: ~a ~a\n" instr lhs))))))
+
+(define (regular-arg arg)
+  (cond
+   ([eq? arg 'PPU-CTRL-NMI] "#PPU_CTRL_NMI")
+   ([eq? arg 'PPU-MASK-SHOW-SPR] "#$18")
+   ([symbol? arg] (normalize-name arg))
+   ([number? arg] (format "#$~x" arg))
+   (else (error (format "ERROR regular-arg: ~a\n" arg)))))
 
 (define (process-instruction-standalone instr operand)
   ;TODO: Rhs being an expression is an error
@@ -1325,7 +1359,7 @@
     (printf "~a\n" (co2-source-context))
     (cond
      ([symbol? value] (printf "  ~a ~a\n" instr (normalize-name value)))
-     (else (error (format "ERROR: ~a\n" value))))))
+     (else (error (format "ERROR standalone: ~a\n" value))))))
 
 (define (process-instruction-branch instr target)
   (assert instr symbol?)
@@ -1451,8 +1485,13 @@
                                          (syntax->datum (caddr rest))
                                          (cdddr rest))]
           [(push pull) (process-stack symbol rest)]
-          [(and asl eor lda lsr ora rol sta)
-           (process-instruction-expression symbol (car rest))]
+          [(and eor lda ora sta)
+           (process-instruction-expression symbol
+                                           (car rest)
+                                           (if (not (null? (cdr rest)))
+                                               (cadr rest) '()))]
+          [(asl lsr rol ror)
+           (process-instruction-accumulator symbol (car rest))]
           [(bit cmp cpx cpy dec inc)
            (process-instruction-standalone symbol (car rest))]
           [(bne jmp)
