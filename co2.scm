@@ -1381,6 +1381,11 @@
     (printf "~a\n" (co2-source-context))
     (printf "  ~a ~a\n" instr (cadr (assoc value (lexical-scope))))))
 
+(define (process-instruction-implied instr)
+  (assert instr symbol?)
+  (printf "~a\n" (co2-source-context))
+  (printf "  ~a\n" instr))
+
 (define (process-expression expr)
   (assert expr syntax?)
   (let* ((value (syntax->datum expr)))
@@ -1505,7 +1510,7 @@
           [(let) (process-let (syntax->datum (car rest))
                               (cdr rest))]
           [(push pull) (process-stack symbol rest)]
-          [(and eor lda ora sta)
+          [(adc and eor lda ora sta)
            (process-instruction-expression symbol
                                            (car rest)
                                            (if (not (null? (cdr rest)))
@@ -1514,8 +1519,10 @@
            (process-instruction-accumulator symbol (car rest))]
           [(bit cmp cpx cpy dec inc)
            (process-instruction-standalone symbol (car rest))]
-          [(bne jmp)
+          [(beq bne jmp)
            (process-instruction-branch symbol (car rest))]
+          [(clc)
+           (process-instruction-implied symbol)]
           [else (process-todo symbol)])))))
 
 (define (process-unknown symbol)
