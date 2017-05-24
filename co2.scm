@@ -1317,15 +1317,20 @@
     (cond
      ; Single argument, which is an atom.
      ([and (atom? left) (null? right)]
-      (begin (printf "  ~a ~a\n" instr (regular-arg left))))
+      (begin (printf "  ~a ~a\n" instr (as-arg left))))
+     ; Two arguemnts, second is an index register.
+     ([and (atom? left) (index-register? right)]
+      (begin (printf "  ~a ~a,~a\n" instr (as-arg left) (->register right))))
+     ; TODO: (indirect),y
+     ;...
      ; Two arguments, both atoms.
      ([and (atom? left) (atom? right)]
-      (begin (printf "  lda ~a\n" (regular-arg left))
-             (printf "  ~a ~a\n" instr (regular-arg right))))
+      (begin (printf "  lda ~a\n" (as-arg left))
+             (printf "  ~a ~a\n" instr (as-arg right))))
      ; Two arguments, first is expression and second is atom.
      ([and (list? left) (atom? right)]
       (begin (process-expression lhs)
-             (printf "  ~a ~a\n" instr (regular-arg right))))
+             (printf "  ~a ~a\n" instr (as-arg right))))
      (else (error (format "ERROR expression: ~a ~a ~a\n" instr lhs rhs))))))
 
 (define (process-instruction-accumulator instr lhs)
@@ -1335,20 +1340,27 @@
     (cond
      ; Single argument, which is an atom.
      ([and (atom? left)]
-      (begin (printf "  ~a ~a\n" instr (regular-arg left))))
+      (begin (printf "  ~a ~a\n" instr (as-arg left))))
      ; Single argument, an expression.
      ([and (list? left)]
       (begin (process-expression lhs)
              (printf "  ~a a\n" instr)))
      (else (error (format "ERROR accumulator: ~a ~a\n" instr lhs))))))
 
-(define (regular-arg arg)
+(define (index-register? arg)
+  (and (list? arg) (eq? (car arg) 'quote)
+       (or (eq? (cadr arg) 'x) (eq? (cadr arg) 'y))))
+
+(define (->register arg)
+  (symbol->string (cadr arg)))
+
+(define (as-arg arg)
   (cond
    ([eq? arg 'PPU-CTRL-NMI] "#PPU_CTRL_NMI")
    ([eq? arg 'PPU-MASK-SHOW-SPR] "#$18")
    ([symbol? arg] (normalize-name arg))
    ([number? arg] (format "#$~x" arg))
-   (else (error (format "ERROR regular-arg: ~a\n" arg)))))
+   (else (error (format "ERROR as-arg: ~a\n" arg)))))
 
 (define (process-instruction-standalone instr operand)
   ;TODO: Rhs being an expression is an error
@@ -1418,7 +1430,8 @@
 (define (process-loop-up reg start end body)
   (assert reg symbol?)
   (assert start number?)
-  ;end is (or number? list?)
+  ; TODO: Assumption that only sorta works for now.
+  (assert end list?)
   (assert body list?)
   (printf "~a\n" (co2-source-context))
   (let ((initial-loop-value start)
@@ -1426,8 +1439,8 @@
         (sentinal-value "_count"))
     (when (not (= initial-loop-value 0))
           (error "Start must be 0, other values not supported yet"))
-    ; TODO: TOTAL HACK!
-    (printf "  lda #4\n")
+    (printf "  lda #~a_~a\n"
+            (normalize-name (cadr end)) (normalize-name (car end)))
     (printf "  sta ~a\n" sentinal-value)
     (printf "  ld~a #~a\n" reg initial-loop-value)
     (let ((loop-label (generate-label "loop_up_to")))
@@ -1438,6 +1451,11 @@
       (printf "  in~a\n" reg)
       (printf "  cp~a ~a\n" reg sentinal-value)
       (printf "  bne ~a\n" loop-label))))
+
+(define (process-let bindings body)
+  (for ([stmt body])
+       (process-statement stmt))
+  )
 
 (define (process-stack action registers)
   (assert action symbol?)
@@ -1484,6 +1502,8 @@
                                          (syntax->datum (cadr rest))
                                          (syntax->datum (caddr rest))
                                          (cdddr rest))]
+          [(let) (process-let (syntax->datum (car rest))
+                              (cdr rest))]
           [(push pull) (process-stack symbol rest)]
           [(and eor lda ora sta)
            (process-instruction-expression symbol
@@ -1541,6 +1561,7 @@
   (printf "ppu_ctrl  = $00\n")
   (printf "ppu_mask  = $01\n")
   (printf "frame_num = $02\n")
+  (printf "_count    = $03\n")
   (printf "\n")
   (printf "REG_PPU_CTRL   = $2000\n")
   (printf "REG_PPU_MASK   = $2001\n")
