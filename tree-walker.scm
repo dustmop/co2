@@ -1,5 +1,14 @@
 #lang racket
 
+(require data/gvector)
+
+(define func-nodes (make-hash))
+
+(struct func-node (name params calls [memory #:mutable]))
+
+(define (make-func-node name params calls)
+  (hash-set! func-nodes name (func-node name params calls #f)))
+
 (define (leaf-asm-gen? elem)
   (member elem '(asm byte text org)))
 
@@ -17,12 +26,16 @@
                     set-sprites-2x2-x! set-sprites-2x2-y!
                     set-sprite-x! set-sprite-y! set-sprite-id! set-sprite-attr!
                     set! set16! peek poke! peek16
-                    memset ppu-memset ppu-memcpy ppu-memcpy16)))
+                    memset ppu-memset ppu-memcpy ppu-memcpy16
+                    init-system)))
+
+(define *invocations* (make-parameter #f))
 
 (define (walk-func-def name params body)
-  (printf "Defining ~a {\n" name)
-  (walk-list body)
-  (printf "}\n\n"))
+  (parameterize ([*invocations* (make-gvector)])
+    (walk-list body)
+    (let ((calls (gvector->list (*invocations*))))
+      (make-func-node name params calls))))
 
 (define (walk-list ls)
   (for ([elem ls])
@@ -50,7 +63,7 @@
          ([built-ins? first] (walk-list rest))
          ([leaf-asm-gen? first] #f)
          (else
-          (printf "Call ~a\n" first))))))
+          (gvector-add! (*invocations*) first))))))
 
 (define (analyze-file f)
   (define (loop)
@@ -60,8 +73,49 @@
             (loop))))
   (loop))
 
+(define (resolve-func-node-memory func-nodes n)
+  (let* ((f (hash-ref func-nodes n))
+         (name (func-node-name f))
+         (params (func-node-params f))
+         (calls (func-node-calls f))
+         (memory (func-node-memory f)))
+    (if (number? memory)
+        memory ; return early
+        (begin (let ((total 0)
+                     (curr 0))
+                 (for ([c calls])
+                   (set! curr (resolve-func-node-memory func-nodes c))
+                   (when (> curr total)
+                     (set! total curr)))
+                 (set! total (+ total (length params)))
+                 (set-func-node-memory! f total)
+                 total)))))
+
+(define (traverse-func-nodes)
+  (let ((names (hash-keys func-nodes)))
+    (for ([n names])
+      (resolve-func-node-memory func-nodes n))))
+
+(define (display-single-func-node func-nodes n depth)
+  (let* ((f (hash-ref func-nodes n))
+         (name (func-node-name f))
+         (params (func-node-params f))
+         (calls (func-node-calls f))
+         (memory (func-node-memory f)))
+    (printf "~a~a ~a ~a\n" (make-string depth #\space) name params memory)
+    (for ([c calls])
+      (display-single-func-node func-nodes c (+ 1 depth)))))
+
+(define (display-func-nodes)
+  (let ((names (hash-keys func-nodes)))
+    (for ([n names])
+      (display-single-func-node func-nodes n 0))))
+
 (let* ((fname (command-line #:args (input) input))
        (f (open-input-file fname)))
+  (print-as-expression 1)
   (port-count-lines! f)
   (analyze-file f)
+  (traverse-func-nodes)
+  (display-func-nodes)
   (close-input-port f))
