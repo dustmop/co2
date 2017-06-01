@@ -1302,6 +1302,20 @@
     (make-function! name)
     (printf "\n~a\n" (co2-source-context))
     (printf "~a:\n" (normalize-name name))
+    ; Fastcall parameters
+    (for ([elem args] [i (in-naturals)])
+         (let ((fname (normalize-name name)) (data elem))
+           (cond
+            ; TODO: Get name from the symbol table.
+            ([= i 0] (printf "  sta _~a__~a\n" fname (as-arg data)))
+            ([= i 1] (printf "  stx _~a__~a\n" fname (as-arg data)))
+            ([= i 2] (printf "  sty _~a__~a\n" fname (as-arg data))))))
+    ; Additional parameters
+    (when (> (length args) 3)
+          (printf "  tsx\n")
+          (let ((params (cdddr args)))
+            #f))
+    ; Process body.
     (for ([stmt body])
          (process-statement stmt))
     (cond
@@ -1317,8 +1331,6 @@
     (printf "  sta ~a\n" (normalize-name place))))
 
 (define (process-instruction-expression instr lhs rhs)
-  ; TODO: Currently assuming there's only operand.
-  ; Breaks things like (eor (lda joypad-last) #xff)
   ; If these have one operand:
   ;  If that is an expression: evaluate it, apply this instruction to A
   ;  If that is an atom: apply this instruction to the atom
@@ -1373,6 +1385,7 @@
   (symbol->string (cadr arg)))
 
 (define (as-arg arg)
+  ; TODO: Get rid of hacks here.
   (cond
    ([eq? arg 'PPU-CTRL-NMI] "#PPU_CTRL_NMI")
    ([eq? arg 'PPU-MASK-SHOW-SPR] "#$18")
@@ -1500,9 +1513,25 @@
                               (printf "  tax\n")
                               (printf "  pla\n"))]))
 
-(define (process-jump-subroutine fname)
-  (printf "~a\n" (co2-source-context))
-  (printf "  jsr ~a\n" (normalize-name fname)))
+(define (process-jump-subroutine fname params)
+  (let* ((pop-count 0))
+    (printf "~a\n" (co2-source-context))
+    (when (> (length params) 3)
+          (for ([elem (reverse (cdddr params))])
+               (let ((data (syntax->datum elem)))
+                 (set! pop-count (+ 1 pop-count))
+                 (printf "  lda ~a\n" (as-arg data))
+                 (printf "  pha\n"))))
+    (for ([elem params] [i (in-naturals)])
+         (let ((data (syntax->datum elem)))
+           (cond
+            ; TODO: Evaluate expressions.
+            ([= i 0] (printf "  lda ~a\n" (as-arg data)))
+            ([= i 1] (printf "  ldx ~a\n" (as-arg data)))
+            ([= i 2] (printf "  ldy ~a\n" (as-arg data))))))
+    (printf "  jsr ~a\n" (normalize-name fname))
+    (for ([i (in-range pop-count)])
+         (printf "  pla\n"))))
 
 (define (process-statement stmt)
   ; TODO: Rename to process-inner-form
@@ -1514,7 +1543,7 @@
     (parameterize ([*co2-source-form* stmt])
       (if (function? symbol)
         ; TODO: Pass parameters to function.
-        (process-jump-subroutine symbol)
+        (process-jump-subroutine symbol rest)
         (case symbol
           ; Main expression walker.
           [(init-system) (built-in-init-system)]
