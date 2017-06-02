@@ -138,47 +138,64 @@
 
 (define var-allocation #x10)
 
-(define sym-label-defs (make-hash))
+(define sym-label-defs (list (make-hash)))
 
 (define data-segment '())
 
 (struct sym-label (sym name address kind))
 
-(define (make-variable! sym)
+(define (make-variable! sym #:label [label #f])
   (let* ((name (normalize-name sym))
          (n var-allocation))
-    (when (not (hash-has-key? sym-label-defs sym))
-          (hash-set! sym-label-defs sym (sym-label sym name n 'var))
+    (when label
+          (set! name label))
+    (when (not (hash-has-key? (car sym-label-defs) sym))
+          (hash-set! (car sym-label-defs) sym (sym-label sym name n 'var))
           (set! var-allocation (+ 1 var-allocation)))
-    (hash-ref sym-label-defs sym)))
+    (hash-ref (car sym-label-defs) sym)))
 
 (define (make-address! sym addr)
   (let ((name (normalize-name sym)))
-    (hash-set! sym-label-defs sym (sym-label sym name addr 'addr))))
+    (hash-set! (car sym-label-defs) sym (sym-label sym name addr 'addr))
+    (hash-ref (car sym-label-defs) sym)))
 
 (define (make-const! sym value)
   (let ((name (normalize-name sym)))
-    (hash-set! sym-label-defs sym (sym-label sym name value 'const))))
+    (hash-set! (car sym-label-defs) sym (sym-label sym name value 'const))
+    (hash-ref (car sym-label-defs) sym)))
 
 (define (make-data! sym value)
   (let ((name (normalize-name sym)))
     (set! data-segment (cons (list name value) data-segment))
-    (hash-set! sym-label-defs sym (sym-label sym name 0 'data))))
+    (hash-set! (car sym-label-defs) sym (sym-label sym name 0 'data))
+    (hash-ref (car sym-label-defs) sym)))
 
 (define (variable? sym)
-  (and (hash-has-key? sym-label-defs sym)
-       (eq? (sym-label-kind (hash-ref sym-label-defs sym)) 'var)))
+  (let ((lookup (sym-label-lookup)))
+    (and lookup (eq? (sym-label-kind lookup) 'var))))
 
 (define (address? sym)
-  (and (hash-has-key? sym-label-defs sym)
-       (eq? (sym-label-kind (hash-ref sym-label-defs sym)) 'addr)))
+  (let ((lookup (sym-label-lookup)))
+    (and lookup (eq? (sym-label-kind lookup) 'addr))))
 
 (define (const? sym)
-  (and (hash-has-key? sym-label-defs sym)
-       (eq? (sym-label-kind (hash-ref sym-label-defs sym)) 'const)))
+  (let ((lookup (sym-label-lookup)))
+    (and lookup (eq? (sym-label-kind lookup) 'const))))
 
 (define (sym-label-lookup sym)
-  (hash-ref sym-label-defs sym))
+  (define (_ table parents)
+    (if (hash-has-key? table sym)
+        (hash-ref table sym)
+        (if (null? parents)
+            #f
+            (_ (car parents) (cdr parents)))))
+  (_ (car sym-label-defs) (cdr sym-label-defs)))
+
+(define (sym-label-push-scope)
+  (set! sym-label-defs (cons (make-hash) sym-label-defs)))
+
+(define (sym-label-pop-scope)
+  (set! sym-label-defs (cdr sym-label-defs)))
 
 (define (get-data-segment)
   data-segment)
@@ -1239,6 +1256,13 @@
     (printf "\n~a\n" (co2-source-context))
     (printf "~a = $~a\n" def (left-pad (number->string addr 16) #\0 2))))
 
+(define (process-defconst name value)
+  (let* ((def (normalize-name name))
+         (sym-label (make-const! name value))
+         (value (sym-label-address sym-label)))
+    (printf "\n~a\n" (co2-source-context))
+    (printf "~a = $~a\n" def (left-pad (number->string value 16) #\0 2))))
+
 (define (process-proc type context-decl body)
   (assert type symbol?)
   (assert context-decl syntax?)
@@ -1250,22 +1274,30 @@
     (make-function! name)
     (printf "\n~a\n" (co2-source-context))
     (printf "~a:\n" (normalize-name name))
+    ;
+    (sym-label-push-scope)
     ; Fastcall parameters
-    (for ([elem args] [i (in-naturals)])
-         (let ((fname (normalize-name name)) (data elem))
+    (for ([sym args] [i (in-naturals)])
+         (let ((label (format "_~a__~a" (normalize-name name)
+                              (normalize-name sym))))
+           (make-variable! sym #:label label)
            (cond
             ; TODO: Get name from the symbol table.
-            ([= i 0] (printf "  sta _~a__~a\n" fname (as-arg data)))
-            ([= i 1] (printf "  stx _~a__~a\n" fname (as-arg data)))
-            ([= i 2] (printf "  sty _~a__~a\n" fname (as-arg data))))))
+            ([= i 0] (printf "  sta ~a\n" (as-arg sym)))
+            ([= i 1] (printf "  stx ~a\n" (as-arg sym)))
+            ([= i 2] (printf "  sty ~a\n" (as-arg sym))))))
     ; Additional parameters
     (when (> (length args) 3)
           (printf "  tsx\n")
           (let ((params (cdddr args)))
+            ; TODO: Get parameters from the stack, store in correct address.
             #f))
     ; Process body.
     (for ([stmt body])
          (process-statement stmt))
+    ;
+    (sym-label-pop-scope)
+    ; Return from function.
     (cond
      [(eq? type 'sub) (printf "  rts\n")]
      [(eq? type 'vector) (printf "  rti\n")])))
@@ -1343,10 +1375,12 @@
 (define (as-arg arg)
   (cond
    ([symbol? arg] (let ((lookup (sym-label-lookup arg)))
-                    ; TODO: Handle lookup failure.
-                    (if (eq? (sym-label-kind lookup) 'const)
-                        (format "#~a" (sym-label-name lookup))
-                        (sym-label-name lookup))))
+                    (if (not lookup)
+                        ; TODO: Throw an error, use syntax object
+                        (format "\"not found ~a\"" arg)
+                        (if (eq? (sym-label-kind lookup) 'const)
+                            (format "#~a" (sym-label-name lookup))
+                            (sym-label-name lookup)))))
    ([number? arg] (format "#$~x" arg))
    (else (error (format "ERROR as-arg: ~a\n" arg)))))
 
@@ -1567,6 +1601,7 @@
         [(nes-header) (apply built-in-nes-header
                              (process-keys rest '(#:num-prg #:num-chr
                                                   #:mapper #:mirroring)))]
+        [(defconst) (apply process-defconst (process-args rest 2 0))]
         [(defvar) (apply process-defvar (process-args rest 1 1))]
         [(defsub) (process-proc 'sub (car rest) (cdr rest))]
         [(defvector) (process-proc 'vector (car rest) (cdr rest))]
