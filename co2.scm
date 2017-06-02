@@ -1293,11 +1293,13 @@
     (printf "\n~a\n" (co2-source-context))
     (printf "~a = $~a\n" def (left-pad (number->string addr 16) #\0 2))))
 
-(define (process-proc type decl body)
-  (assert decl list?)
+(define (process-proc type context-decl body)
+  (assert type symbol?)
+  (assert context-decl syntax?)
   (assert body list?)
-  (let ((name (car decl))
-        (args (cdr decl)))
+  (let* ((decl (syntax->datum context-decl))
+         (name (car decl))
+         (args (cdr decl)))
     ; TODO: Add number of parameters to table, to check when called.
     (make-function! name)
     (printf "\n~a\n" (co2-source-context))
@@ -1322,10 +1324,11 @@
      [(eq? type 'sub) (printf "  rts\n")]
      [(eq? type 'vector) (printf "  rti\n")])))
 
-(define (process-set-bang place expr)
-  (assert place symbol?)
+(define (process-set-bang target expr)
+  (assert target syntax?)
   (assert expr syntax?)
-  (let ((result-need-context (process-expression expr))) ; Result left in A
+  (let ((place (syntax->datum target))
+        (result-need-context (process-expression expr))) ; Result left in A
     (when result-need-context
       (printf "~a\n" (co2-source-context)))
     (printf "  sta ~a\n" (normalize-name place))))
@@ -1432,22 +1435,25 @@
 
 (define lexical-scope (make-parameter '()))
 
-(define (process-block label body)
-  (assert label symbol?)
+(define (process-block context-label body)
+  (assert context-label syntax?)
   (assert body list?)
-  (let ((gen-label (generate-label (symbol->string label))))
+  (let* ((label (syntax->datum context-label))
+         (gen-label (generate-label (symbol->string label))))
     (printf "~a:\n" gen-label)
     (parameterize ([lexical-scope (cons (list label gen-label)
                                         (lexical-scope))])
       (for ([stmt body])
            (process-statement stmt)))))
 
-(define (process-loop-down reg start body)
-  (assert reg symbol?)
-  (assert start number?)
+(define (process-loop-down context-reg context-start body)
+  (assert context-reg syntax?)
+  (assert context-start syntax?)
   (assert body list?)
   (printf "~a\n" (co2-source-context))
-  (let ((initial-loop-value #f))
+  (let ((reg (syntax->datum context-reg))
+        (start (syntax->datum context-start))
+        (initial-loop-value #f))
     (cond
      ([= start 0] (error "Cannot start loop at 0"))
      ([< start #x100] (set! initial-loop-value start))
@@ -1458,21 +1464,23 @@
       (printf "~a:\n" loop-label)
       ; TODO: Disallow `reg` changes within `body`
       (for ([stmt body])
-           ;(printf ";TODO ~a\n" stmt)
            (process-statement stmt))
       (printf "  de~a\n" reg)
       (printf "  bne ~a\n" loop-label))))
 
-(define (process-loop-up reg start end body)
-  (assert reg symbol?)
-  (assert start number?)
-  ; TODO: Assumption that only sorta works for now.
-  (assert end list?)
+(define (process-loop-up context-reg context-start context-end body)
+  (assert context-reg syntax?)
+  (assert context-start syntax?)
+  (assert context-end syntax?)
   (assert body list?)
   (printf "~a\n" (co2-source-context))
-  (let ((initial-loop-value start)
-        ; TODO: Value reserved by implemention. Ensure `body` doesn't modify it.
-        (sentinal-value "_count"))
+  (let* ((reg (syntax->datum context-reg))
+         (start (syntax->datum context-start))
+         ; TODO: Assuming end is a list like (length const-static-array).
+         (end (syntax->datum context-end))
+         (initial-loop-value start)
+         ; TODO: Value reserved by implemention. Ensure `body` doesn't modify it
+         (sentinal-value "_count"))
     (when (not (= initial-loop-value 0))
           (error "Start must be 0, other values not supported yet"))
     (printf "  lda #~a_~a\n"
@@ -1488,10 +1496,11 @@
       (printf "  cp~a ~a\n" reg sentinal-value)
       (printf "  bne ~a\n" loop-label))))
 
-(define (process-let bindings body)
+(define (process-let context-bindings body)
   ; TODO: This c(a|d)*r calls are awful.
-  (let ((label (caar bindings))
-        (value (cadr (cadar bindings))))
+  (let* ((bindings (syntax->datum context-bindings))
+         (label (caar bindings))
+         (value (cadr (cadar bindings))))
     (make-data! label value)
     (for ([stmt body])
          (process-statement stmt))))
@@ -1542,23 +1551,17 @@
          (symbol (syntax->datum first)))
     (parameterize ([*co2-source-form* stmt])
       (if (function? symbol)
-        ; TODO: Pass parameters to function.
         (process-jump-subroutine symbol rest)
         (case symbol
           ; Main expression walker.
           [(init-system) (built-in-init-system)]
-          [(set!) (process-set-bang (syntax->datum (car rest)) (cadr rest))]
-          [(block) (process-block (syntax->datum (car rest))
-                                  (cdr rest))]
-          [(loop-down-from) (process-loop-down (syntax->datum (car rest))
-                                               (syntax->datum (cadr rest))
+          [(set!) (process-set-bang (car rest) (cadr rest))]
+          [(block) (process-block (car rest) (cdr rest))]
+          [(loop-down-from) (process-loop-down (car rest) (cadr rest)
                                                (cddr rest))]
-          [(loop-up-to) (process-loop-up (syntax->datum (car rest))
-                                         (syntax->datum (cadr rest))
-                                         (syntax->datum (caddr rest))
-                                         (cdddr rest))]
-          [(let) (process-let (syntax->datum (car rest))
-                              (cdr rest))]
+          [(loop-up-to) (process-loop-up (car rest) (cadr rest)
+                                         (caddr rest) (cdddr rest))]
+          [(let) (process-let (car rest) (cdr rest))]
           [(push pull) (process-stack symbol rest)]
           [(adc and eor lda ora sta)
            (process-instruction-expression symbol
@@ -1605,10 +1608,8 @@
                              (process-keys rest '(#:num-prg #:num-chr
                                                   #:mapper #:mirroring)))]
         [(defvar) (apply process-defvar (process-args rest 1 1))]
-        [(defsub) (process-proc 'sub (syntax->datum (car rest))
-                                (cdr rest))]
-        [(defvector) (process-proc 'vector (syntax->datum (car rest))
-                                   (cdr rest))]
+        [(defsub) (process-proc 'sub (car rest) (cdr rest))]
+        [(defvector) (process-proc 'vector (car rest) (cdr rest))]
         [else (process-unknown symbol)]))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
