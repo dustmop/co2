@@ -24,62 +24,50 @@
 
 (define reg-table
   ;; ppu registers
-  '((reg-ppu-ctl              "$2000")
-    (reg-ppu-mask             "$2001")
-    (reg-ppu-status           "$2002")
-    (reg-oam-addr             "$2003")
-    (reg-oam-data             "$2004")
-    (reg-ppu-scroll           "$2005")
-    (reg-ppu-addr             "$2006")
-    (reg-ppu-data             "$2007")
+  '((REG-PPU-CTRL             #x2000)
+    (REG-PPU-MASK             #x2001)
+    (REG-PPU-STATUS           #x2002)
+    (REG-OAM-ADDR             #x2003)
+    (REG-OAM-DATA             #x2004)
+    (REG-PPU-SCROLL           #x2005)
+    (REG-PPU-ADDR             #x2006)
+    (REG-PPU-DATA             #x2007)
     ;;  apu registers
-    (reg-apu-pulse1-control   "$4000")
-    (reg-apu-pulse1-ramp      "$4001")
-    (reg-apu-pulse1-ft        "$4002")
-    (reg-apu-pulse1-ct        "$4003")
-    (reg-apu-pulse2-control   "$4004")
-    (reg-apu-pulse2-ramp      "$4005")
-    (reg-apu-pulse2-ft        "$4006")
-    (reg-apu-pulse2-ct        "$4007")
-    (reg-apu-tri-control      "$4008")
-    (reg-apu-tri-ft           "$400a")
-    (reg-apu-tri-ct           "$400b")
-    (reg-apu-noise-env        "$400c")
-    (reg-apu-noise-ft         "$400e")
-    (reg-apu-noise-ct         "$400f")
-    (reg-apu-dmc-control      "$4010")
-    (reg-apu-dmc-dac          "$4011")
-    (reg-apu-dmc-addr         "$4012")
-    (reg-apu-dmc-size         "$4013")
-    (reg-oam-dma              "$4014")
-    (reg-apu-channel          "$4015")
+    (REG-APU-PULSE1-CONTROL   #x4000)
+    (REG-APU-PULSE1-RAMP      #x4001)
+    (REG-APU-PULSE1-FT        #x4002)
+    (REG-APU-PULSE1-CT        #x4003)
+    (REG-APU-PULSE2-CONTROL   #x4004)
+    (REG-APU-PULSE2-RAMP      #x4005)
+    (REG-APU-PULSE2-FT        #x4006)
+    (REG-APU-PULSE2-CT        #x4007)
+    (REG-APU-TRI-CONTROL      #x4008)
+    (REG-APU-TRI-FT           #x400a)
+    (REG-APU-TRI-CT           #x400b)
+    (REG-APU-NOISE-ENV        #x400c)
+    (REG-APU-NOISE-FT         #x400e)
+    (REG-APU-NOISE-CT         #x400f)
+    (REG-APU-DMC-CONTROL      #x4010)
+    (REG-APU-DMC-DAC          #x4011)
+    (REG-APU-DMC-ADDR         #x4012)
+    (REG-APU-DMC-SIZE         #x4013)
+    (REG-OAM-DMA              #x4014)
+    (REG-APU-CHANNEL          #x4015)
     ;; input
-    (reg-joypad-0             "$4016")
-    (reg-joypad-1             "$4017")
-    ;; ppu vram addresses
-    (ppu-name-table-0 ("#$20" "#$00"))
-    (ppu-attr-table-0 ("#$23" "#$c0"))
-    (ppu-name-table-1 ("#$24" "#$00"))
-    (ppu-attr-table-1 ("#$27" "#$c0"))
-    (ppu-name-table-2 ("#$28" "#$00"))
-    (ppu-attr-table-2 ("#$2b" "#$c0"))
-    (ppu-name-table-3 ("#$2c" "#$00"))
-    (ppu-attr-table-3 ("#$2f" "#$c0"))
-    (ppu-palette      ("#$3f" "#$00"))
-    (ppu-bg-palette   ("#$3f" "#$00"))
-    (ppu-sprite-palette ("#$3f" "#$10"))
-    ;; how many times to read reg-joypad-x to get the button
-    (joypad-a "#0")
-    (joypad-b "#1")
-    (joypad-select "#2")
-    (joypad-start "#3")
-    (joypad-up "#4")
-    (joypad-down "#5")
-    (joypad-left "#6")
-    (joypad-right "#7")
-    ;; debug
-    (rnd-reg "$fb")
-    ))
+    (REG-JOYPAD-0             #x4016)
+    (REG-JOYPAD-1             #x4017)))
+
+(define ppu-flags
+  ;; TODO: More
+  '((PPU-CTRL-NMI                #x80)
+    (PPU-MASK-SHOW-SPR           #x10)
+    (PPU-MASK-SHOW-BG            #x08)))
+
+(define reserved-zero-page
+  '((ppu-ctrl                    #x00)
+    (ppu-mask                    #x01)
+    (frame-num                   #x02)
+    (-count                      #x03)))
 
 (define (reg-table-lookup x)
   (let ((lu (assoc x reg-table)))
@@ -146,47 +134,54 @@
   (string-append "_" name "_" (left-pad (number->string label-id 16) #\0 4)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-; Variable definition
+; Symbol / label definitions
 
-(define variable-min #x10)
+(define var-allocation #x10)
 
-(define variable-defs (make-hash))
+(define sym-label-defs (make-hash))
+
+(define data-segment '())
+
+(struct sym-label (sym name address kind))
 
 (define (make-variable! sym)
   (let* ((name (normalize-name sym))
-         (n (+ (hash-count variable-defs) variable-min)))
-    (when (not (hash-has-key? variable-defs name))
-          (hash-set! variable-defs name n))
-    (hash-ref variable-defs name)))
+         (n var-allocation))
+    (when (not (hash-has-key? sym-label-defs sym))
+          (hash-set! sym-label-defs sym (sym-label sym name n 'var))
+          (set! var-allocation (+ 1 var-allocation)))
+    (hash-ref sym-label-defs sym)))
 
-(define (variable? name)
-  (hash-has-key? variable-defs name))
+(define (make-address! sym addr)
+  (let ((name (normalize-name sym)))
+    (hash-set! sym-label-defs sym (sym-label sym name addr 'addr))))
 
-(define (variable-lookup-name sym)
-  ; TODO: Assert that variable name exists.
-  (normalize-name sym))
+(define (make-const! sym value)
+  (let ((name (normalize-name sym)))
+    (hash-set! sym-label-defs sym (sym-label sym name value 'const))))
 
-(define variables '())
+(define (make-data! sym value)
+  (let ((name (normalize-name sym)))
+    (set! data-segment (cons (list name value) data-segment))
+    (hash-set! sym-label-defs sym (sym-label sym name 0 'data))))
 
-(define (output-source-map fn)
-  (let ((f (open-output-file fn #:exists 'replace)))
-    (for ([name variables] [i (in-naturals)])
-      (display "$" f)(display (left-pad (number->string i 16) #\0 4) f)
-      (display "#" f)(display name f)(display "#" f)(newline f))
-    (close-output-port f)))
+(define (variable? sym)
+  (and (hash-has-key? sym-label-defs sym)
+       (eq? (sym-label-kind (hash-ref sym-label-defs sym)) 'var)))
 
-(define (byte->string byte)
-  (string-upcase (string-append
-                  (number->string (quotient byte 16) 16)
-                  (number->string (remainder byte 16) 16))))
+(define (address? sym)
+  (and (hash-has-key? sym-label-defs sym)
+       (eq? (sym-label-kind (hash-ref sym-label-defs sym)) 'addr)))
 
-(define (variable-lookup name)
-  (define (_ l c)
-    (cond
-     ((null? l) (display "cant find variable ")(display name)(newline) #f)
-     ((equal? name (car l)) (string-append "$" (byte->string c)))
-     (else (_ (cdr l) (+ c 1)))))
-  (_ variables 0))
+(define (const? sym)
+  (and (hash-has-key? sym-label-defs sym)
+       (eq? (sym-label-kind (hash-ref sym-label-defs sym)) 'const)))
+
+(define (sym-label-lookup sym)
+  (hash-ref sym-label-defs sym))
+
+(define (get-data-segment)
+  data-segment)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Function definition
@@ -202,46 +197,6 @@
 
 (define (function? name)
   (hash-has-key? function-defs (normalize-name name)))
-
-;;----------------------------------------------------------------
-;; constants lookup
-(define constants '())
-
-(define (make-constant! name value)
-  (let ((text null))
-    (cond ((string? value) (set! text value))
-          ((number? value) (set! text (number->string value)))
-          (else (display "ERROR: constant ")(display name)
-                (display " is not a string: ")(display value)(newline)))
-    (set! constants (cons (list name text) constants))))
-
-(define (make-addr! name value)
-  (when (not (string? value))
-        (display "ERROR: addr ")(display name)
-        (display " is not a number: ")(display value)(newline))
-  (set! constants (cons (list name value) constants)))
-
-(define (make-immed! name value)
-  (when (not (number? value))
-        (display "ERROR: immed ")(display name)
-        (display " is not a number: ")(display value)(newline))
-  (let ((text (string-append "#" (number->string value))))
-    (set! constants (cons (list name text) constants))))
-
-(define (constant-lookup name)
-  (let ((t (assoc name constants)))
-    (if t (cadr t) #f)))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-; Data definition
-
-(define data-segment '())
-
-(define (make-data! label value)
-  (set! data-segment (cons (list label value) data-segment)))
-
-(define (get-data-segment)
-  data-segment)
 
 ;;------------------------------------------------------------------
 ;; store function args here - this is not a proper call stack
@@ -284,19 +239,6 @@
 
 ;;----------------------------------------------------------------
 
-;; lookup a symbol everywhere, in order...
-(define (lookup name)
-  ;; check registers first
-  (let ((reg (reg-table-lookup name)))
-    (if reg reg
-        ;; then constants
-        (let ((const (constant-lookup name)))
-          (if const const
-              ;; finally variables
-              (variable-lookup name))))))
-
-;;----------------------------------------------------------------
-
 (define (dash->underscore s)
   (foldl
    (lambda (c r)
@@ -307,6 +249,9 @@
    (string->list s)))
 
 ;;---------------------------------------------------------------
+
+(define (lookup x)
+  #f)
 
 (define (immediate-value x)
   (if (number? x)
@@ -1006,9 +951,9 @@
    ((eq? (car x) 'defvar) (emit-defvar x))
    ((eq? (car x) 'defun) (emit-defun x))
    ((eq? (car x) 'defint) (emit-defint x))
-   ((eq? (car x) 'defconst) (make-constant! (cadr x) (caddr x)) '())
-   ((eq? (car x) 'defaddr) (make-constant! (cadr x) (caddr x)) '())
-   ((eq? (car x) 'defimmed) (make-immed! (cadr x) (caddr x)) '())
+   ((eq? (car x) 'defconst) #f)
+   ((eq? (car x) 'defaddr) #f)
+   ((eq? (car x) 'defimmed) #f)
    ((eq? (car x) 'set!) (emit-set! x))
    ((eq? (car x) 'set16!) (emit-set16! x))
    ;;        ((eq? (car x) 'let) (emit-let x))
@@ -1155,8 +1100,8 @@
     (else s)))
 
 (define (compile-program x)
-  (set! variables '())
-  (set! constants '())
+  ;(set! variables '())
+  ;(set! constants '())
   (let ((done (emit-expr (pre-process x))))
     (display "size: ")(display (length done))(newline)
     (histogram-print (sort histogram (lambda (a b) (> (cadr a) (cadr b)))))
@@ -1289,7 +1234,8 @@
 
 (define (process-defvar name)
   (let* ((def (normalize-name name))
-         (addr (make-variable! name)))
+         (sym-label (make-variable! name))
+         (addr (sym-label-address sym-label)))
     (printf "\n~a\n" (co2-source-context))
     (printf "~a = $~a\n" def (left-pad (number->string addr 16) #\0 2))))
 
@@ -1333,7 +1279,7 @@
       (printf "~a\n" (co2-source-context)))
     (printf "  sta ~a\n" (normalize-name place))))
 
-(define (process-instruction-expression instr lhs rhs)
+(define (process-instruction-expression instr lhs rhs more)
   ; If these have one operand:
   ;  If that is an expression: evaluate it, apply this instruction to A
   ;  If that is an atom: apply this instruction to the atom
@@ -1345,8 +1291,10 @@
   (assert instr symbol?)
   (assert lhs syntax?)
   (when (and rhs (not (null? rhs))) (assert rhs syntax?))
+  (when (and more (not (null? more))) (assert more syntax?))
   (let ((left (syntax->datum lhs))
-        (right (if (and rhs (not (null? rhs))) (syntax->datum rhs) '())))
+        (right (if (and rhs (not (null? rhs))) (syntax->datum rhs) '()))
+        (extra (if (and more (not (null? more))) (syntax->datum more) '())))
     (cond
      ; Single argument, which is an atom.
      ([and (atom? left) (null? right)]
@@ -1357,13 +1305,18 @@
      ; TODO: (indirect),y
      ;...
      ; Two arguments, both atoms.
-     ([and (atom? left) (atom? right)]
+     ([and (atom? left) (atom? right) (null? extra)]
       (begin (printf "  lda ~a\n" (as-arg left))
              (printf "  ~a ~a\n" instr (as-arg right))))
      ; Two arguments, first is expression and second is atom.
-     ([and (list? left) (atom? right)]
+     ([and (list? left) (atom? right) (null? extra)]
       (begin (process-expression lhs)
              (printf "  ~a ~a\n" instr (as-arg right))))
+     ; Three arguments.
+     ; TODO: Only implemented for ora
+     ([and (atom? left) (atom? right) (atom? extra) (eq? instr 'ora)]
+      (begin (printf "  lda ~a\n" (as-arg left))
+             (printf "  ~a ~a|~a\n" instr (as-arg right) (as-arg extra))))
      (else (error (format "ERROR expression: ~a ~a ~a\n" instr lhs rhs))))))
 
 (define (process-instruction-accumulator instr lhs)
@@ -1388,11 +1341,12 @@
   (symbol->string (cadr arg)))
 
 (define (as-arg arg)
-  ; TODO: Get rid of hacks here.
   (cond
-   ([eq? arg 'PPU-CTRL-NMI] "#PPU_CTRL_NMI")
-   ([eq? arg 'PPU-MASK-SHOW-SPR] "#$18")
-   ([symbol? arg] (normalize-name arg))
+   ([symbol? arg] (let ((lookup (sym-label-lookup arg)))
+                    ; TODO: Handle lookup failure.
+                    (if (eq? (sym-label-kind lookup) 'const)
+                        (format "#~a" (sym-label-name lookup))
+                        (sym-label-name lookup))))
    ([number? arg] (format "#$~x" arg))
    (else (error (format "ERROR as-arg: ~a\n" arg)))))
 
@@ -1430,7 +1384,10 @@
                         (printf "~a\n" (co2-source-context))
                         (printf "  lda #$~x\n" value)
                         #f))
-     ([symbol? value] (printf "  lda ~a\n" (variable-lookup-name value)) #t)
+     ([symbol? value] (let* ((lookup (sym-label-lookup value))
+                             (name (sym-label-name lookup)))
+                        (printf "  lda ~a\n" name)
+                        #t))
      (else (error (format "ERROR: ~a\n" value))))))
 
 (define lexical-scope (make-parameter '()))
@@ -1567,7 +1524,10 @@
            (process-instruction-expression symbol
                                            (car rest)
                                            (if (not (null? (cdr rest)))
-                                               (cadr rest) '()))]
+                                               (cadr rest) '())
+                                           (if (and (not (null? (cdr rest)))
+                                                    (not (null? (cddr rest))))
+                                               (caddr rest) '()))]
           [(asl lsr rol ror)
            (process-instruction-accumulator symbol (car rest))]
           [(bit cmp cpx cpy dec inc)
@@ -1615,29 +1575,42 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Entry point
 
-(define (output-prefix)
-  (printf "ppu_ctrl  = $00\n")
-  (printf "ppu_mask  = $01\n")
-  (printf "frame_num = $02\n")
-  (printf "_count    = $03\n")
-  (printf "\n")
-  (printf "REG_PPU_CTRL   = $2000\n")
-  (printf "REG_PPU_MASK   = $2001\n")
-  (printf "REG_PPU_STATUS = $2002\n")
-  (printf "REG_OAM_ADDR   = $2003\n")
-  (printf "REG_OAM_DATA   = $2004\n")
-  (printf "REG_PPU_SCROLL = $2005\n")
-  (printf "REG_PPU_ADDR   = $2006\n")
-  (printf "REG_PPU_DATA   = $2007\n")
-  (printf "REG_OAM_DMA    = $4014\n")
-  (printf "REG_JOYPAD_0   = $4016\n")
-  (printf "REG_JOYPAD_1   = $4017\n")
-  (printf "\n")
-  (printf "PPU_CTRL_NMI = $80\n")
-  (printf "PPU_CTRL_SHOW_SPR = $01\n")
-  (printf "PPU_CTRL_SHOW_BG  = $08\n")
-  (printf "\n"))
+; source symbol, assembly label, address / const
 
+(define (define-built-ins)
+  ;; Memory-mapped addresses
+  (for ([elem reg-table])
+       (let ((symbol (car elem))
+             (value (cadr elem)))
+         (make-address! symbol value)))
+  ;; PPU flags
+  (for ([elem ppu-flags])
+       (let ((symbol (car elem))
+             (value (cadr elem)))
+         (make-const! symbol value)))
+  ;; Reserved zeropage variables for internal use
+  (for ([elem reserved-zero-page])
+       (let ((symbol (car elem))
+             (value (cadr elem)))
+         (make-address! symbol value))))
+
+(define (output-prefix)
+  ;; Memory-mapped addresses
+  (for ([elem reg-table])
+       (let ((symbol (car elem))
+             (value (cadr elem)))
+         (printf "~A = $~x\n" (normalize-name symbol) value)))
+  ;; PPU flags
+  (for ([elem ppu-flags])
+       (let ((symbol (car elem))
+             (value (cadr elem)))
+         (printf "~A = $~x\n" (normalize-name symbol) value)))
+  ;; Reserved zeropage variables for internal use
+  (for ([elem reserved-zero-page])
+       (let ((symbol (car elem))
+             (value (cadr elem)))
+         (printf "~A = $~x\n" (normalize-name symbol) value)))
+  (printf "\n"))
 
 (define (output-suffix)
   (printf "\n\n")
@@ -1645,15 +1618,16 @@
     (for/list ([elem data])
       (let ((label (car elem))
             (value (cadr elem)))
-        (printf "~a:\n" (normalize-name label))
+        (printf "~a:\n" label)
         (printf "  .byte ~a\n" (list->byte-string value))
-        (printf "~a_length = ~a\n" (normalize-name label) (length value))
+        (printf "~a_length = ~a\n" label (length value))
         (printf "\n"))))
   (printf ".pad $fffa\n")
   ; TODO: Only output vectors that are defined.
   (printf ".word nmi, reset, 0\n"))
 
 (define (process-co2 fname out-filename f)
+  (define-built-ins)
   (output-prefix)
   (define (loop)
     (let ((top-level-form (read-syntax fname f)))
