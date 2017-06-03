@@ -15,6 +15,7 @@
 ;; along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 (require racket/cmdline)
+(require data/gvector)
 
 ;; internal compiler register on zero page
 (define working-reg "$ff")
@@ -1249,6 +1250,15 @@
   (printf "  ldx #$ff\n")
   (printf "  txs\n"))
 
+(define func-nodes (make-hash))
+
+(struct func-node (name params calls [memory #:mutable]))
+
+(define (make-func-node! name params calls)
+  (hash-set! func-nodes name (func-node name params calls #f)))
+
+(define *invocations* (make-parameter #f))
+
 (define (process-defvar name)
   (let* ((def (normalize-name name))
          (sym-label (make-variable! name))
@@ -1270,37 +1280,43 @@
   (let* ((decl (syntax->datum context-decl))
          (name (car decl))
          (args (cdr decl)))
-    ; TODO: Add number of parameters to table, to check when called.
-    (make-function! name)
-    (printf "\n~a\n" (co2-source-context))
-    (printf "~a:\n" (normalize-name name))
-    ;
-    (sym-label-push-scope)
-    ; Fastcall parameters
-    (for ([sym args] [i (in-naturals)])
-         (let ((label (format "_~a__~a" (normalize-name name)
-                              (normalize-name sym))))
-           (make-variable! sym #:label label)
-           (cond
-            ; TODO: Get name from the symbol table.
-            ([= i 0] (printf "  sta ~a\n" (as-arg sym)))
-            ([= i 1] (printf "  stx ~a\n" (as-arg sym)))
-            ([= i 2] (printf "  sty ~a\n" (as-arg sym))))))
-    ; Additional parameters
-    (when (> (length args) 3)
-          (printf "  tsx\n")
-          (let ((params (cdddr args)))
-            ; TODO: Get parameters from the stack, store in correct address.
-            #f))
-    ; Process body.
-    (for ([stmt body])
-         (process-statement stmt))
-    ;
-    (sym-label-pop-scope)
-    ; Return from function.
-    (cond
-     [(eq? type 'sub) (printf "  rts\n")]
-     [(eq? type 'vector) (printf "  rti\n")])))
+    (parameterize ([*invocations* (make-gvector)])
+      ; TODO: Add number of parameters to table, to check when called.
+      (make-function! name)
+      (printf "\n~a\n" (co2-source-context))
+      (printf "~a:\n" (normalize-name name))
+      ; Push scope for local variables.
+      (sym-label-push-scope)
+      ; Fastcall parameters
+      (for ([sym args] [i (in-naturals)])
+           (let ((label (format "_~a__~a" (normalize-name name)
+                                (normalize-name sym))))
+             (make-variable! sym #:label label)
+             (cond
+              ; TODO: Get name from the symbol table.
+              ([= i 0] (printf "  sta ~a\n" (as-arg sym)))
+              ([= i 1] (printf "  stx ~a\n" (as-arg sym)))
+              ([= i 2] (printf "  sty ~a\n" (as-arg sym))))))
+      ; Additional parameters
+      (when (> (length args) 3)
+            (printf "  tsx\n")
+            (let ((params (cdddr args)))
+              (for ([p params] [i (in-naturals)])
+                   ; TODO: Get parameter from the stack, store in local frame.
+                   (printf "  lda $~x,x\n" (+ #x103 i))
+                   (printf "  sta ~a\n" (as-arg p)))))
+      ; Process body.
+      (for ([stmt body])
+           (process-statement stmt))
+      ; Pop scope.
+      (sym-label-pop-scope)
+      ; Return from function.
+      (cond
+       [(eq? type 'sub) (printf "  rts\n")]
+       [(eq? type 'vector) (printf "  rti\n")])
+      ; Store inner function calls for building call tree.
+      (let ((calls (gvector->list (*invocations*))))
+        (make-func-node! name args calls)))))
 
 (define (process-set-bang target expr)
   (assert target syntax?)
@@ -1309,7 +1325,8 @@
         (result-need-context (process-expression expr))) ; Result left in A
     (when result-need-context
       (printf "~a\n" (co2-source-context)))
-    (printf "  sta ~a\n" (normalize-name place))))
+    ; TODO: Assert that place is a valid lvalue for set!
+    (printf "  sta ~a\n" (as-arg place))))
 
 (define (process-instruction-expression instr lhs rhs more)
   ; If these have one operand:
@@ -1531,7 +1548,8 @@
             ([= i 2] (printf "  ldy ~a\n" (as-arg data))))))
     (printf "  jsr ~a\n" (normalize-name fname))
     (for ([i (in-range pop-count)])
-         (printf "  pla\n"))))
+         (printf "  pla\n"))
+    (gvector-add! (*invocations*) fname)))
 
 (define (process-statement stmt)
   ; TODO: Rename to process-inner-form
@@ -1608,6 +1626,45 @@
         [else (process-unknown symbol)]))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(define (resolve-func-node-memory func-nodes n)
+  (let* ((f (hash-ref func-nodes n))
+         (name (func-node-name f))
+         (params (func-node-params f))
+         (calls (func-node-calls f))
+         (memory (func-node-memory f)))
+    (if (number? memory)
+        memory ; return early
+        (begin (let ((total 0)
+                     (curr 0))
+                 (for ([c calls])
+                   (set! curr (resolve-func-node-memory func-nodes c))
+                   (when (> curr total)
+                     (set! total curr)))
+                 (set! total (+ total (length params)))
+                 (set-func-node-memory! f total)
+                 total)))))
+
+(define (traverse-func-nodes)
+  (let ((names (hash-keys func-nodes)))
+    (for ([n names])
+      (resolve-func-node-memory func-nodes n))))
+
+(define (display-func-nodes)
+  (printf "\n\n")
+  (let ((names (hash-keys func-nodes)))
+    (for ([n names])
+         (let* ((f (hash-ref func-nodes n))
+                (name (func-node-name f))
+                (params (func-node-params f))
+                (calls (func-node-calls f))
+                (memory (func-node-memory f))
+                (k (- memory (length params))))
+           (for ([p params] [i (in-naturals)])
+                (printf "_~a__~a = $~x\n" (normalize-name name)
+                        (normalize-name p) (+ k i #x40)))))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Entry point
 
 ; source symbol, assembly label, address / const
@@ -1676,4 +1733,6 @@
        (f (open-input-file fname)))
   (port-count-lines! f)
   (process-co2 fname "out.asm" f)
+  (traverse-func-nodes)
+  (display-func-nodes)
   (close-input-port f))
