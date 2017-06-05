@@ -1391,6 +1391,7 @@
 
 (define (as-arg arg)
   (cond
+   ([string? arg] arg)
    ([symbol? arg] (let ((lookup (sym-label-lookup arg)))
                     (if (not lookup)
                         ; TODO: Throw an error, use syntax object
@@ -1513,6 +1514,48 @@
     (for ([stmt body])
          (process-statement stmt))))
 
+(define (process-if condition truth-case false-case)
+  (let ((truth-label (generate-label "truth_case"))
+        (false-label (generate-label "false_case"))
+        (if-done-label (generate-label "if_done")))
+    (printf "  ; condition begin\n")
+    (if (list? (syntax->datum condition))
+        (process-statement condition)
+        #f)
+    (printf "  bne ~a\n" false-label)
+    (printf "~a:\n" truth-label)
+    (if (list? (syntax->datum truth-case))
+        (process-statement truth-case)
+        (printf "  lda ~a\n" (as-arg (syntax->datum truth-case))))
+    (printf "  jmp ~a\n" if-done-label)
+    (printf "~a:\n" false-label)
+    (if (list? (syntax->datum false-case))
+        (process-statement false-case)
+        (printf "  lda ~a\n" (as-arg (syntax->datum false-case))))
+    (printf "~a:\n" if-done-label)
+    (printf "  ; condition done\n")
+    ))
+
+(define (process-math operator lhs rhs)
+  (assert operator symbol?)
+  (assert lhs syntax?)
+  (assert rhs syntax?)
+  (let ((left (syntax->datum lhs))
+        (right (syntax->datum rhs)))
+    (if (list? left)
+        (process-expression lhs)
+        (printf "  lda ~a\n" left))
+    (when (list? right)
+          (printf "  pha\n")
+          (process-expression rhs)
+          (printf "  sta _count\n")
+          (printf "  pla\n")
+          (set! right "_count"))
+    (case operator
+      ([+]
+       (begin (printf "  clc\n")
+              (printf "  adc ~a\n" (as-arg right)))))))
+
 (define (process-stack action registers)
   (assert action symbol?)
   (assert registers list?)
@@ -1571,8 +1614,9 @@
           [(loop-up-to) (process-loop-up (car rest) (cadr rest)
                                          (caddr rest) (cdddr rest))]
           [(let) (process-let (car rest) (cdr rest))]
+          [(if) (process-if (car rest) (cadr rest) (caddr rest))]
           [(push pull) (process-stack symbol rest)]
-          [(adc and eor lda ora sta)
+          [(adc and cmp cpx cpy eor lda ora sta)
            (process-instruction-expression symbol
                                            (car rest)
                                            (if (not (null? (cdr rest)))
@@ -1582,12 +1626,17 @@
                                                (caddr rest) '()))]
           [(asl lsr rol ror)
            (process-instruction-accumulator symbol (car rest))]
-          [(bit cmp cpx cpy dec inc)
+          [(bit dec inc)
            (process-instruction-standalone symbol (car rest))]
           [(beq bne jmp)
            (process-instruction-branch symbol (car rest))]
           [(clc)
            (process-instruction-implied symbol)]
+          [(+)
+           (process-math symbol
+                         (car rest)
+                         (if (not (null? (cdr rest)))
+                             (cadr rest) '()))]
           [else (process-todo symbol)])))))
 
 (define (process-unknown symbol)
