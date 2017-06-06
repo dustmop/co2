@@ -1540,11 +1540,12 @@
   (assert operator symbol?)
   (assert lhs syntax?)
   (assert rhs syntax?)
+  (printf "~a\n" (co2-source-context))
   (let ((left (syntax->datum lhs))
         (right (syntax->datum rhs)))
     (if (list? left)
         (process-expression lhs)
-        (printf "  lda ~a\n" left))
+        (printf "  lda ~a\n" (as-arg left)))
     (when (list? right)
           (printf "  pha\n")
           (process-expression rhs)
@@ -1554,7 +1555,13 @@
     (case operator
       ([+]
        (begin (printf "  clc\n")
-              (printf "  adc ~a\n" (as-arg right)))))))
+              (printf "  adc ~a\n" (as-arg right))))
+      ([eq?]
+       (begin (printf "  sec\n")
+              (printf "  sbc ~a\n" (as-arg right))
+              (printf "  cmp #1\n")
+              (printf "  rol a\n")
+              (printf "  and #$fe\n"))))))
 
 (define (process-stack action registers)
   (assert action symbol?)
@@ -1580,15 +1587,34 @@
           (for ([elem (reverse (cdddr params))])
                (let ((data (syntax->datum elem)))
                  (set! pop-count (+ 1 pop-count))
+                 ; TODO: Broken for expressions.
                  (printf "  lda ~a\n" (as-arg data))
                  (printf "  pha\n"))))
     (for ([elem params] [i (in-naturals)])
          (let ((data (syntax->datum elem)))
            (cond
-            ; TODO: Evaluate expressions.
-            ([= i 0] (printf "  lda ~a\n" (as-arg data)))
-            ([= i 1] (printf "  ldx ~a\n" (as-arg data)))
-            ([= i 2] (printf "  ldy ~a\n" (as-arg data))))))
+            ; TODO: Instead of checking for list? everywhere, use a helper.
+            ([= i 0] (if (list? data)
+                         (process-expression elem)
+                         (printf "  lda ~a\n" (as-arg data))))
+            ([= i 1] (if (list? data)
+                         (begin (printf "  pha\n")
+                                (process-expression elem)
+                                (printf "  sta _count\n")
+                                (printf "  pla\n")
+                                (printf "  ldx _count\n"))
+                         (printf "  ldx ~a\n" (as-arg data))))
+            ([= i 2] (if (list? data)
+                         (begin (printf "  pha\n")
+                                (printf "  txa\n")
+                                (printf "  pha\n")
+                                (process-expression elem)
+                                (printf "  sta _count\n")
+                                (printf "  pla\n")
+                                (printf "  tax\n")
+                                (printf "  pla\n")
+                                (printf "  ldy _count\n"))
+                         (printf "  ldy ~a\n" (as-arg data)))))))
     (printf "  jsr ~a\n" (normalize-name fname))
     (for ([i (in-range pop-count)])
          (printf "  pla\n"))
@@ -1632,7 +1658,7 @@
            (process-instruction-branch symbol (car rest))]
           [(clc)
            (process-instruction-implied symbol)]
-          [(+)
+          [(+ eq?)
            (process-math symbol
                          (car rest)
                          (if (not (null? (cdr rest)))
