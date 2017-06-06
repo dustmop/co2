@@ -725,7 +725,7 @@
                    (emit 'sta (as-arg p)))))
       ; Process body.
       (for ([stmt body])
-           (process-statement stmt))
+           (process-form stmt))
       ; Pop scope.
       (sym-label-pop-scope)
       ; Return from function.
@@ -739,12 +739,10 @@
 (define (process-set-bang target expr)
   (assert target syntax?)
   (assert expr syntax?)
-  (let ((place (syntax->datum target))
-        (result-need-context (process-expression expr))) ; Result left in A
-    (when result-need-context
-          (emit-context))
+  (let* ((lhs (syntax->datum target))
+         (rhs (process-argument expr #:atom (lambda (n) (emit 'lda n)))))
     ; TODO: Assert that place is a valid lvalue for set!
-    (emit 'sta (as-arg place))))
+    (emit 'sta (as-arg lhs))))
 
 (define (process-instruction-expression instr args)
   (assert instr symbol?)
@@ -783,19 +781,10 @@
         (emit instr (format "~a|~a" (as-arg second) (as-arg third)))))
      (else (error (format "ERROR expression: ~a ~a" instr args))))))
 
-(define (process-instruction-accumulator instr lhs)
+(define (process-instruction-accumulator instr context-arg)
   (assert instr symbol?)
-  (assert lhs syntax?)
-  (let ((left (syntax->datum lhs)))
-    (cond
-     ; Single argument, which is an atom.
-     ([and (atom? left)]
-      (begin (emit instr (as-arg left))))
-     ; Single argument, an expression.
-     ([and (list? left)]
-      (begin (process-expression lhs)
-             (emit instr "a")))
-     (else (error (format "ERROR accumulator: ~a ~a" instr lhs))))))
+  (assert context-arg syntax?)
+  (emit instr (process-argument context-arg)))
 
 (define (index-register? arg)
   (and (list? arg) (eq? (car arg) 'quote)
@@ -833,11 +822,12 @@
           (begin (emit-context)
                  (when preserve
                        (process-stack 'push preserve #:skip-context #t))
-                 (process-expression context-arg)
-                 (when preserve
-                       (emit 'sta "_tmp")
-                       (process-stack 'pull preserve #:skip-context #t)
-                       "_tmp"))
+                 (process-form context-arg)
+                 (if preserve
+                     (begin (emit 'sta "_tmp")
+                            (process-stack 'pull preserve #:skip-context #t)
+                            "_tmp")
+                     "a"))
           (atom (as-arg arg))))))
 
 (define (process-instruction-standalone instr operand)
@@ -863,22 +853,7 @@
   (emit-context)
   (emit instr))
 
-(define (process-expression expr)
-  (assert expr syntax?)
-  (let* ((value (syntax->datum expr)))
-    (cond
-     ([list? value] (process-statement expr) #t)
-     ([number? value] (begin
-                        ; Output context here, then load value.
-                        (emit-context)
-                        (emit 'lda (format "#$~x" value))
-                        #f))
-     ([symbol? value] (let* ((lookup (sym-label-lookup value))
-                             (name (sym-label-name lookup)))
-                        (emit 'lda name)
-                        #t))
-     (else (error (format "ERROR: ~a" value))))))
-
+; TODO: Combine with sym-label-defs.
 (define lexical-scope (make-parameter '()))
 
 (define (process-block context-label body)
@@ -890,7 +865,7 @@
     (parameterize ([lexical-scope (cons (list label gen-label)
                                         (lexical-scope))])
       (for ([stmt body])
-           (process-statement stmt)))))
+           (process-form stmt)))))
 
 (define (process-loop-down context-reg context-start body)
   (assert context-reg syntax?)
@@ -910,7 +885,7 @@
       (emit-label loop-label)
       ; TODO: Disallow `reg` changes within `body`
       (for ([stmt body])
-           (process-statement stmt))
+           (process-form stmt))
       (emit (format "  de~a" reg))
       (emit 'bne loop-label))))
 
@@ -937,7 +912,7 @@
       (emit-label loop-label)
       ; TODO: Disallow `reg` changes within `body`
       (for ([stmt body])
-           (process-statement stmt))
+           (process-form stmt))
       (emit (format "  in~a" reg))
       (emit (format "  cp~a ~a" reg sentinal-value))
       (emit 'bne loop-label))))
@@ -949,57 +924,43 @@
          (value (cadr (cadar bindings))))
     (make-data! label value)
     (for ([stmt body])
-         (process-statement stmt))))
+         (process-form stmt))))
 
-(define (process-if condition truth-case false-case)
+(define (process-if context-condition context-truth context-false)
   (let ((truth-label (generate-label "truth_case"))
         (false-label (generate-label "false_case"))
         (if-done-label (generate-label "if_done")))
     (emit "; condition begin")
-    (if (list? (syntax->datum condition))
-        (process-statement condition)
-        ; TODO: Handle conditions that are just values.
-        #f)
+    ; Check the condition of the `if`.
+    (process-argument context-condition #:atom (lambda (n)
+                                                 (error "TODO: Implement me")))
     (emit 'bne false-label)
+    ; Truth case of the `if`.
     (emit-label truth-label)
-    (if (list? (syntax->datum truth-case))
-        (process-statement truth-case)
-        (emit 'lda (as-arg (syntax->datum truth-case))))
+    (process-argument context-truth #:atom (lambda (n) (emit 'lda n)))
     (emit 'jmp if-done-label)
+    ; False case of the `if`.
     (emit-label false-label)
-    (if (list? (syntax->datum false-case))
-        (process-statement false-case)
-        (emit  'lda (as-arg (syntax->datum false-case))))
+    (process-argument context-false #:atom (lambda (n) (emit 'lda n)))
     (emit-label if-done-label)
-    (emit "; condition done")
-    ))
+    (emit "; condition done")))
 
-(define (process-math operator lhs rhs)
+(define (process-math operator context-left context-right)
   (assert operator symbol?)
-  (assert lhs syntax?)
-  (assert rhs syntax?)
+  (assert context-left syntax?)
+  (assert context-right syntax?)
   (emit-context)
-  (let ((left (syntax->datum lhs))
-        (right (syntax->datum rhs)))
-    (if (list? left)
-        (process-expression lhs)
-        (emit 'lda (as-arg left)))
-    (when (list? right)
-          (emit 'pha)
-          (process-expression rhs)
-          (emit 'sta "_count")
-          (emit 'pla)
-          (set! right "_count"))
+  (let* ((lhs (process-argument context-left
+                                #:atom (lambda (n) (emit 'lda n))))
+         (rhs (process-argument context-right #:preserve '(a))))
     (case operator
-      ([+]
-       (begin (emit 'clc)
-              (emit 'adc (as-arg right))))
-      ([eq?]
-       (begin (emit 'sec)
-              (emit 'sbc (as-arg right))
-              (emit 'cmp "#1")
-              (emit 'rol "a")
-              (emit 'and "#$fe"))))))
+      [(+) (begin (emit 'clc)
+                  (emit 'adc (as-arg rhs)))]
+      [(eq?) (begin (emit 'sec)
+                    (emit 'sbc (as-arg rhs))
+                    (emit 'cmp "#1")
+                    (emit 'rol "a")
+                    (emit 'and "#$fe"))])))
 
 (define (process-stack action registers #:skip-context [skip-context #f])
   (assert action symbol?)
@@ -1047,53 +1008,6 @@
          (emit 'pla))
     (gvector-add! (*invocations*) fname)))
 
-(define (process-statement stmt)
-  ; TODO: Rename to process-inner-form
-  (assert stmt syntax?)
-  (let* ((inner (syntax-e stmt))
-         (first (car inner))
-         (rest (cdr inner))
-         (symbol (syntax->datum first)))
-    (parameterize ([*co2-source-form* stmt])
-      (if (function? symbol)
-        (process-jump-subroutine symbol rest)
-        (case symbol
-          ; Main expression walker.
-          [(init-system) (built-in-init-system)]
-          [(set!) (process-set-bang (car rest) (cadr rest))]
-          [(block) (process-block (car rest) (cdr rest))]
-          [(loop-down-from) (process-loop-down (car rest) (cadr rest)
-                                               (cddr rest))]
-          [(loop-up-to) (process-loop-up (car rest) (cadr rest)
-                                         (caddr rest) (cdddr rest))]
-          [(let) (process-let (car rest) (cdr rest))]
-          [(if) (process-if (car rest) (cadr rest) (caddr rest))]
-          [(push pull) (process-stack symbol (process-args rest 0 3))]
-          [(adc and cmp cpx cpy eor lda ora sta)
-           (process-instruction-expression symbol rest)]
-          [(asl lsr rol ror)
-           (process-instruction-accumulator symbol (car rest))]
-          [(bit dec inc)
-           (process-instruction-standalone symbol (car rest))]
-          [(beq bne jmp)
-           (process-instruction-branch symbol (car rest))]
-          [(clc)
-           (process-instruction-implied symbol)]
-          [(+ eq?)
-           (process-math symbol
-                         (car rest)
-                         (if (not (null? (cdr rest)))
-                             (cadr rest) '()))]
-          [else (process-todo symbol)])))))
-
-(define (process-unknown symbol)
-  (emit-context)
-  (emit (format "Unknown: ~a" symbol)))
-
-(define (process-todo symbol)
-  (emit-context)
-  (emit (format ";;;;;;;; TODO: ~a" symbol)))
-
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Syntax tree walker
 
@@ -1101,25 +1015,54 @@
   (for/list ([k allowed-keywords])
     (find-keyword k (map syntax->datum args))))
 
-(define (process-args args num-required num-optional)
+(define (unwrap-args args num-required num-optional)
   ; TODO: Implement num-required and num-optional
   (map syntax-e args))
 
-(define (process-top-level-form form)
+(define (process-form form)
+  (assert form syntax?)
   (let* ((inner (syntax-e form))
          (first (car inner))
          (rest (cdr inner))
          (symbol (syntax->datum first)))
     (parameterize ([*co2-source-form* form])
-      (case symbol
-        [(nes-header) (apply built-in-nes-header
-                             (process-keys rest '(#:num-prg #:num-chr
-                                                  #:mapper #:mirroring)))]
-        [(defconst) (apply process-defconst (process-args rest 2 0))]
-        [(defvar) (apply process-defvar (process-args rest 1 1))]
-        [(defsub) (process-proc 'sub (car rest) (cdr rest))]
-        [(defvector) (process-proc 'vector (car rest) (cdr rest))]
-        [else (process-unknown symbol)]))))
+      (if (function? symbol)
+          (process-jump-subroutine symbol rest)
+          (case symbol
+            ; Main expression walker.
+            [(nes-header) (apply built-in-nes-header
+                                 (process-keys rest '(#:num-prg #:num-chr
+                                                      #:mapper #:mirroring)))]
+            [(init-system) (built-in-init-system)]
+            [(defconst) (apply process-defconst (unwrap-args rest 2 0))]
+            [(defvar) (apply process-defvar (unwrap-args rest 1 1))]
+            [(defsub) (process-proc 'sub (car rest) (cdr rest))]
+            [(defvector) (process-proc 'vector (car rest) (cdr rest))]
+            [(push pull) (process-stack symbol (unwrap-args rest 0 3))]
+            [(set!) (process-set-bang (car rest) (cadr rest))]
+            [(block) (process-block (car rest) (cdr rest))]
+            [(loop-down-from) (process-loop-down (car rest) (cadr rest)
+                                                 (cddr rest))]
+            [(loop-up-to) (process-loop-up (car rest) (cadr rest)
+                                           (caddr rest) (cdddr rest))]
+            [(let) (process-let (car rest) (cdr rest))]
+            [(if) (process-if (car rest) (cadr rest) (caddr rest))]
+            [(adc and cmp cpx cpy eor lda ora sta)
+             (process-instruction-expression symbol rest)]
+            [(asl lsr rol ror)
+             (process-instruction-accumulator symbol (car rest))]
+            [(bit dec inc)
+             (process-instruction-standalone symbol (car rest))]
+            [(beq bne jmp)
+             (process-instruction-branch symbol (car rest))]
+            [(clc)
+             (process-instruction-implied symbol)]
+            [(+ eq?)
+             (process-math symbol
+                           (car rest)
+                           (if (not (null? (cdr rest)))
+                               (cadr rest) '()))]
+            [else (printf "Unknown: ~a ~a" symbol rest)])))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -1225,7 +1168,7 @@
   (define (loop)
     (let ((top-level-form (read-syntax fname f)))
       (when (not (eof-object? top-level-form))
-            (process-top-level-form top-level-form)
+            (process-form top-level-form)
             (loop))))
   (loop)
   (output-suffix))
