@@ -68,7 +68,8 @@
   '((ppu-ctrl                    #x00)
     (ppu-mask                    #x01)
     (frame-num                   #x02)
-    (-count                      #x03)))
+    (-count                      #x03)
+    (-tmp                        #x04)))
 
 (define (reg-table-lookup x)
   (let ((lu (assoc x reg-table)))
@@ -189,9 +190,9 @@
   ; TODO: Remove.
   #f)
 
-(define (assert fn x)
-  ; TODO: Remove.
-  #f)
+(define (assert val fn)
+  (when (not (fn val))
+    (error (format "assert failed: ~a ~a" val fn))))
 
 ;;----------------------------------------------------------------
 ; Emit
@@ -205,10 +206,10 @@
           (set! build (car args))
           (set! args (cdr args)))
     ; Symbol for opcode...
-    (when (and (not (null? args)) (symbol? (car args)))
+    (when (not (null? args))
           (set! build (string-append build "  " (symbol->string (car args))))
-          ; ...followed by optional operand.
-          (when (and (not (null? (cdr args))) (string? (cadr args)))
+          ; ...followed by optional string.
+          (when (not (null? (cdr args)))
                 (if (string=? build "")
                     (set! build (cadr args))
                     (set! build (string-append build " " (cadr args))))))
@@ -745,45 +746,42 @@
     ; TODO: Assert that place is a valid lvalue for set!
     (emit 'sta (as-arg place))))
 
-(define (process-instruction-expression instr lhs rhs more)
-  ; If these have one operand:
-  ;  If that is an expression: evaluate it, apply this instruction to A
-  ;  If that is an atom: apply this instruction to the atom
-  ; If two operands:
-  ;  Evaluate first expression / Load it with "lda"
-  ;  If second is an expression:
-  ;   Push A to the stack, evaluate the expression
-  ;  ...
+(define (process-instruction-expression instr args)
   (assert instr symbol?)
-  (assert lhs syntax?)
-  (when (and rhs (not (null? rhs))) (assert rhs syntax?))
-  (when (and more (not (null? more))) (assert more syntax?))
-  (let ((left (syntax->datum lhs))
-        (right (if (and rhs (not (null? rhs))) (syntax->datum rhs) '()))
-        (extra (if (and more (not (null? more))) (syntax->datum more) '())))
+  (assert args list?)
+  (let ((first (resolve-ref args 0))
+        (second (resolve-ref args 1))
+        (third (resolve-ref args 2)))
     (cond
-     ; Single argument, which is an atom.
-     ([and (atom? left) (null? right)]
-      (begin (emit instr (as-arg left))))
-     ; Two arguemnts, second is an index register.
-     ([and (atom? left) (index-register? right)]
-      (begin (emit instr (format "~a,~a" (as-arg left) (->register right)))))
-     ; TODO: (indirect),y
-     ;...
-     ; Two arguments, both atoms.
-     ([and (atom? left) (atom? right) (null? extra)]
-      (begin (emit 'lda (as-arg left))
-             (emit instr (as-arg right))))
-     ; Two arguments, first is expression and second is atom.
-     ([and (list? left) (atom? right) (null? extra)]
-      (begin (process-expression lhs)
-             (emit instr (as-arg right))))
-     ; Three arguments.
-     ; TODO: Only implemented for ora
-     ([and (atom? left) (atom? right) (atom? extra) (eq? instr 'ora)]
-      (begin (emit 'lda (as-arg left))
-             (emit instr (format "~a|~a" (as-arg right) (as-arg extra)))))
-     (else (error (format "ERROR expression: ~a ~a ~a" instr lhs rhs))))))
+     ; Single argument to instruction just outputs the instruction.
+     ([= (length args) 1]
+      (begin
+        (assert first atom?)
+        (emit instr (as-arg first))))
+     ; Single argument with an index register.
+     ([and (= (length args) 2) (index-register? second)]
+      (begin
+        (assert first atom?)
+        (emit instr (format "~a,~a" (as-arg first) (->register second)))))
+     ; Two arguments, evaluate any expressions, load the first arg into A,
+     ; and output the instruction using the second arg as the operand.
+     ([= (length args) 2]
+      (begin
+        (let* ((lhs (process-argument (car args)
+                                      #:atom (lambda (n) (emit 'lda n))))
+               (rhs (process-argument (cadr args) #:preserve '(a))))
+          (emit instr (as-arg rhs)))))
+     ; Three arguments. Only works for ORA currently.
+     ; TODO: Generalize to other instructions.
+     ([= (length args) 3]
+      (begin
+        (assert instr (lambda (n) (eq? n 'ora)))
+        (assert first atom?)
+        (assert second atom?)
+        (assert third atom?)
+        (emit 'lda (as-arg first))
+        (emit instr (format "~a|~a" (as-arg second) (as-arg third)))))
+     (else (error (format "ERROR expression: ~a ~a" instr args))))))
 
 (define (process-instruction-accumulator instr lhs)
   (assert instr symbol?)
@@ -806,6 +804,11 @@
 (define (->register arg)
   (symbol->string (cadr arg)))
 
+(define (resolve-ref list index)
+  (if (>= index (length list))
+      #f
+      (syntax->datum (list-ref list index))))
+
 (define (as-arg arg)
   (cond
    ([string? arg] arg)
@@ -818,6 +821,24 @@
                             (sym-label-name lookup)))))
    ([number? arg] (format "#$~x" arg))
    (else (error (format "ERROR as-arg: ~a" arg)))))
+
+;Generate code to get a single value into the desired return value. Return
+; the name of the value.
+(define (process-argument context-arg #:preserve [preserve #f] #:atom [atom #f])
+  (parameterize ([*co2-source-form* context-arg])
+    (let ((arg (syntax->datum context-arg)))
+      (when (not atom)
+            (set! atom (lambda (n) n)))
+      (if (list? arg)
+          (begin (emit-context)
+                 (when preserve
+                       (process-stack 'push preserve #:skip-context #t))
+                 (process-expression context-arg)
+                 (when preserve
+                       (emit 'sta "_tmp")
+                       (process-stack 'pull preserve #:skip-context #t)
+                       "_tmp"))
+          (atom (as-arg arg))))))
 
 (define (process-instruction-standalone instr operand)
   ;TODO: Rhs being an expression is an error
@@ -980,22 +1001,28 @@
               (emit 'rol "a")
               (emit 'and "#$fe"))))))
 
-(define (process-stack action registers)
+(define (process-stack action registers #:skip-context [skip-context #f])
   (assert action symbol?)
   (assert registers list?)
-  ; TODO: Only push/pull what's in the `registers` parameter
-  (emit-context)
+  (when (not skip-context)
+        (emit-context))
   (cond
-   [(eq? action 'push) (begin (emit 'pha)
-                              (emit 'txa)
-                              (emit 'pha)
-                              (emit 'tya)
-                              (emit 'pha))]
-   [(eq? action 'pull) (begin (emit 'pla)
-                              (emit 'tay)
-                              (emit 'pla)
-                              (emit 'tax)
-                              (emit 'pla))]))
+   [(eq? action 'push) (begin (when (member 'a registers)
+                                    (emit 'pha))
+                              (when (member 'x registers)
+                                    (emit 'txa)
+                                    (emit 'pha))
+                              (when (member 'y registers)
+                                    (emit 'tya)
+                                    (emit 'pha)))]
+   [(eq? action 'pull) (begin (when (member 'y registers)
+                                    (emit 'pla)
+                                    (emit 'tay))
+                              (when (member 'x registers)
+                                    (emit 'pla)
+                                    (emit 'tax))
+                              (when (member 'a registers)
+                                    (emit 'pla)))]))
 
 (define (process-jump-subroutine fname params)
   (let* ((pop-count 0))
@@ -1008,30 +1035,13 @@
                  (emit 'lda (as-arg data))
                  (emit 'pha))))
     (for ([elem params] [i (in-naturals)])
-         (let ((data (syntax->datum elem)))
-           (cond
-            ; TODO: Instead of checking for list? everywhere, use a helper.
-            ([= i 0] (if (list? data)
-                         (process-expression elem)
-                         (emit 'lda (as-arg data))))
-            ([= i 1] (if (list? data)
-                         (begin (emit 'pha)
-                                (process-expression elem)
-                                (emit 'sta "_count")
-                                (emit 'pla)
-                                (emit 'ldx "_count"))
-                         (emit 'ldx (as-arg data))))
-            ([= i 2] (if (list? data)
-                         (begin (emit 'pha)
-                                (emit 'txa)
-                                (emit 'pha)
-                                (process-expression elem)
-                                (emit 'sta "_count")
-                                (emit 'pla)
-                                (emit 'tax)
-                                (emit 'pla)
-                                (emit 'ldy "_count"))
-                         (emit 'ldy (as-arg data)))))))
+         (cond
+          ([= i 0]
+           (process-argument elem #:atom (lambda (n) (emit 'lda n))))
+          ([= i 1]
+           (emit 'ldx (process-argument elem #:preserve '(a))))
+          ([= i 2]
+           (emit 'ldy (process-argument elem #:preserve '(a x))))))
     (emit 'jsr (normalize-name fname))
     (for ([i (in-range pop-count)])
          (emit 'pla))
@@ -1058,15 +1068,9 @@
                                          (caddr rest) (cdddr rest))]
           [(let) (process-let (car rest) (cdr rest))]
           [(if) (process-if (car rest) (cadr rest) (caddr rest))]
-          [(push pull) (process-stack symbol rest)]
+          [(push pull) (process-stack symbol (process-args rest 0 3))]
           [(adc and cmp cpx cpy eor lda ora sta)
-           (process-instruction-expression symbol
-                                           (car rest)
-                                           (if (not (null? (cdr rest)))
-                                               (cadr rest) '())
-                                           (if (and (not (null? (cdr rest)))
-                                                    (not (null? (cddr rest))))
-                                               (caddr rest) '()))]
+           (process-instruction-expression symbol rest)]
           [(asl lsr rol ror)
            (process-instruction-accumulator symbol (car rest))]
           [(bit dec inc)
