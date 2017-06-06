@@ -666,6 +666,8 @@
 
 (define *invocations* (make-parameter #f))
 
+(define *entry-points* '())
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Main processor.
 
@@ -692,6 +694,9 @@
   (let* ((decl (syntax->datum context-decl))
          (name (car decl))
          (args (cdr decl)))
+    ; Add vector entry points.
+    (when (eq? type 'vector)
+          (set! *entry-points* (cons name *entry-points*)))
     (parameterize ([*invocations* (make-gvector)])
       ; TODO: Add number of parameters to table, to check when called.
       (make-function! name)
@@ -706,7 +711,6 @@
                                 (normalize-name sym))))
              (make-variable! sym #:label label)
              (cond
-              ; TODO: Get name from the symbol table.
               ([= i 0] (emit 'sta (as-arg sym)))
               ([= i 1] (emit 'stx (as-arg sym)))
               ([= i 2] (emit 'sty (as-arg sym))))))
@@ -1203,8 +1207,13 @@
         (emit (format "~a_length = ~a" label (length value)))
         (emit ""))))
   (emit ".pad $fffa")
-  ; TODO: Only output vectors that are defined.
-  (emit ".word nmi, reset, 0"))
+  ; Output the vectors, entry points defined by hardware.
+  (let ((build '()))
+    (for ([entry '(irq reset nmi)])
+         (if (member entry *entry-points*)
+             (set! build (cons (symbol->string entry) build))
+             (set! build (cons "0" build))))
+    (emit (string-append ".word " (string-join build ",")))))
 
 (define (process-co2 fname out-filename f)
   (define-built-ins)
