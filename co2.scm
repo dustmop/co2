@@ -166,6 +166,9 @@
 (define (function? name)
   (hash-has-key? function-defs (normalize-name name)))
 
+(define (macro? name)
+  (eq? name 'cond))
+
 ;;----------------------------------------------------------------
 ; TODO: Combine with other utilities, or remove when replaced.
 
@@ -521,49 +524,49 @@
 ;----------------------------------------------------------------
 ; TODO: Use these for built-in macros.
 
-(define (preprocess-cond-to-if x)
+(define (m-expand-cond-to-if x)
   (define (_ l)
     (cond
       ((null? l) 0)
-      ((eq? (pre-process (caar l)) 'else) (cons 'do
-                                                (pre-process (cdr (car l)))))
-      (else (list 'if (pre-process (caar l))
-                  (cons 'do (pre-process (cdr (car l))))
+      ((eq? (macro-expand (caar l)) 'else) (cons 'do
+                                                 (macro-expand (cdr (car l)))))
+      (else (list 'if (macro-expand (caar l))
+                  (cons 'do (macro-expand (cdr (car l))))
                   (_ (cdr l))))))
   (_ (cdr x)))
 
 ;; (get-sprite-vflip sprite-num)
-(define (preprocess-get-sprite-vflip x)
+(define (m-expand-get-sprite-vflip x)
   (list '>> (list 'get-sprite-attr (cadr x)) 7))
 
-(define (preprocess-get-sprite-hflip x)
+(define (m-expand-get-sprite-hflip x)
   (list 'and (list '>> (list 'get-sprite-attr (cadr x)) 6) #x01))
 
-(define (preprocess-set-sprite-vflip! x)
+(define (m-expand-set-sprite-vflip! x)
   (list 'set-sprite-attr! (list-ref x 1) (list '<< (list-ref x 2) 6)))
 
-(define (preprocess-set-sprite-hflip! x)
+(define (m-expand-set-sprite-hflip! x)
   (list 'set-sprite-attr! (list-ref x 1) (list '<< (list-ref x 2) 7)))
 
 ;; basically diy-macro from the main tinyscheme stuff
-(define (pre-process s)
+(define (macro-expand s)
   (cond
-    ((null? s) s)
-    ((list? s)
-     (map
-      (lambda (i)
-        (if (and (list? i) (not (null? i)))
-            ;; dispatch to macro processors
-            (cond
-             ((eq? (car i) 'cond) (preprocess-cond-to-if i))
-             ((eq? (car i) 'get-sprite-vflip) (preprocess-get-sprite-vflip i))
-             ((eq? (car i) 'get-sprite-hflip) (preprocess-get-sprite-hflip i))
-             ((eq? (car i) 'set-sprite-vflip!) (preprocess-set-sprite-vflip! i))
-             ((eq? (car i) 'set-sprite-hflip!) (preprocess-set-sprite-hflip! i))
-             (else (pre-process i)))
-            (pre-process i)))
-      s))
-    (else s)))
+   ((null? s) s)
+   ((list? s)
+    (map
+     (lambda (i)
+       (if (and (list? i) (not (null? i)))
+           ;; dispatch to macro processors
+           (cond
+            ((eq? (car i) 'cond) (m-expand-cond-to-if i))
+            ((eq? (car i) 'get-sprite-vflip) (m-expand-get-sprite-vflip i))
+            ((eq? (car i) 'get-sprite-hflip) (m-expand-get-sprite-hflip i))
+            ((eq? (car i) 'set-sprite-vflip!) (m-expand-set-sprite-vflip! i))
+            ((eq? (car i) 'set-sprite-hflip!) (m-expand-set-sprite-hflip! i))
+            (else (macro-expand i)))
+           (macro-expand i)))
+     s))
+   (else s)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Utilities
@@ -953,6 +956,7 @@
   (let ((truth-label (generate-label "truth_case"))
         (false-label (generate-label "false_case"))
         (if-done-label (generate-label "if_done")))
+    (emit-context)
     (emit "; condition begin")
     ; Check the condition of the `if`.
     (process-argument context-condition #:atom (lambda (n)
@@ -972,10 +976,15 @@
   (assert operator symbol?)
   (assert context-left syntax?)
   (assert context-right syntax?)
-  (emit-context)
-  (let* ((lhs (process-argument context-left
-                                #:atom (lambda (n) (emit 'lda n))))
+  (let* ((did-context #f)
+         (lhs (process-argument context-left
+                                #:atom (lambda (n)
+                                         (emit-context)
+                                         (set! did-context #t)
+                                         (emit 'lda n))))
          (rhs (process-argument context-right #:preserve '(a))))
+    (when (not did-context)
+          (emit-context))
     (case operator
       [(+) (begin (emit 'clc)
                   (emit 'adc (as-arg rhs)))]
@@ -984,6 +993,19 @@
                     (emit 'cmp "#1")
                     (emit 'rol "a")
                     (emit 'and "#$fe"))])))
+
+(define (process-operation operator context-left context-right)
+  (assert operator symbol?)
+  (assert context-left syntax?)
+  (assert context-right syntax?)
+  (emit-context)
+  (let* ((lhs (process-argument context-left
+                                #:atom (lambda (n) (emit 'lda n))))
+         (right (syntax->datum context-right)))
+    (assert right number?)
+    (case operator
+      [(>>) (for ([i (in-range right)])
+                 (emit 'lsr "a"))])))
 
 (define (process-stack action registers #:skip-context [skip-context #f])
   (assert action symbol?)
@@ -1029,6 +1051,16 @@
          (emit 'pla))
     (gvector-add! (*invocations*) fname)))
 
+(define (process-invocation context-original symbol rest)
+  (cond
+   [(function? symbol) (process-jump-subroutine symbol rest)]
+   [(macro? symbol) (let* ((forms (list (syntax->datum context-original)))
+                           (expanded (car (macro-expand forms)))
+                           (wrapped (datum->syntax context-original
+                                                   expanded
+                                                   context-original)))
+                      (process-form wrapped))]))
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Syntax tree walker
 
@@ -1047,8 +1079,8 @@
          (rest (cdr inner))
          (symbol (syntax->datum first)))
     (parameterize ([*co2-source-form* form])
-      (if (function? symbol)
-          (process-jump-subroutine symbol rest)
+      (if (or (function? symbol) (macro? symbol))
+          (process-invocation form symbol rest)
           (case symbol
             ; Main expression walker.
             [(nes-header) (apply built-in-nes-header
@@ -1068,6 +1100,8 @@
                                            (caddr rest) (cdddr rest))]
             [(let) (process-let (car rest) (cdr rest))]
             [(if) (process-if (car rest) (cadr rest) (caddr rest))]
+            [(do) (for ([elem rest])
+                       (process-form elem))]
             [(adc and cmp cpx cpy eor lda ora sta)
              (process-instruction-expression symbol rest)]
             [(asl lsr rol ror)
@@ -1083,7 +1117,9 @@
                            (car rest)
                            (if (not (null? (cdr rest)))
                                (cadr rest) '()))]
-            [else (printf "Unknown: ~a ~a" symbol rest)])))))
+            [(>>)
+             (process-operation symbol (car rest) (cadr rest))]
+            [else (printf ";Unknown: ~a ~a\n" symbol rest)])))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -1203,3 +1239,4 @@
   (process-func-arg-memory-addresses)
   (for ([line *result*])
        (printf "~a\n" line)))
+
