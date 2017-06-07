@@ -257,16 +257,6 @@
        (emit-expr (list-ref x 2)) ;; value
        (emit 'sta (immediate-value (list-ref x 1))))))
 
-(define (emit-peek x)
-  ;; address offset is optional
-  (if (eq? (length x) 3)
-      (append
-       (emit-expr (list-ref x 2)) ;; address offset
-       (emit 'tay)
-       (emit 'lda (immediate-value (list-ref x 1)) ",y"))
-      (append
-       (emit 'lda (immediate-value (list-ref x 1))))))
-
 (define (emit-peek16 x)
   ;; address offset is optional
   (if (eq? (length x) 3)
@@ -683,6 +673,14 @@
     (emit-context)
     (emit (format "~a = $~a" def (left-pad (number->string addr 16) #\0 2)))))
 
+(define (process-defaddr name value)
+  (let* ((def (normalize-name name))
+         (sym-label (make-address! name value))
+         (value (sym-label-address sym-label)))
+    (emit-blank)
+    (emit-context)
+    (emit (format "~a = $~a" def (left-pad (number->string value 16) #\0 2)))))
+
 (define (process-defconst name value)
   (let* ((def (normalize-name name))
          (sym-label (make-const! name value))
@@ -994,6 +992,24 @@
                     (emit 'rol "a")
                     (emit 'and "#$fe"))])))
 
+(define (process-peek context-address context-index)
+  (let ((did-context #f)
+        (address (syntax->datum context-address))
+        (index (if context-index (syntax->datum context-index) #f)))
+    (if (not index)
+        (emit 'lda (as-arg address))
+        (begin
+          (let ((arg (process-argument context-index
+                                       #:atom (lambda (n)
+                                                (emit-context)
+                                                (set! did-context #t)
+                                                ; TODO: tax instead?
+                                                (emit 'lda n)))))
+            (when (not did-context)
+                  (emit-context))
+            (emit 'tax)
+            (emit 'lda (format "~a,x" (as-arg address))))))))
+
 (define (process-operation operator context-left context-right)
   (assert operator symbol?)
   (assert context-left syntax?)
@@ -1088,6 +1104,7 @@
                                                       #:mapper #:mirroring)))]
             [(init-system) (built-in-init-system)]
             [(defconst) (apply process-defconst (unwrap-args rest 2 0))]
+            [(defaddr) (apply process-defaddr (unwrap-args rest 2 0))]
             [(defvar) (apply process-defvar (unwrap-args rest 1 1))]
             [(defsub) (process-proc 'sub (car rest) (cdr rest))]
             [(defvector) (process-proc 'vector (car rest) (cdr rest))]
@@ -1102,6 +1119,10 @@
             [(if) (process-if (car rest) (cadr rest) (caddr rest))]
             [(do) (for ([elem rest])
                        (process-form elem))]
+            [(peek) (process-peek (car rest)
+                                  (if (not (null? (cdr rest)))
+                                      (cadr rest)
+                                      '()))]
             [(adc and cmp cpx cpy eor lda ora sta)
              (process-instruction-expression symbol rest)]
             [(asl lsr rol ror)
