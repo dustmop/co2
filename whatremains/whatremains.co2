@@ -6,14 +6,11 @@
 
 (do
 
- (nes-header (num-prg-banks 2)
-             (num-chr-banks 6)
-             (mapper-num    1)
-             (mirroring     vertical))
+ (nes-header #:num-prg 2 #:num-chr 6 #:mapper 1)
 
  ;; our memory layout
  (defaddr sprite-shadow #x200) ;; where the sprite control data is
- (defimmed sprite-dma       2) ;; dma address is 100X this = $200
+ (defconst sprite-dma       2) ;; dma address is 100X this = $200
  (defaddr display-list  #x300) ;; the display list
  (defaddr pad-data      #x400) ;; cache of the current pad state
  (defaddr entity-data   #x500) ;; entity state list
@@ -23,35 +20,35 @@
  ;; ----------------
  ;;
  ;; tile-data display primitive: [list of bytes to copy as tile ids]
- (defimmed command-tile-data 1)
+ (defconst command-tile-data 1)
  ;; tile-value display primitive: [length tile-id]
  ;; for clearing screen etc - 128 long is about max for timing
- (defimmed command-tile-value 2)
+ (defconst command-tile-value 2)
  ;; 2x2 tile quad [tile top left id]
- (defimmed command-quad 3)
+ (defconst command-quad 3)
  ;; rom dump [high low length] - 64 maxish
- (defimmed command-rom-data 4)
+ (defconst command-rom-data 4)
  ;; palette change [palette-id]
- (defimmed command-palette-change 5)
+ (defconst command-palette-change 5)
 
- (defimmed screen-blank-delay 30)
+ (defconst screen-blank-delay 30)
 
- (defimmed title-palette-id 0)
- (defimmed title1-palette-id 1)
- (defimmed title2-palette-id 2)
- (defimmed title3-palette-id 3)
- (defimmed eighties-palette-id 4)
- (defimmed indoor-palette-id 5)
- (defimmed future-palette-id 6)
- (defimmed black-palette-id 7)
+ (defconst title-palette-id 0)
+ (defconst title1-palette-id 1)
+ (defconst title2-palette-id 2)
+ (defconst title3-palette-id 3)
+ (defconst eighties-palette-id 4)
+ (defconst indoor-palette-id 5)
+ (defconst future-palette-id 6)
+ (defconst black-palette-id 7)
 
- (defimmed doorway-aerobic-in 0)
- (defimmed doorway-aerobic-out 1)
- (defimmed doorway-tobacco-in 2)
- (defimmed doorway-tobacco-out 3)
- (defimmed doorway-michael-in 4)
- (defimmed doorway-michael-out 5)
- (defimmed doorway-michael-future 6)
+ (defconst doorway-aerobic-in 0)
+ (defconst doorway-aerobic-out 1)
+ (defconst doorway-tobacco-in 2)
+ (defconst doorway-tobacco-out 3)
+ (defconst doorway-michael-in 4)
+ (defconst doorway-michael-out 5)
+ (defconst doorway-michael-future 6)
 
  ;; famitone stuff
  (asm "FT_BASE_ADR = $0600 ;; page in the RAM used for FT2 variables, should be $xx00
@@ -111,29 +108,29 @@
  (defvar setup-eighties 0)
  (defvar password-pos 0)
 
- (defimmed title-mode 0)
- (defimmed eighties-mode 1)
- (defimmed aerobic-mode 2)
- (defimmed tobacco-mode 3)
- (defimmed michael-mode 4)
- (defimmed future-mode 5)
+ (defconst title-mode 0)
+ (defconst eighties-mode 1)
+ (defconst aerobic-mode 2)
+ (defconst tobacco-mode 3)
+ (defconst michael-mode 4)
+ (defconst future-mode 5)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
  ;; library code follows
 
- (defun (enable-rendering)
+ (defsub (enable-rendering)
    ;; ;; set basic ppu registers.  load background from $0000,
    ;; ;; sprites from $1000, and the name table from $2000.
    (set! reg-ppu-ctl #b10001000)
    (set! reg-ppu-mask #b00011110))
 
- (defun (disable-rendering)
+ (defsub (disable-rendering)
    (set! reg-ppu-ctl 0)
    (set! reg-ppu-mask 0)
    (set! reg-ppu-scroll 0)
    (set! reg-ppu-scroll 0))
 
-(defun (clear-nametables)
+(defsub (clear-nametables)
    (asm "bit $2002")
    (asm "lda #$20")
    (asm "sta $2006")
@@ -149,7 +146,7 @@
    (asm "rts"))
 
  ;; mmc1 stuff
- (defun (mmc1-control a)
+ (defsub (mmc1-control a)
    a ;; get argument into register
    ;; rotate into serial output
    (asm "sta $8000")
@@ -162,7 +159,7 @@
    (asm "lsr a")
    (asm "sta $8000"))
 
- (defun (mmc1-chrbank0 a)
+ (defsub (mmc1-chrbank0 a)
    a
    (asm "sta $a000")
    (asm "lsr a")
@@ -174,7 +171,7 @@
    (asm "lsr a")
    (asm "sta $a000"))
 
- (defun (mmc1-chrbank1 a)
+ (defsub (mmc1-chrbank1 a)
    a
    (asm "sta $c000")
    (asm "lsr a")
@@ -187,9 +184,9 @@
    (asm "sta $c000"))
 
  ;; calls the random number generator
- (defun (rnd) (_rnd))
+ (defsub (rnd) (_rnd))
 
- (defun (wait-new-frame)
+ (defsub (wait-new-frame)
    ; Assumes that gframe is at $00.
    (asm "lda $00")
    (asm "WaitLoop:")
@@ -198,7 +195,7 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
  ;; sound
- (defun (init-sound)
+ (defsub (init-sound)
    (asm "ldx #<whatremains_music_data
         ldy #>whatremains_music_data
         lda #80
@@ -218,26 +215,26 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
  ;; input stuff
 
- (defun (read-joypad)
+ (defsub (read-joypad)
    ;; need to 'strobe' register before reading
    (set! reg-joypad-0 1)
    (set! reg-joypad-0 0)
    (loop n 0 8
          (poke! pad-data n (and (peek reg-joypad-0) #x1))))
 
- (defun (pressed key)
+ (defsub (pressed key)
    (peek pad-data key))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
  ;; the display list
 
  ;; adds a byte to the list
- (defun (display-list-add-byte data)
+ (defsub (display-list-add-byte data)
    (poke! display-list display-list-index data)
    (inc display-list-index))
 
  ;; finishes a packet for rendering
- (defun (display-list-end-packet command-id x y nbytes)
+ (defsub (display-list-end-packet command-id x y nbytes)
    (poke! display-list display-list-index command-id)
    (inc display-list-index)
    (poke! display-list display-list-index x)
@@ -249,14 +246,14 @@
    (inc display-list-index))
 
  ;; clear pending commands
- (defun (display-list-flush)
+ (defsub (display-list-flush)
    (set! display-list-index 0))
 
- (defun (display-list-is-empty)
+ (defsub (display-list-is-empty)
    (eq? display-list-index 0))
 
  ;; to be called in vblank, all ppu updates should be in here
- (defun (display-list-execute)
+ (defsub (display-list-execute)
    ;; is there anything in the queue?
    (if (eq? display-list-index 0) 0 ;; early out (avoid long branch)
      (do
@@ -326,7 +323,7 @@
  ;; utilities that use the display list
 
  ;; draws a single page of prg-rom defined tiles
- (defun (draw-bg l h page)
+ (defsub (draw-bg l h page)
    (set! h (+ h page))
    (display-list-add-byte (+ l 0))
    (display-list-add-byte h)
@@ -346,14 +343,14 @@
    (display-list-end-packet command-rom-data page 192 3))
 
  ;; draws an entire screens worth of prg-rom defined tiles
- (defun (draw-screen l h)
+ (defsub (draw-screen l h)
    (draw-bg l h 0)
    (draw-bg l h 1)
    (draw-bg l h 2)
    (draw-bg l h 3))
 
 ;; takes offset from screen 1 in rom
- (defun (draw-screen2 l h)
+ (defsub (draw-screen2 l h)
    (draw-bg l h 4)
    (draw-bg l h 5)
    (draw-bg l h 6)
@@ -363,7 +360,7 @@
  ;; text display
 
  ;; draw text straight to screen
- (defun (draw-text h l)
+ (defsub (draw-text h l)
    ;; zero terminating strings
    (set! i 1) ;; char
    (set! j 0) ;; count
@@ -375,7 +372,7 @@
    )
 
  ;; gradually type text to screen
- (defun (update-typed-text h l)
+ (defsub (update-typed-text h l)
    (cond
     ((eq? text-time 255)
      ;; don't start till all other drawing has finished
@@ -396,11 +393,11 @@
            (set! text-x 0)))
        (set! text-time 0)))))
 
- (defun (text-finished)
+ (defsub (text-finished)
    (set! i (peek16 text-addr text-pos))
    (if (eq? i 0) 1 0))
 
- (defun (reset-text)
+ (defsub (reset-text)
    (set! text-x 0)
    (set! text-line 0)
    (set! text-time 255)
@@ -412,18 +409,18 @@
  ;; gtext-box is used both as activation and countdown
  ;; to avoid repeated activation when next to characters
 
- (defimmed text-box-deactivated 0)
- (defimmed text-box-activated #xfe)
- (defimmed text-box-start-delay #xfd)
+ (defconst text-box-deactivated 0)
+ (defconst text-box-activated #xfe)
+ (defconst text-box-start-delay #xfd)
 
  ;; create the text box
- (defun (show-textbox)
+ (defsub (show-textbox)
    (when (eq? gtext-box text-box-deactivated)  ;; not shown already
      (reset-text)
      (set! text-pos 0)                         ;; reset typing pos
      (set! gtext-box  text-box-activated)))    ;; set to shown
 
- (defun (update-textbox)
+ (defsub (update-textbox)
    (when (eq? gtext-box text-box-activated)   ;; shown activated
      (update-typed-text 3 5)  ;; update typing
      (when (pressed joypad-b)  ;; exit pressed
@@ -434,7 +431,7 @@
               (not (eq? gtext-box text-box-deactivated)))
      (dec gtext-box)))
 
- (defun (update-textbox2)
+ (defsub (update-textbox2)
    (when (eq? gtext-box text-box-activated)   ;; shown activated
      (update-typed-text 5 0)  ;; update typing
      (when (pressed joypad-b)  ;; exit pressed
@@ -450,7 +447,7 @@
  ;; sprite stuff
 
  ;; set up a 2x2 block meta sprite
- (defun (setup-character block id)
+ (defsub (setup-character block id)
    (set-sprite-x! id 0)
    (set-sprite-y! id 0)
    (set-sprite-id! id block)
@@ -475,7 +472,7 @@
  ;; collisions: all assume 2x2 sprites...
 
  ;; sprites colliding against sprites
- (defun (sprite-collide-sprite sprite-id-a sprite-id-b)
+ (defsub (sprite-collide-sprite sprite-id-a sprite-id-b)
    ;; collide with 4th sprite x/y as centre of 2x2
    (sprite-collide-pos
     sprite-id-a
@@ -483,7 +480,7 @@
     (get-sprite-y (+ sprite-id-b 3))))
 
  ;; sprite pixel pos collision
- (defun (sprite-collide-pos sprite-id x y)
+ (defsub (sprite-collide-pos sprite-id x y)
    (and
     (and
      ;; expanding bbox to get edge-edge collision
@@ -494,7 +491,7 @@
      (> y (- (get-sprite-y sprite-id) 8))
      (< y (+ (get-sprite-y (+ sprite-id 2)) 16)))))
 
- (defun (bb-collide-pos screen x y)
+ (defsub (bb-collide-pos screen x y)
    (cond
     ((eq? ggame-mode eighties-mode)
      (if (eq? screen 0) (bb-collide-pos-screen0 x y)
@@ -509,7 +506,7 @@
  ;; bounding box list collisions for level terrain
  ;; different directions use different hotspots
  ;; still some tweaks todo here
- (defun (bb-collide-pos-screen0 x y)
+ (defsub (bb-collide-pos-screen0 x y)
    ;; read the length of rects to get the end
    (set! end (+ 1 (<< (peek collision_bboxes0) 2))) ;; rect so * 4
    ;; setup for the loop
@@ -528,7 +525,7 @@
      (set! i (+ i 4))) ;; next bbox
    j)
 
- (defun (bb-collide-pos-screen1 x y)
+ (defsub (bb-collide-pos-screen1 x y)
    ;; read the length of rects to get the end
    (set! end (+ 1 (<< (peek collision_bboxes1) 2))) ;; rect so * 4
    ;; setup for the loop
@@ -547,7 +544,7 @@
      (set! i (+ i 4))) ;; next bbox
    j)
 
- (defun (bb-collide-pos-aerobic x y)
+ (defsub (bb-collide-pos-aerobic x y)
    ;; read the length of rects to get the end
    (set! end (+ 1 (<< (peek collision_bboxes_aerobic) 2))) ;; rect so * 4
    ;; setup for the loop
@@ -566,7 +563,7 @@
      (set! i (+ i 4))) ;; next bbox
    j)
 
- (defun (bb-collide-pos-tobacco x y)
+ (defsub (bb-collide-pos-tobacco x y)
    ;; read the length of rects to get the end
    (set! end (+ 1 (<< (peek collision_bboxes_tobacco) 2))) ;; rect so * 4
    ;; setup for the loop
@@ -585,7 +582,7 @@
      (set! i (+ i 4))) ;; next bbox
    j)
 
- (defun (bb-collide-pos-michael x y)
+ (defsub (bb-collide-pos-michael x y)
    ;; read the length of rects to get the end
    (set! end (+ 1 (<< (peek collision_bboxes_michael) 2))) ;; rect so * 4
    ;; setup for the loop
@@ -607,7 +604,7 @@
 
  ;; doors to other dimensions
 
- (defun (doorway-collide-pos door x y)
+ (defsub (doorway-collide-pos door x y)
    (set! i (<< door 2))
    (and ;; check bounding boxes
     (and
@@ -620,38 +617,38 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
  ;; entity system
 
- (defimmed entity-id 0) ;; the sprite id
- (defimmed entity-x 1)
- (defimmed entity-screen 2) ;; the high byte of x
- (defimmed entity-y 3)
- (defimmed entity-pattern 4) ;; for whatever
- (defimmed entity-size 5)
+ (defconst entity-id 0) ;; the sprite id
+ (defconst entity-x 1)
+ (defconst entity-screen 2) ;; the high byte of x
+ (defconst entity-y 3)
+ (defconst entity-pattern 4) ;; for whatever
+ (defconst entity-size 5)
 
- (defimmed num-entities 7)
+ (defconst num-entities 7)
 
- (defimmed player-entity 0)
- (defimmed npc1-entity 5)
- (defimmed npc2-entity 10)
- (defimmed npc3-entity 15)
- (defimmed npc4-entity 20)
- (defimmed npc5-entity 25)
- (defimmed npc6-entity 30)
+ (defconst player-entity 0)
+ (defconst npc1-entity 5)
+ (defconst npc2-entity 10)
+ (defconst npc3-entity 15)
+ (defconst npc4-entity 20)
+ (defconst npc5-entity 25)
+ (defconst npc6-entity 30)
 
- (defimmed player-sprite 0)
+ (defconst player-sprite 0)
 
- (defimmed player-sprite-pattern-id #x00)
- (defimmed teacher-sprite-pattern-id #xa0)
- (defimmed dancer1-sprite-pattern-id #xc0)
- (defimmed dancer2-sprite-pattern-id #xa6)
- (defimmed dancer3-sprite-pattern-id #xc6)
- (defimmed dancer4-sprite-pattern-id #xe0)
- (defimmed dancer5-sprite-pattern-id #xe6)
- (defimmed smoker1-sprite-pattern-id #x60)
- (defimmed smoker2-sprite-pattern-id #x80)
- (defimmed michael-sprite-pattern-id #x40)
- (defimmed friend-sprite-pattern-id #x86)
+ (defconst player-sprite-pattern-id #x00)
+ (defconst teacher-sprite-pattern-id #xa0)
+ (defconst dancer1-sprite-pattern-id #xc0)
+ (defconst dancer2-sprite-pattern-id #xa6)
+ (defconst dancer3-sprite-pattern-id #xc6)
+ (defconst dancer4-sprite-pattern-id #xe0)
+ (defconst dancer5-sprite-pattern-id #xe6)
+ (defconst smoker1-sprite-pattern-id #x60)
+ (defconst smoker2-sprite-pattern-id #x80)
+ (defconst michael-sprite-pattern-id #x40)
+ (defconst friend-sprite-pattern-id #x86)
 
- (defun (setup-npc-entity type eaddr screen x y col)
+ (defsub (setup-npc-entity type eaddr screen x y col)
    (set! n (peek entity-data (+ eaddr entity-id))) ;; entity/sprite id
    (setup-character type n)
    (or-sprites-attr! n 4 col)
@@ -662,7 +659,7 @@
 
  ;; convert the logical 16bit entity positions into
  ;; 8bit screen positions
- (defun (update-entities)
+ (defsub (update-entities)
    (set! n 0) ;; entity addr
    (set! j 0) ;; sprite addr
    (set! i 0) ;; entity id
@@ -682,44 +679,44 @@
      (set! n (+ n entity-size))
      (inc i)))
 
- (defun (hide-entities)
+ (defsub (hide-entities)
    (set! j 0)
    (loop i 0 num-entities
      (set-sprites-2x2-y! j 255)
      (set! j (+ j entity-size)))
    (update-entities))
 
- (defun (entity-move-left addr)
+ (defsub (entity-move-left addr)
    (set! i (peek entity-data (+ addr entity-x)))
    (set! j (peek entity-data (+ addr entity-screen)))
    (-16! i 0 1)
    (poke! entity-data (+ addr entity-x) i)
    (poke! entity-data (+ addr entity-screen) j))
 
- (defun (entity-move-right addr)
+ (defsub (entity-move-right addr)
    (set! i (peek entity-data (+ addr entity-x)))
    (set! j (peek entity-data (+ addr entity-screen)))
    (+16! i 0 1)
    (poke! entity-data (+ addr entity-x) i)
    (poke! entity-data (+ addr entity-screen) j))
 
- (defun (entity-move-up addr)
+ (defsub (entity-move-up addr)
    (poke! entity-data
           (+ addr entity-y)
           (- (peek entity-data (+ addr entity-y)) 1)))
 
- (defun (entity-move-down addr)
+ (defsub (entity-move-down addr)
    (poke! entity-data
           (+ addr entity-y)
           (+ (peek entity-data (+ addr entity-y)) 1)))
 
- (defun (bb-collide-entity-left addr)
+ (defsub (bb-collide-entity-left addr)
    (bb-collide-pos
     (peek entity-data (+ addr entity-screen))
     (peek entity-data (+ addr entity-x))
     (+ (peek entity-data (+ addr entity-y)) 9)))
 
- (defun (bb-collide-entity-right addr)
+ (defsub (bb-collide-entity-right addr)
    ;; check 16 bit left/right
    (set! i (peek entity-data (+ addr entity-x)))
    (set! j (peek entity-data (+ addr entity-screen)))
@@ -728,19 +725,19 @@
     j ;; screen id
     i (+ (peek entity-data (+ addr entity-y)) 9)))
 
- (defun (bb-collide-entity-up addr)
+ (defsub (bb-collide-entity-up addr)
    (bb-collide-pos
     (peek entity-data (+ addr entity-screen))
     (+ (peek entity-data (+ addr entity-x)) 8)
     (+ (peek entity-data (+ addr entity-y)) 8)))
 
- (defun (bb-collide-entity-down addr)
+ (defsub (bb-collide-entity-down addr)
    (bb-collide-pos
     (peek entity-data (+ addr entity-screen))
     (+ (peek entity-data (+ addr entity-x)) 8)
     (+ (peek entity-data (+ addr entity-y)) 16)))
 
- (defun (doorway-collide-entity screen door addr)
+ (defsub (doorway-collide-entity screen door addr)
    (if (eq? (peek entity-data (+ addr entity-screen)) screen)
        (doorway-collide-pos
         door
@@ -751,7 +748,7 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
  ;; game modes
 
- (defun (switch-game-mode new-mode)
+ (defsub (switch-game-mode new-mode)
    ;; clear all pending stuff in the queue
    (display-list-flush)
    ;; blank the screen to hide update
@@ -762,7 +759,7 @@
    ;; reset the draw phase
    (set! gdraw-phase 0))
 
- (defun (any-key)
+ (defsub (any-key)
    (or (or (pressed joypad-a)
            (pressed joypad-b))
        (pressed joypad-select)))
@@ -774,7 +771,7 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
  ;; title
 
- (defun (update-screen bank palette nam-l nam-h)
+ (defsub (update-screen bank palette nam-l nam-h)
    (mmc1-chrbank0 bank)
    (display-list-add-byte palette)
    (display-list-end-packet command-palette-change 0 0 1)
@@ -784,7 +781,7 @@
    (reset-text)
    (set! title-text-line 0))
 
- (defun (update-title)
+ (defsub (update-title)
    (cond
     ((eq? gdraw-phase 1)
      (set! debounce 1)
@@ -909,13 +906,13 @@
            jsr FamiToneMusicPlay")
          (switch-game-mode eighties-mode))))))))
 
- (defun (update-sprites-title)
+ (defsub (update-sprites-title)
    (memset sprite-shadow #xff))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
  ;; eighties
 
- (defun (init-sprites-eighties)
+ (defsub (init-sprites-eighties)
    ;; coming back from another mode?
    (when (eq? setup-eighties 0)
      (set! j 0)
@@ -943,7 +940,7 @@
 
    )
 
- (defun (update-eighties)
+ (defsub (update-eighties)
    (when (not (eq? gtext-box 255))
      (cond
       ((eq? gdraw-phase 1)
@@ -970,7 +967,7 @@
 
    (update-textbox2))
 
- (defun (update-player player-sprite)
+ (defsub (update-player player-sprite)
    ;; is the player character moving?
    (defvar running 1)
    (set! i 0)
@@ -1040,7 +1037,7 @@
    (when running
      (set! last-dir direction)))
 
- (defun (animate-npc pattern id)
+ (defsub (animate-npc pattern id)
    ;; convert from entity id to sprite id
    (set! id (peek entity-data (+ id entity-id)))
    (cond
@@ -1051,7 +1048,7 @@
     (else
      (animate-sprites-2x2! id (+ pattern 4)))))
 
- (defun (pingpong-npc pattern id)
+ (defsub (pingpong-npc pattern id)
    ;; convert from entity id to sprite id
    (set! id (peek entity-data (+ id entity-id)))
    (set! i (and (>> ganim-frame 3) 7))
@@ -1067,7 +1064,7 @@
     ((eq? i 4)
      (animate-sprites-2x2! id pattern))))
 
- (defun (update-sprites-eighties)
+ (defsub (update-sprites-eighties)
    (update-player player-sprite)
    (animate-npc friend-sprite-pattern-id npc1-entity)
 
@@ -1101,7 +1098,7 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
  ;; indoor
 
- (defun (init-sprites-indoor)
+ (defsub (init-sprites-indoor)
    (memset sprite-shadow #xff)
    (set! j 0)
    (loop i 0 num-entities
@@ -1136,7 +1133,7 @@
    (defvar direction 1)
    (defvar last-dir 1))
 
- (defun (update-indoor)
+ (defsub (update-indoor)
    (when (not (eq? gtext-box 255))
      (cond
       ((eq? gdraw-phase 1)
@@ -1177,7 +1174,7 @@
 
    (update-textbox))
 
- (defun (update-sprites-indoors)
+ (defsub (update-sprites-indoors)
    (update-player player-sprite)
    (cond
     ((eq? ggame-mode aerobic-mode)
@@ -1269,7 +1266,7 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
  ;; future
 
- (defun (clear-future)
+ (defsub (clear-future)
    (display-list-add-byte 30)
    (display-list-add-byte 32)
    (display-list-end-packet command-tile-value 0 129 2)
@@ -1298,14 +1295,14 @@
    (display-list-add-byte 32)
    (display-list-end-packet command-tile-value 3 33 2))
 
- (defun (fuzz)
+ (defsub (fuzz)
    ;; random fuzz
    (display-list-add-byte (rnd))
    (display-list-end-packet
     command-tile-data (and (rnd) #b00000111)
     (<< gframe 2) 1))
 
- (defun (update-future)
+ (defsub (update-future)
     (cond
      ((eq? gdraw-phase 1)
       (asm
@@ -1373,7 +1370,7 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
  ;; interrupts
 
- (defint (reset)
+ (defvector (reset)
    (init-system)
    (disable-rendering)
    (clear-nametables)
@@ -1431,7 +1428,7 @@
    (asm "jmp MainLoop"))
 
 
- (defint (vblank)
+ (defvector (vblank)
    ;; preserve registers for the main thread
    (asm "pha")
    (asm "txa")
@@ -1459,9 +1456,7 @@
    (asm "pla"))
 
 
- (defint (irq))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+ ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
  ;; game data follows
 
  ;; text

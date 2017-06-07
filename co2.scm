@@ -665,7 +665,7 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Main processor.
 
-(define (process-defvar name)
+(define (process-defvar name [value 0])
   (let* ((def (normalize-name name))
          (sym-label (make-variable! name))
          (addr (sym-label-address sym-label)))
@@ -827,7 +827,8 @@
    ([symbol? arg] (let ((lookup (sym-label-lookup arg)))
                     (if (not lookup)
                         ; TODO: Throw an error, use syntax object
-                        (format "\"not found ~a\"" arg)
+                        (begin (emit (format ";Not found: ~a" arg))
+                               (format "\"not found ~a\"" arg))
                         (if (eq? (sym-label-kind lookup) 'const)
                             (format "#~a" (sym-label-name lookup))
                             (sym-label-name lookup)))))
@@ -1069,6 +1070,7 @@
 
 (define (process-invocation context-original symbol rest)
   (cond
+   [(not symbol) #f]
    [(function? symbol) (process-jump-subroutine symbol rest)]
    [(macro? symbol) (let* ((forms (list (syntax->datum context-original)))
                            (expanded (car (macro-expand forms)))
@@ -1091,11 +1093,11 @@
 (define (process-form form)
   (assert form syntax?)
   (let* ((inner (syntax-e form))
-         (first (car inner))
-         (rest (cdr inner))
-         (symbol (syntax->datum first)))
+         (first (if (list? inner) (car inner) #f))
+         (rest (if (list? inner) (cdr inner) #f))
+         (symbol (if first (syntax->datum first) #f)))
     (parameterize ([*co2-source-form* form])
-      (if (or (function? symbol) (macro? symbol))
+      (if (or (not symbol) (function? symbol) (macro? symbol))
           (process-invocation form symbol rest)
           (case symbol
             ; Main expression walker.
@@ -1140,7 +1142,8 @@
                                (cadr rest) '()))]
             [(>>)
              (process-operation symbol (car rest) (cadr rest))]
-            [else (printf ";Unknown: ~a ~a\n" symbol rest)])))))
+            [else (printf ";Unknown: ~a ~a\n" symbol rest)
+                  (emit (format ";Unknown: ~a ~a" symbol rest))])))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
