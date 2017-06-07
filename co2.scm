@@ -739,8 +739,14 @@
 (define (process-set-bang target expr)
   (assert target syntax?)
   (assert expr syntax?)
-  (let* ((lhs (syntax->datum target))
-         (rhs (process-argument expr #:atom (lambda (n) (emit 'lda n)))))
+  (let* ((did-context #f)
+         (lhs (syntax->datum target))
+         (rhs (process-argument expr #:atom (lambda (n)
+                                              (emit-context)
+                                              (set! did-context #t)
+                                              (emit 'lda n)))))
+    (when (not did-context)
+          (emit-context))
     ; TODO: Assert that place is a valid lvalue for set!
     (emit 'sta (as-arg lhs))))
 
@@ -754,20 +760,28 @@
      ; Single argument to instruction just outputs the instruction.
      ([= (length args) 1]
       (begin
+        (emit-context)
         (assert first atom?)
         (emit instr (as-arg first))))
      ; Single argument with an index register.
      ([and (= (length args) 2) (index-register? second)]
       (begin
+        (emit-context)
         (assert first atom?)
         (emit instr (format "~a,~a" (as-arg first) (->register second)))))
      ; Two arguments, evaluate any expressions, load the first arg into A,
      ; and output the instruction using the second arg as the operand.
      ([= (length args) 2]
       (begin
-        (let* ((lhs (process-argument (car args)
-                                      #:atom (lambda (n) (emit 'lda n))))
+        (let* ((did-context #f)
+               (lhs (process-argument (car args)
+                                      #:atom (lambda (n)
+                                               (emit-context)
+                                               (set! did-context #t)
+                                               (emit 'lda n))))
                (rhs (process-argument (cadr args) #:preserve '(a))))
+          (when (not did-context)
+                (emit-context))
           (emit instr (as-arg rhs)))))
      ; Three arguments. Only works for ORA currently.
      ; TODO: Generalize to other instructions.
@@ -777,6 +791,7 @@
         (assert first atom?)
         (assert second atom?)
         (assert third atom?)
+        (emit-context)
         (emit 'lda (as-arg first))
         (emit instr (format "~a|~a" (as-arg second) (as-arg third)))))
      (else (error (format "ERROR expression: ~a ~a" instr args))))))
@@ -784,7 +799,14 @@
 (define (process-instruction-accumulator instr context-arg)
   (assert instr symbol?)
   (assert context-arg syntax?)
-  (emit instr (process-argument context-arg)))
+  (let ((did-context #f))
+    (when (not (list? (syntax->datum context-arg)))
+          (set! did-context #t)
+          (emit-context))
+    (let ((value (process-argument context-arg)))
+      (when (not did-context)
+            (emit-context))
+      (emit instr value))))
 
 (define (index-register? arg)
   (and (list? arg) (eq? (car arg) 'quote)
@@ -814,21 +836,20 @@
 ;Generate code to get a single value into the desired return value. Return
 ; the name of the value.
 (define (process-argument context-arg #:preserve [preserve #f] #:atom [atom #f])
-  (parameterize ([*co2-source-form* context-arg])
-    (let ((arg (syntax->datum context-arg)))
-      (when (not atom)
-            (set! atom (lambda (n) n)))
-      (if (list? arg)
-          (begin (emit-context)
-                 (when preserve
-                       (process-stack 'push preserve #:skip-context #t))
-                 (process-form context-arg)
-                 (if preserve
-                     (begin (emit 'sta "_tmp")
-                            (process-stack 'pull preserve #:skip-context #t)
-                            "_tmp")
-                     "a"))
-          (atom (as-arg arg))))))
+  (when (not atom)
+        (set! atom (lambda (n) n)))
+  (let ((arg (syntax->datum context-arg)))
+    (if (list? arg)
+        (parameterize ([*co2-source-form* context-arg])
+          (when preserve
+                (process-stack 'push preserve #:skip-context #t))
+          (process-form context-arg)
+          (if preserve
+              (begin (emit 'sta "_tmp")
+                     (process-stack 'pull preserve #:skip-context #t)
+                     "_tmp")
+              "a"))
+        (atom (as-arg arg)))))
 
 (define (process-instruction-standalone instr operand)
   ;TODO: Rhs being an expression is an error
@@ -886,6 +907,7 @@
       ; TODO: Disallow `reg` changes within `body`
       (for ([stmt body])
            (process-form stmt))
+      (emit-context)
       (emit (format "  de~a" reg))
       (emit 'bne loop-label))))
 
@@ -913,6 +935,7 @@
       ; TODO: Disallow `reg` changes within `body`
       (for ([stmt body])
            (process-form stmt))
+      (emit-context)
       (emit (format "  in~a" reg))
       (emit (format "  cp~a ~a" reg sentinal-value))
       (emit 'bne loop-label))))
@@ -990,11 +1013,9 @@
     (emit-context)
     (when (> (length params) 3)
           (for ([elem (reverse (cdddr params))])
-               (let ((data (syntax->datum elem)))
-                 (set! pop-count (+ 1 pop-count))
-                 ; TODO: Broken for expressions.
-                 (emit 'lda (as-arg data))
-                 (emit 'pha))))
+               (set! pop-count (+ 1 pop-count))
+               (process-argument elem #:atom (lambda (n) (emit 'lda n)))
+               (emit 'pha)))
     (for ([elem params] [i (in-naturals)])
          (cond
           ([= i 0]
