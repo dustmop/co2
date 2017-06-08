@@ -167,7 +167,7 @@
   (hash-has-key? function-defs (normalize-name name)))
 
 (define (macro? name)
-  (eq? name 'cond))
+  (member name '(cond when)))
 
 ;;----------------------------------------------------------------
 ; TODO: Combine with other utilities, or remove when replaced.
@@ -525,6 +525,9 @@
                   (_ (cdr l))))))
   (_ (cdr x)))
 
+(define (m-expand-when-to-if x)
+  (list 'if (cadr x) (append (list 'do) (cddr x)) 0))
+
 ;; (get-sprite-vflip sprite-num)
 (define (m-expand-get-sprite-vflip x)
   (list '>> (list 'get-sprite-attr (cadr x)) 7))
@@ -549,6 +552,7 @@
            ;; dispatch to macro processors
            (cond
             ((eq? (car i) 'cond) (m-expand-cond-to-if i))
+            ((eq? (car i) 'when) (m-expand-when-to-if i))
             ((eq? (car i) 'get-sprite-vflip) (m-expand-get-sprite-vflip i))
             ((eq? (car i) 'get-sprite-hflip) (m-expand-get-sprite-hflip i))
             ((eq? (car i) 'set-sprite-vflip!) (m-expand-set-sprite-vflip! i))
@@ -754,9 +758,9 @@
 (define (process-instruction-expression instr args)
   (assert instr symbol?)
   (assert args list?)
-  (let ((first (resolve-ref args 0))
-        (second (resolve-ref args 1))
-        (third (resolve-ref args 2)))
+  (let ((first (datum-ref args 0))
+        (second (datum-ref args 1))
+        (third (datum-ref args 2)))
     (cond
      ; Single argument to instruction just outputs the instruction.
      ([= (length args) 1]
@@ -816,10 +820,15 @@
 (define (->register arg)
   (symbol->string (cadr arg)))
 
-(define (resolve-ref list index)
+(define (datum-ref list index)
   (if (>= index (length list))
       #f
       (syntax->datum (list-ref list index))))
+
+(define (lref list index)
+  (if (>= index (length list))
+      #f
+      (list-ref list index)))
 
 (define (as-arg arg)
   (cond
@@ -958,8 +967,7 @@
     (emit-context)
     (emit "; condition begin")
     ; Check the condition of the `if`.
-    (process-argument context-condition #:atom (lambda (n)
-                                                 (error "TODO: Implement me")))
+    (process-argument context-condition #:atom (lambda (n) (emit 'lda n)))
     (emit 'bne false-label)
     ; Truth case of the `if`.
     (emit-label truth-label)
@@ -970,6 +978,25 @@
     (process-argument context-false #:atom (lambda (n) (emit 'lda n)))
     (emit-label if-done-label)
     (emit "; condition done")))
+
+(define (process-while context-condition body)
+  (let ((start-label (generate-label "while_start"))
+        (body-label (generate-label "while_body"))
+        (done-label (generate-label "while_done")))
+    (emit-context)
+    (emit "; while begin")
+    ; Check the condition of the `while`.
+    (emit-label start-label)
+    (process-argument context-condition #:atom (lambda (n) (emit 'lda n)))
+    (emit 'beq body-label)
+    (emit 'jmp done-label)
+    ; Truth case of the `while`.
+    (emit-label body-label)
+    (for ([stmt body])
+         (process-form stmt))
+    (emit 'jmp start-label)
+    (emit-label done-label)
+    (emit "; while done")))
 
 (define (process-math operator context-left context-right)
   (assert operator symbol?)
@@ -987,11 +1014,46 @@
     (case operator
       [(+) (begin (emit 'clc)
                   (emit 'adc (as-arg rhs)))]
+      [(-) (begin (emit 'sec)
+                  (emit 'sbc (as-arg rhs)))]
       [(eq?) (begin (emit 'sec)
                     (emit 'sbc (as-arg rhs))
                     (emit 'cmp "#1")
                     (emit 'rol "a")
-                    (emit 'and "#$fe"))])))
+                    (emit 'and "#$fe"))]
+      [(>) (begin (let ((neq-label (generate-label "not_equal"))
+                        (done-label (generate-label "done")))
+                    (emit 'cmp (as-arg rhs))
+                    (emit 'bne neq-label)
+                    (emit 'lda "#0")
+                    (emit 'jmp done-label)
+                    (emit-label neq-label)
+                    (emit 'rol "a")
+                    (emit 'and "#$fe")
+                    (emit-label done-label)))]
+      [(<) (begin (emit 'cmp (as-arg rhs))
+                  (emit 'rol "a")
+                  (emit 'xor "#$01")
+                  (emit 'and "#$fe"))]
+      )))
+
+(define (process-not operator context-arg)
+  (assert operator symbol?)
+  (assert context-arg syntax?)
+  (let* ((did-context #f)
+         (arg (process-argument context-arg
+                                #:atom (lambda (n)
+                                         (emit-context)
+                                         (set! did-context #t)
+                                         (emit 'lda n)))))
+    (when (not did-context)
+          (emit-context))
+    (case operator
+      [(not) (begin (emit 'eor "#$ff")
+                    (emit 'cmp "#$ff")
+                    (emit 'rol "a")
+                    (emit 'and "#$fe"))]
+      )))
 
 (define (process-peek context-address context-index)
   (let ((did-context #f)
@@ -1000,16 +1062,51 @@
     (if (not index)
         (emit 'lda (as-arg address))
         (begin
-          (let ((arg (process-argument context-index
-                                       #:atom (lambda (n)
-                                                (emit-context)
-                                                (set! did-context #t)
-                                                ; TODO: tax instead?
-                                                (emit 'lda n)))))
-            (when (not did-context)
-                  (emit-context))
-            (emit 'tax)
-            (emit 'lda (format "~a,x" (as-arg address))))))))
+          (process-argument context-index
+                            #:atom (lambda (n)
+                                     (emit-context)
+                                     (set! did-context #t)
+                                     ; TODO: tax instead?
+                                     (emit 'lda n)))
+          (when (not did-context)
+                (emit-context))
+          (emit 'tax)
+          (emit 'lda (format "~a,x" (as-arg address)))))))
+
+(define (process-poke! context-address context-arg0 context-arg1)
+  (if context-arg1
+      (let* ((did-context #f)
+             (address (syntax->datum context-address))
+             (context-index context-arg0)
+             (context-value context-arg1)
+             (arg #f))
+        (process-argument context-value
+                          #:atom (lambda (n)
+                                   (emit-context)
+                                   (set! did-context #t)
+                                   (emit 'lda n)))
+        (when (not did-context)
+              (emit-context))
+        (emit 'pha)
+        (process-argument context-index
+                          #:atom (lambda (n)
+                                   (emit-context)
+                                   (set! did-context #t)
+                                   (emit 'lda n)))
+        (emit 'tax)
+        (emit 'pla)
+        (emit 'sta (format "~a,x" (as-arg address))))
+      (let* ((did-context #f)
+             (address (syntax->datum context-address))
+             (context-value context-arg0))
+        (process-argument context-value
+                          #:atom (lambda (n)
+                                   (emit-context)
+                                   (set! did-context #t)
+                                   (emit 'lda n)))
+        (when (not did-context)
+              (emit-context))
+        (emit 'sta (as-arg address)))))
 
 (define (process-operation operator context-left context-right)
   (assert operator symbol?)
@@ -1022,7 +1119,9 @@
     (assert right number?)
     (case operator
       [(>>) (for ([i (in-range right)])
-                 (emit 'lsr "a"))])))
+                 (emit 'lsr "a"))]
+      [(<<) (for ([i (in-range right)])
+                 (emit 'asl "a"))])))
 
 (define (process-stack action registers #:skip-context [skip-context #f])
   (assert action symbol?)
@@ -1046,6 +1145,14 @@
                                     (emit 'tax))
                               (when (member 'a registers)
                                     (emit 'pla)))]))
+
+(define (process-raw symbol arg)
+  (let ((value (syntax->datum arg)))
+    (cond
+     [(eq? symbol 'asm) (emit value)]
+     [(eq? symbol 'org) (emit (format ".org $~x" value))]
+     [(eq? symbol 'byte) (emit (format ".byte ~a" value))]
+     [(eq? symbol 'text) (emit (format ".byte \"~a\"" value))])))
 
 (define (process-jump-subroutine fname params)
   (let* ((pop-count 0))
@@ -1119,12 +1226,11 @@
                                            (caddr rest) (cdddr rest))]
             [(let) (process-let (car rest) (cdr rest))]
             [(if) (process-if (car rest) (cadr rest) (caddr rest))]
+            [(while) (process-while (car rest) (cdr rest))]
             [(do) (for ([elem rest])
                        (process-form elem))]
-            [(peek) (process-peek (car rest)
-                                  (if (not (null? (cdr rest)))
-                                      (cadr rest)
-                                      '()))]
+            [(peek) (process-peek (lref rest 0) (lref rest 1))]
+            [(poke!) (process-poke! (lref rest 0) (lref rest 1) (lref rest 2))]
             [(adc and cmp cpx cpy eor lda ora sta)
              (process-instruction-expression symbol rest)]
             [(asl lsr rol ror)
@@ -1135,12 +1241,12 @@
              (process-instruction-branch symbol (car rest))]
             [(clc)
              (process-instruction-implied symbol)]
-            [(+ eq?)
-             (process-math symbol
-                           (car rest)
-                           (if (not (null? (cdr rest)))
-                               (cadr rest) '()))]
-            [(>>)
+            [(asm byte text org)
+             (process-raw symbol (car rest))]
+            [(+ - eq? > <)
+             (process-math symbol (lref rest 0) (lref rest 1))]
+            [(not) (process-not symbol (car rest))]
+            [(>> <<)
              (process-operation symbol (car rest) (cadr rest))]
             [else (printf ";Unknown: ~a ~a\n" symbol rest)
                   (emit (format ";Unknown: ~a ~a" symbol rest))])))))
