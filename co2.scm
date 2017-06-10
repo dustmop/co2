@@ -704,8 +704,6 @@
     (when (eq? type 'vector)
           (set! *entry-points* (cons name *entry-points*)))
     (parameterize ([*invocations* (make-gvector)])
-      ; TODO: Add number of parameters to table, to check when called.
-      (make-function! name)
       (emit-blank)
       (emit-context)
       (emit-label (normalize-name name))
@@ -1253,6 +1251,33 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+(define (analyze-proc context-decl body)
+  (assert context-decl syntax?)
+  (assert body list?)
+  (let* ((decl (syntax->datum context-decl))
+         (name (car decl))
+         (args (cdr decl)))
+    ; TODO: Add number of parameters to table, to check when called.
+    (make-function! name)))
+
+(define (analyze-form form)
+  (assert form syntax?)
+  (let* ((inner (syntax-e form))
+         (first (if (list? inner) (car inner) #f))
+         (rest (if (list? inner) (cdr inner) #f))
+         (symbol (if first (syntax->datum first) #f)))
+    (parameterize ([*co2-source-form* form])
+      (if (or (not symbol) (function? symbol) (macro? symbol))
+          #f
+          (case symbol
+            ; Main expression walker.
+            [(defsub) (analyze-proc (car rest) (cdr rest))]
+            [(defvector) (analyze-proc (car rest) (cdr rest))]
+            [(do) (for ([elem rest])
+                       (analyze-form elem))])))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
 (define (resolve-func-node-memory func-nodes n)
   (let* ((f (hash-ref func-nodes n))
          (name (func-node-name f))
@@ -1349,22 +1374,36 @@
              (set! build (cons "0" build))))
     (emit (string-append ".word " (string-join build ",")))))
 
-(define (process-co2 fname out-filename f)
-  (define-built-ins)
-  (output-prefix)
-  (define (loop)
-    (let ((top-level-form (read-syntax fname f)))
-      (when (not (eof-object? top-level-form))
-            (process-form top-level-form)
-            (loop))))
-  (loop)
-  (output-suffix))
+(define (analyze-func-defs fname)
+  (let ((f (open-input-file fname)))
+    (define (loop)
+      (let ((top-level-form (read-syntax fname f)))
+        (when (not (eof-object? top-level-form))
+              (analyze-form top-level-form)
+              (loop))))
+    (loop)
+    (close-input-port f)))
 
-(let* ((fname (command-line #:args (input) input))
-       (f (open-input-file fname)))
-  (port-count-lines! f)
-  (process-co2 fname "out.asm" f)
-  (close-input-port f)
+(define (output-assembly fname)
+  (let ((f (open-input-file fname)))
+    (port-count-lines! f)
+    (define-built-ins)
+    (output-prefix)
+    (define (loop)
+      (let ((top-level-form (read-syntax fname f)))
+        (when (not (eof-object? top-level-form))
+              (process-form top-level-form)
+              (loop))))
+    (loop)
+    (output-suffix)
+    (close-input-port f)))
+
+(define (process-co2 fname out-filename)
+  (analyze-func-defs fname)
+  (output-assembly fname))
+
+(let* ((fname (command-line #:args (input) input)))
+  (process-co2 fname "out.asm")
   (traverse-func-nodes)
   (process-func-arg-memory-addresses)
   (for ([line *result*])
