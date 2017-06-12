@@ -449,38 +449,38 @@
      (emit 'bne label))))
 
 ;; add two 8 bit numbers to a 16 bit one
-(define (emit-add16 x)
-  (append
-   (emit-expr (list-ref x 2)) ; high 8 bit num
+(define (process-add16 context-place context-high context-low)
+  (let ((place (syntax->datum context-place)))
+   (process-argument context-high #:atom 'lda)
    (emit 'pha)
-   (emit-expr (list-ref x 3)) ; low 8 bit num
-   (emit 'sta working-reg)
+   (process-argument context-low #:atom 'lda #:skip-context #t)
+   (emit 'sta "_tmp")
    (emit 'clc)
-   (emit 'lda (string-append "(" (immediate-value (list-ref x 1)) ")") )
-   (emit 'adc working-reg)
-   (emit 'sta (string-append "(" (immediate-value (list-ref x 1)) ")"))
+   (emit 'lda (normalize-name place))
+   (emit 'adc "_tmp")
+   (emit 'sta (normalize-name place))
    (emit 'pla)
-   (emit 'sta working-reg)
-   (emit 'lda (string-append "(" (immediate-value (list-ref x 1)) "+1)"))
-   (emit 'adc working-reg)
-   (emit 'sta (string-append "(" (immediate-value (list-ref x 1)) "+1)"))))
+   (emit 'sta "_tmp")
+   (emit 'lda (format "~a+1" (normalize-name place)))
+   (emit 'adc "_tmp")
+   (emit 'sta (format "~a+1" (normalize-name place)))))
 
 ;; subtract two 8 bit numbers to a 16 bit one
-(define (emit-sub16 x)
-  (append
-   (emit-expr (list-ref x 2)) ; high 8 bit num
+(define (process-sub16 context-place context-high context-low)
+  (let ((place (syntax->datum context-place)))
+   (process-argument context-high #:atom 'lda)
    (emit 'pha)
-   (emit-expr (list-ref x 3)) ; low 8 bit num
-   (emit 'sta working-reg)
+   (process-argument context-low #:atom 'lda #:skip-context #t)
+   (emit 'sta "_tmp")
    (emit 'sec)
-   (emit 'lda (string-append "(" (immediate-value (list-ref x 1)) ")") )
-   (emit 'sbc working-reg)
-   (emit 'sta (string-append "(" (immediate-value (list-ref x 1)) ")"))
+   (emit 'lda (normalize-name place))
+   (emit 'sbc "_tmp")
+   (emit 'sta (normalize-name place))
    (emit 'pla)
-   (emit 'sta working-reg)
-   (emit 'lda (string-append "(" (immediate-value (list-ref x 1)) "+1)"))
-   (emit 'sbc working-reg)
-   (emit 'sta (string-append "(" (immediate-value (list-ref x 1)) "+1)"))))
+   (emit 'sta "_tmp")
+   (emit 'lda (format "~a+1" (normalize-name place)))
+   (emit 'sbc "_tmp")
+   (emit 'sta (format "~a+1" (normalize-name place)))))
 
 ;----------------------------------------------------------------
 ; TODO: Use these for built-in macros.
@@ -1227,6 +1227,10 @@
              (process-raw symbol (car rest))]
             [(+ - eq? > < >> <<)
              (process-math symbol (lref rest 0) (lref rest 1))]
+            [(+16!)
+             (process-add16 (lref rest 0) (lref rest 1) (lref rest 2))]
+            [(-16!)
+             (process-sub16 (lref rest 0) (lref rest 1) (lref rest 2))]
             [(not) (process-not symbol (car rest))]
             [else (printf ";Unknown: ~a ~a\n" symbol rest)
                   (emit (format ";Unknown: ~a ~a" symbol rest))])))))
