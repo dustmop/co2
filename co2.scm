@@ -232,51 +232,34 @@
 ;;----------------------------------------------------------------
 ; TODO: Reintroduce these utilities back into the evaluator.
 
-;; takes an address literal
-(define (emit-set16! x)
-  (if (is-fnarg? (cadr x))
-      (begin
-        (display "ERROR: trying to set fn arg to 16bit value...")
-        (newline))
-      (append
-       (emit 'lda (string-append "#<" (symbol->string (caddr x))))
-       (emit 'sta (immediate-value (cadr x)))
-       (emit 'ldx "#1")
-       (emit 'lda (string-append "#>" (symbol->string (caddr x))))
-       (emit 'sta (immediate-value (cadr x)) ",x"))))
+(define (process-set16! context-place context-value)
+  ; TODO: Rename to set-pointer!
+  (emit-context)
+  (let ((place (syntax->datum context-place))
+        (value (syntax->datum context-value)))
+   (emit 'lda (format "#<~a" (normalize-name value)))
+   (emit 'sta (normalize-name place))
+   (emit 'lda (format "#>~a" (normalize-name value)))
+   (emit 'sta (format "~a+1" (normalize-name place)))))
 
-(define (emit-poke! x)
-  ;; address offset is optional
-  (if (eq? (length x) 4)
-      (append
-       (emit-expr (list-ref x 3)) ;; value
-       (emit 'pha)
-       (emit-expr (list-ref x 2)) ;; address offset
-       (emit 'tay)
-       (emit 'pla)
-       (emit 'sta (immediate-value (list-ref x 1)) ",y"))
-      (append
-       (emit-expr (list-ref x 2)) ;; value
-       (emit 'sta (immediate-value (list-ref x 1))))))
-
-(define (emit-peek16 x)
-  ;; address offset is optional
-  (if (eq? (length x) 3)
-      (append
-       (emit-expr (list-ref x 2)) ;; address offset
-       (emit 'tay)
-       (emit 'lda (string-append "(" (immediate-value (list-ref x 1)) "),y")))
-      (append
-       (emit 'ldy "#0")
-       (emit 'lda (string-append "(" (immediate-value (list-ref x 1)) "),y")))))
+(define (process-peek16 context-pointer context-index)
+  ; TODO: Rename to load-pointer
+  (emit-context)
+  (let ((pointer (syntax->datum context-pointer)))
+    (if context-index
+        (begin (process-argument context-index #:atom 'lda #:skip-context #t)
+               (emit 'tay)
+               (emit 'lda (format "(~a),y" (normalize-name pointer))))
+        (begin (emit 'ldy "#0")
+               (emit 'lda (format "(~a),y" (normalize-name pointer)))))))
 
 ;; sets blocks of 256 bytes
 ;; (set-page variable/value expr)
-(define (emit-memset x)
-  (append
-   (emit-expr (caddr x))
+(define (process-memset context-address context-value)
+  (let ((address (syntax->datum context-address)))
+   (process-argument context-value #:atom 'lda)
    (emit 'ldx "#$00")
-   (emit "-" 'sta (immediate-value (cadr x)) ",x")
+   (emit "-" 'sta (format "$~a,x" (normalize-name address)))
    (emit 'inx)
    (emit 'bne "-")))
 
@@ -1102,6 +1085,12 @@
         (process-argument context-value #:atom 'lda)
         (emit 'sta (as-arg address)))))
 
+(define (process-address-specifier specifier context-address)
+  (let ((address (syntax->datum context-address)))
+    (if (eq? specifier 'low)
+        (emit 'lda (format "#<~a" (normalize-name address)))
+        (emit 'lda (format "#>~a" (normalize-name address))))))
+
 (define (process-stack action registers #:skip-context [skip-context #f])
   (assert action symbol?)
   (assert registers list?)
@@ -1224,6 +1213,10 @@
             [(set-sprite!) (process-set-sprite! (lref rest 0) (lref rest 1)
                                                 (lref rest 2))]
             [(get-sprite) (process-get-sprite (lref rest 0) (lref rest 1))]
+            [(high low) (process-address-specifier symbol (lref rest 0))]
+            [(memset) (process-memset (lref rest 0) (lref rest 1))]
+            [(peek16) (process-peek16 (lref rest 0) (lref rest 1))]
+            [(set16!) (process-set16! (lref rest 0) (lref rest 1))]
             [(adc and cmp cpx cpy eor lda ora sta)
              (process-instruction-expression symbol rest)]
             [(asl lsr rol ror)
