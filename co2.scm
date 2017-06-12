@@ -403,9 +403,9 @@
 
 (define (process-set-sprites-2x2-x! context-sprite-num context-xpos)
   (begin
-   (process-argument context-sprite-num #:atom 'lda #:skip-context #t)
+   (process-argument context-sprite-num #:atom 'lda)
    (emit 'tay) ;; put offset in y
-   (process-argument context-xpos #:atom 'lda)
+   (process-argument context-xpos #:atom 'lda #:skip-context #t)
    (emit 'sta "$203,y")
    (emit 'sta "$20b,y")
    (emit 'clc)
@@ -415,9 +415,9 @@
 
 (define (process-set-sprites-2x2-y! context-sprite-num context-ypos)
   (begin
-   (process-argument context-sprite-num #:atom 'lda #:skip-context #t)
+   (process-argument context-sprite-num #:atom 'lda)
    (emit 'tay) ;; put offset in y
-   (process-argument context-ypos #:atom 'lda)
+   (process-argument context-ypos #:atom 'lda #:skip-context #t)
    (emit 'sta "$200,y")
    (emit 'sta "$204,y")
    (emit 'clc)
@@ -427,11 +427,11 @@
 
 (define (process-animate-sprites-2x2! context-sprite-num context-tile)
   (begin
-   (process-argument context-sprite-num #:atom 'lda #:skip-context #t)
+   (process-argument context-sprite-num #:atom 'lda)
    (emit 'asl) ;; *2
    (emit 'asl) ;; *4
    (emit 'tay) ;; put offset in y
-   (process-argument context-tile #:atom 'lda)
+   (process-argument context-tile #:atom 'lda #:skip-context #t)
    (emit 'sta "$201,y") ;; sprite 1
    (emit 'adc "#$01")
    (emit 'sta "$205,y") ;; sprite 2
