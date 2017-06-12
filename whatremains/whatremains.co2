@@ -121,14 +121,14 @@
  (defsub (enable-rendering)
    ;; ;; set basic ppu registers.  load background from $0000,
    ;; ;; sprites from $1000, and the name table from $2000.
-   (set! reg-ppu-ctl #b10001000)
-   (set! reg-ppu-mask #b00011110))
+   (set! REG-PPU-CTRL #b10001000)
+   (set! REG-PPU-MASK #b00011110))
 
  (defsub (disable-rendering)
-   (set! reg-ppu-ctl 0)
-   (set! reg-ppu-mask 0)
-   (set! reg-ppu-scroll 0)
-   (set! reg-ppu-scroll 0))
+   (set! REG-PPU-CTRL 0)
+   (set! REG-PPU-MASK 0)
+   (set! REG-PPU-SCROLL 0)
+   (set! REG-PPU-SCROLL 0))
 
 (defsub (clear-nametables)
    (asm "bit $2002")
@@ -217,10 +217,10 @@
 
  (defsub (read-joypad)
    ;; need to 'strobe' register before reading
-   (set! reg-joypad-0 1)
-   (set! reg-joypad-0 0)
+   (set! REG-JOYPAD-0 1)
+   (set! REG-JOYPAD-0 0)
    (loop n 0 8
-         (poke! pad-data n (and (peek reg-joypad-0) #x1))))
+         (poke! pad-data n (and (peek REG-JOYPAD-0) #x1))))
 
  (defsub (pressed key)
    (peek pad-data key))
@@ -1437,14 +1437,14 @@
    (asm "pha")
    ;; precious ppu update time starts
    ;; start sprite data dma to the oam now
-   (set! reg-oam-dma sprite-dma)
+   (set! REG-OAM-DMA sprite-dma)
    ;; dma the display list now
    (display-list-execute)
 
    ;; update scroll pos
    ;;(when (not gdisable-scroll)
-     (set! reg-ppu-scroll gscroll-x)
-     (set! reg-ppu-scroll gscroll-y);)
+     (set! REG-PPU-SCROLL gscroll-x)
+     (set! REG-PPU-SCROLL gscroll-y);)
 
    ;; precious ppu update time ends
    (inc gframe)
