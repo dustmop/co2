@@ -597,6 +597,9 @@
 (define (string-last text)
   (substring text (- (string-length text) 1)))
 
+(define (register? text)
+  (or (eq? text 'x) (eq? text 'y)))
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Source file context information for debugging / compiler metadata
 
@@ -924,34 +927,46 @@
       (emit (format "  de~a" reg))
       (emit 'bne loop-label))))
 
-(define (process-loop-up context-reg context-start context-end body)
-  (assert context-reg syntax?)
+(define (process-loop-up context-iter context-start context-end body)
+  (assert context-iter syntax?)
   (assert context-start syntax?)
   (assert context-end syntax?)
   (assert body list?)
   (emit-context)
-  (let* ((reg (syntax->datum context-reg))
+  (let* ((iter (syntax->datum context-iter))
          (start (syntax->datum context-start))
-         ; TODO: Assuming end is a list like (length const-static-array).
          (end (syntax->datum context-end))
          (initial-loop-value start)
          ; TODO: Value reserved by implemention. Ensure `body` doesn't modify it
-         (sentinal-value "_count"))
-    (when (not (= initial-loop-value 0))
-          (error "Start must be 0, other values not supported yet"))
-    (emit 'lda (format "#~a_~a"
-                       (normalize-name (cadr end)) (normalize-name (car end))))
+         ; This breaks nested loops.
+         (sentinal-value "_count")
+         (loop-label (generate-label "loop_up_to")))
+    ; Store the sentinal value into memory.
+    (if (and (list? end) (eq? (car end) 'length))
+        (emit 'lda (format "#~a_~a"
+                           (normalize-name (cadr end))
+                           (normalize-name (car end))))
+        (emit 'lda (as-arg end)))
     (emit 'sta sentinal-value)
-    (emit (format "  ld~a #~a" reg initial-loop-value))
-    (let ((loop-label (generate-label "loop_up_to")))
-      (emit-label loop-label)
-      ; TODO: Disallow `reg` changes within `body`
-      (for ([stmt body])
-           (process-form stmt))
-      (emit-context)
-      (emit (format "  in~a" reg))
-      (emit (format "  cp~a ~a" reg sentinal-value))
-      (emit 'bne loop-label))))
+    ; Setup iteration value.
+    (if (register? iter)
+        (emit (format "  ld~a #~a" iter initial-loop-value))
+        (begin (emit 'lda (as-arg initial-loop-value))
+               (emit 'sta (as-arg iter))))
+    (emit-label loop-label)
+    ; TODO: Disallow `reg` changes within `body`
+    (for ([stmt body])
+         (process-form stmt))
+    (emit-context)
+    ; Increment and compare to sentinal value.
+    (if (register? iter)
+        (begin (emit (format "  in~a" iter))
+               (emit (format "  cp~a ~a" iter sentinal-value)))
+        (begin (emit 'inc (as-arg iter))
+               (emit 'lda (as-arg iter))
+               (emit 'cmp (as-arg sentinal-value))))
+    ; Loop back to start.
+    (emit 'bne loop-label)))
 
 (define (process-let context-bindings body)
   ; TODO: This c(a|d)*r calls are awful.
@@ -1176,8 +1191,8 @@
             [(block) (process-block (car rest) (cdr rest))]
             [(loop-down-from) (process-loop-down (car rest) (cadr rest)
                                                  (cddr rest))]
-            [(loop-up-to) (process-loop-up (car rest) (cadr rest)
-                                           (caddr rest) (cdddr rest))]
+            [(loop loop-up-to) (process-loop-up (car rest) (cadr rest)
+                                                (caddr rest) (cdddr rest))]
             [(let) (process-let (car rest) (cdr rest))]
             [(if) (process-if (car rest) (cadr rest) (caddr rest))]
             [(while) (process-while (car rest) (cdr rest))]
