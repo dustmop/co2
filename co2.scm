@@ -597,10 +597,10 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Source file context information for debugging / compiler metadata
 
-(define *co2-source-form* (make-parameter #f))
+(define *co2-source-context* (make-parameter #f))
 
 (define (co2-source-context)
-  (let* ((form (*co2-source-form*))
+  (let* ((form (vector-ref (*co2-source-context*) 0))
          (fname (syntax-source form))
          (line-num (syntax-line form))
          (source (->string (syntax->datum form)))
@@ -742,16 +742,10 @@
 (define (process-set-bang target expr)
   (assert target syntax?)
   (assert expr syntax?)
-  (let* ((did-context #f)
-         (lhs (syntax->datum target))
-         (rhs (process-argument expr #:atom (lambda (n)
-                                              (emit-context)
-                                              (set! did-context #t)
-                                              (emit 'lda n)))))
-    (when (not did-context)
-          (emit-context))
+  (let ((place (syntax->datum target)))
+    (process-argument expr #:atom (lambda (n) (emit 'lda n)))
     ; TODO: Assert that place is a valid lvalue for set!
-    (emit 'sta (as-arg lhs))))
+    (emit 'sta (as-arg place))))
 
 (define (process-instruction-expression instr args)
   (assert instr symbol?)
@@ -776,15 +770,10 @@
      ; and output the instruction using the second arg as the operand.
      ([= (length args) 2]
       (begin
-        (let* ((did-context #f)
-               (lhs (process-argument (car args)
-                                      #:atom (lambda (n)
-                                               (emit-context)
-                                               (set! did-context #t)
-                                               (emit 'lda n))))
-               (rhs (process-argument (cadr args) #:preserve '(a))))
-          (when (not did-context)
-                (emit-context))
+        (let* ((lhs (process-argument (car args)
+                                      #:atom (lambda (n) (emit 'lda n))))
+               (rhs (process-argument (cadr args) #:preserve '(a)
+                                      #:skip-context #t)))
           (emit instr (as-arg rhs)))))
      ; Three arguments. Only works for ORA currently.
      ; TODO: Generalize to other instructions.
@@ -806,7 +795,7 @@
     (when (not (list? (syntax->datum context-arg)))
           (set! did-context #t)
           (emit-context))
-    (let ((value (process-argument context-arg)))
+    (let ((value (process-argument context-arg #:skip-context #t)))
       (when (not did-context)
             (emit-context))
       (emit instr value))))
@@ -842,23 +831,35 @@
    ([number? arg] (format "#$~x" arg))
    (else (error (format "ERROR as-arg: ~a" arg)))))
 
-;Generate code to get a single value into the desired return value. Return
-; the name of the value.
-(define (process-argument context-arg #:preserve [preserve #f] #:atom [atom #f])
-  (when (not atom)
-        (set! atom (lambda (n) n)))
-  (let ((arg (syntax->datum context-arg)))
+;Generate code to get a single value into the desired return value, which
+; defaults to the accumulator. Preserve registers to the stack if needed.
+; Output context if loading an atomic value, unless context should be skipped.
+(define (process-argument context-arg #:preserve [preserve #f] #:atom [atom #f]
+                          #:skip-context [skip-context #f])
+  (let ((ret "a")
+        (arg (syntax->datum context-arg)))
+    (when (not atom)
+          (set! atom (lambda (n) (set! ret n))))
     (if (list? arg)
-        (parameterize ([*co2-source-form* context-arg])
+        ; Evaluate the expression, preserving registers if needed.
+        (parameterize ([*co2-source-context* (vector context-arg #t)])
           (when preserve
                 (process-stack 'push preserve #:skip-context #t))
           (process-form context-arg)
-          (if preserve
-              (begin (emit 'sta "_tmp")
-                     (process-stack 'pull preserve #:skip-context #t)
-                     "_tmp")
-              "a"))
-        (atom (as-arg arg)))))
+          (when preserve
+                (set! ret "_tmp")
+                (emit 'sta ret)
+                (process-stack 'pull preserve #:skip-context #t)))
+        ; Load the atomic value.
+        (begin
+          (when (and (not skip-context) (vector-ref (*co2-source-context*) 1))
+                (emit-context)
+                (vector-set! (*co2-source-context*) 1 #f))
+          (atom (as-arg arg))))
+    (when (and (not skip-context) (vector-ref (*co2-source-context*) 1))
+          (emit-context)
+          (vector-set! (*co2-source-context*) 1 #f))
+    ret))
 
 (define (process-instruction-standalone instr operand)
   ;TODO: Rhs being an expression is an error
@@ -965,15 +966,18 @@
     (emit-context)
     (emit "; condition begin")
     ; Check the condition of the `if`.
-    (process-argument context-condition #:atom (lambda (n) (emit 'lda n)))
+    (process-argument context-condition #:atom (lambda (n) (emit 'lda n))
+                      #:skip-context #t)
     (emit 'bne false-label)
     ; Truth case of the `if`.
     (emit-label truth-label)
-    (process-argument context-truth #:atom (lambda (n) (emit 'lda n)))
+    (process-argument context-truth #:atom (lambda (n) (emit 'lda n))
+                      #:skip-context #t)
     (emit 'jmp if-done-label)
     ; False case of the `if`.
     (emit-label false-label)
-    (process-argument context-false #:atom (lambda (n) (emit 'lda n)))
+    (process-argument context-false #:atom (lambda (n) (emit 'lda n))
+                      #:skip-context #t)
     (emit-label if-done-label)
     (emit "; condition done")))
 
@@ -985,7 +989,8 @@
     (emit "; while begin")
     ; Check the condition of the `while`.
     (emit-label start-label)
-    (process-argument context-condition #:atom (lambda (n) (emit 'lda n)))
+    (process-argument context-condition #:atom (lambda (n) (emit 'lda n))
+                      #:skip-context #t)
     (emit 'beq body-label)
     (emit 'jmp done-label)
     ; Truth case of the `while`.
@@ -1000,15 +1005,10 @@
   (assert operator symbol?)
   (assert context-left syntax?)
   (assert context-right syntax?)
-  (let* ((did-context #f)
-         (lhs (process-argument context-left
-                                #:atom (lambda (n)
-                                         (emit-context)
-                                         (set! did-context #t)
-                                         (emit 'lda n))))
-         (rhs (process-argument context-right #:preserve '(a))))
-    (when (not did-context)
-          (emit-context))
+  (let* ((lhs (process-argument context-left
+                                #:atom (lambda (n) (emit 'lda n))))
+         (rhs (process-argument context-right #:preserve '(a)
+                                #:skip-context #t)))
     (case operator
       [(+) (begin (emit 'clc)
                   (emit 'adc (as-arg rhs)))]
@@ -1038,72 +1038,40 @@
 (define (process-not operator context-arg)
   (assert operator symbol?)
   (assert context-arg syntax?)
-  (let* ((did-context #f)
-         (arg (process-argument context-arg
-                                #:atom (lambda (n)
-                                         (emit-context)
-                                         (set! did-context #t)
-                                         (emit 'lda n)))))
-    (when (not did-context)
-          (emit-context))
-    (case operator
-      [(not) (begin (emit 'eor "#$ff")
-                    (emit 'cmp "#$ff")
-                    (emit 'rol "a")
-                    (emit 'and "#$fe"))]
-      )))
+  (process-argument context-arg #:atom (lambda (n) (emit 'lda n)))
+  (emit 'eor "#$ff")
+  (emit 'cmp "#$ff")
+  (emit 'rol "a")
+  (emit 'and "#$fe"))
 
 (define (process-peek context-address context-index)
-  (let ((did-context #f)
-        (address (syntax->datum context-address))
+  (let ((address (syntax->datum context-address))
         (index (if context-index (syntax->datum context-index) #f)))
     (if (not index)
         (emit 'lda (as-arg address))
         (begin
           (process-argument context-index
                             #:atom (lambda (n)
-                                     (emit-context)
-                                     (set! did-context #t)
-                                     ; TODO: tax instead?
+                                     ; TODO: ldx instead?
                                      (emit 'lda n)))
-          (when (not did-context)
-                (emit-context))
           (emit 'tax)
           (emit 'lda (format "~a,x" (as-arg address)))))))
 
 (define (process-poke! context-address context-arg0 context-arg1)
   (if context-arg1
-      (let* ((did-context #f)
-             (address (syntax->datum context-address))
+      (let* ((address (syntax->datum context-address))
              (context-index context-arg0)
              (context-value context-arg1)
              (arg #f))
-        (process-argument context-value
-                          #:atom (lambda (n)
-                                   (emit-context)
-                                   (set! did-context #t)
-                                   (emit 'lda n)))
-        (when (not did-context)
-              (emit-context))
+        (process-argument context-value #:atom (lambda (n) (emit 'lda n)))
         (emit 'pha)
-        (process-argument context-index
-                          #:atom (lambda (n)
-                                   (emit-context)
-                                   (set! did-context #t)
-                                   (emit 'lda n)))
+        (process-argument context-index #:atom (lambda (n) (emit 'lda n)))
         (emit 'tax)
         (emit 'pla)
         (emit 'sta (format "~a,x" (as-arg address))))
-      (let* ((did-context #f)
-             (address (syntax->datum context-address))
+      (let* ((address (syntax->datum context-address))
              (context-value context-arg0))
-        (process-argument context-value
-                          #:atom (lambda (n)
-                                   (emit-context)
-                                   (set! did-context #t)
-                                   (emit 'lda n)))
-        (when (not did-context)
-              (emit-context))
+        (process-argument context-value #:atom (lambda (n) (emit 'lda n)))
         (emit 'sta (as-arg address)))))
 
 (define (process-operation operator context-left context-right)
@@ -1112,7 +1080,8 @@
   (assert context-right syntax?)
   (emit-context)
   (let* ((lhs (process-argument context-left
-                                #:atom (lambda (n) (emit 'lda n))))
+                                #:atom (lambda (n) (emit 'lda n))
+                                #:skip-context #t))
          (right (syntax->datum context-right)))
     (assert right number?)
     (case operator
@@ -1158,16 +1127,20 @@
     (when (> (length params) 3)
           (for ([elem (reverse (cdddr params))])
                (set! pop-count (+ 1 pop-count))
-               (process-argument elem #:atom (lambda (n) (emit 'lda n)))
+               (process-argument elem #:atom (lambda (n) (emit 'lda n))
+                                 #:skip-context #t)
                (emit 'pha)))
     (for ([elem params] [i (in-naturals)])
          (cond
           ([= i 0]
-           (process-argument elem #:atom (lambda (n) (emit 'lda n))))
+           (process-argument elem #:atom (lambda (n) (emit 'lda n))
+                             #:skip-context #t))
           ([= i 1]
-           (emit 'ldx (process-argument elem #:preserve '(a))))
+           (emit 'ldx (process-argument elem #:preserve '(a)
+                                        #:skip-context #t)))
           ([= i 2]
-           (emit 'ldy (process-argument elem #:preserve '(a x))))))
+           (emit 'ldy (process-argument elem #:preserve '(a x)
+                                        #:skip-context #t)))))
     (emit 'jsr (normalize-name fname))
     (for ([i (in-range pop-count)])
          (emit 'pla))
@@ -1201,7 +1174,7 @@
          (first (if (list? inner) (car inner) #f))
          (rest (if (list? inner) (cdr inner) #f))
          (symbol (if first (syntax->datum first) #f)))
-    (parameterize ([*co2-source-form* form])
+    (parameterize ([*co2-source-context* (vector form #t)])
       (if (or (not symbol) (function? symbol) (macro? symbol))
           (process-invocation form symbol rest)
           (case symbol
@@ -1266,7 +1239,7 @@
          (first (if (list? inner) (car inner) #f))
          (rest (if (list? inner) (cdr inner) #f))
          (symbol (if first (syntax->datum first) #f)))
-    (parameterize ([*co2-source-form* form])
+    (parameterize ([*co2-source-context* (vector form #t)])
       (if (or (not symbol) (function? symbol) (macro? symbol))
           #f
           (case symbol
