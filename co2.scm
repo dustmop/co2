@@ -360,38 +360,33 @@
    (emit 'tay)
    (emit 'lda (format "$~x,y" (+ field #x200)))))
 
-;; optimised version of poke for sprites
-(define (emit-zzz-sprites! n zzz x)
-  (let ((label (generate-label "sprite_range")))
-    (append
-     (emit-expr (list-ref x 3)) ;; value
+(define (process-or-sprites-attr! context-sprite-id context-num-sprites
+                                  context-attr-bits)
+  (let ((label (generate-label "or_sprites")))
+     (process-argument context-attr-bits)
      (emit 'pha)
-     (emit-expr (list-ref x 2)) ;; sprite count
+     (process-argument context-num-sprites)
      (emit 'pha)
-     (emit-expr (list-ref x 1)) ;; sprite num offset
+     (process-argument context-sprite-id)
      (emit 'asl) ;; *2
      (emit 'asl) ;; *4
      (emit 'clc)
-     (emit 'adc (immediate-value n)) ;; byte offset
+     (emit 'adc "#2") ;; attr field
      (emit 'tay) ;; put offset in y
      (emit 'pla) ;; pull count out
      (emit 'tax) ;; put sprite count in x
      (emit 'pla) ;; value
-     (emit 'sta working-reg)
+     (emit 'sta "_tmp")
      (emit-label label)
      (emit 'lda "$200,y") ;; load previous
-     (cond
-      ((equal? zzz "adc") (emit "clc")) ;; clear carry
-      ((equal? zzz "sbc") (emit "sec")) ;; set carry
-      (else '()))
-     (emit zzz working-reg)
+     (emit 'eor "_tmp")
      (emit 'sta "$200,y")
      (emit 'iny) ;; skip
      (emit 'iny) ;; to
      (emit 'iny) ;; the next
      (emit 'iny) ;; sprite
      (emit 'dex)
-     (emit 'bne label))))
+     (emit 'bne label)))
 
 (define (process-underscore-rnd)
   (let ((label (generate-label "rnd"))
@@ -1249,6 +1244,9 @@
              (process-set-sprites-2x2-y! (lref rest 0) (lref rest 1))]
             [(set-sprites-2x2-x!)
              (process-set-sprites-2x2-x! (lref rest 0) (lref rest 1))]
+            [(or-sprites-attr!)
+             (process-or-sprites-attr! (lref rest 0) (lref rest 1)
+                                       (lref rest 2))]
             [(_rnd) (process-underscore-rnd)]
             [(adc and cmp cpx cpy eor lda ora sta)
              (process-instruction-expression symbol rest)]
