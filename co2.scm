@@ -167,7 +167,9 @@
   (hash-has-key? function-defs (normalize-name name)))
 
 (define (macro? name)
-  (member name '(cond when)))
+  (member name '(cond when set-sprite-y! set-sprite-id! set-sprite-attr!
+                      set-sprite-x! get-sprite-y get-sprite-id
+                      get-sprite-attr get-sprite-x)))
 
 ;;----------------------------------------------------------------
 ; TODO: Combine with other utilities, or remove when replaced.
@@ -356,32 +358,24 @@
    (emit 'lda "#$00")
    (emit 'sta "REG_PPU_ADDR")))
 
-;; optimised version of poke for sprites
-(define (emit-set-sprite! n x)
-  ;; address offset is optional
-  (append
-   (emit-expr (list-ref x 2)) ;; value
+(define (process-set-sprite! context-sprite-id context-value context-field)
+  (let ((field (syntax->datum context-field)))
+   (process-argument context-value)
    (emit 'pha)
-   (emit-expr (list-ref x 1)) ;; sprite num offset
+   (process-argument context-sprite-id)
    (emit 'asl) ;; *2
    (emit 'asl) ;; *4
-   (emit 'clc)
-   (emit 'adc (immediate-value n)) ;; byte offset
    (emit 'tay)
    (emit 'pla)
-   (emit 'sta "$200,y")))
+   (emit 'sta (format "$~x,y" (+ field #x200)))))
 
-;; optimised version of peek for sprites
-(define (emit-get-sprite n x)
-  ;; address offset is optional
-  (append
-   (emit-expr (list-ref x 1)) ;; sprite num offset
+(define (process-get-sprite context-sprite-id context-field)
+  (let ((field (syntax->datum context-field)))
+   (process-argument context-sprite-id)
    (emit 'asl) ;; *2
    (emit 'asl) ;; *4
-   (emit 'clc)
-   (emit 'adc (immediate-value n)) ;; byte offset
    (emit 'tay)
-   (emit 'lda "$200,y")))
+   (emit 'lda (format "$~x,y" (+ field #x200)))))
 
 ;; optimised version of poke for sprites
 (define (emit-zzz-sprites! n zzz x)
@@ -545,6 +539,12 @@
 (define (m-expand-set-sprite-hflip! x)
   (list 'set-sprite-attr! (list-ref x 1) (list '<< (list-ref x 2) 7)))
 
+(define (m-expand-set-sprite! x f)
+  (list 'set-sprite! (list-ref x 1) (list-ref x 2) f))
+
+(define (m-expand-get-sprite x f)
+  (list 'get-sprite (list-ref x 1) f))
+
 ;; basically diy-macro from the main tinyscheme stuff
 (define (macro-expand s)
   (cond
@@ -561,6 +561,14 @@
             ((eq? (car i) 'get-sprite-hflip) (m-expand-get-sprite-hflip i))
             ((eq? (car i) 'set-sprite-vflip!) (m-expand-set-sprite-vflip! i))
             ((eq? (car i) 'set-sprite-hflip!) (m-expand-set-sprite-hflip! i))
+            ((eq? (car i) 'get-sprite-y) (m-expand-get-sprite i 0))
+            ((eq? (car i) 'get-sprite-id) (m-expand-get-sprite i 1))
+            ((eq? (car i) 'get-sprite-attr) (m-expand-get-sprite i 2))
+            ((eq? (car i) 'get-sprite-x) (m-expand-get-sprite i 3))
+            ((eq? (car i) 'set-sprite-y!) (m-expand-set-sprite! i 0))
+            ((eq? (car i) 'set-sprite-id!) (m-expand-set-sprite! i 1))
+            ((eq? (car i) 'set-sprite-attr!) (m-expand-set-sprite! i 2))
+            ((eq? (car i) 'set-sprite-x!) (m-expand-set-sprite! i 3))
             (else (macro-expand i)))
            (macro-expand i)))
      s))
@@ -1213,6 +1221,9 @@
             [(ppu-memcpy16) (process-ppu-memcpy16
                              (lref rest 0) (lref rest 1) (lref rest 2)
                              (lref rest 3) (lref rest 4))]
+            [(set-sprite!) (process-set-sprite! (lref rest 0) (lref rest 1)
+                                                (lref rest 2))]
+            [(get-sprite) (process-get-sprite (lref rest 0) (lref rest 1))]
             [(adc and cmp cpx cpy eor lda ora sta)
              (process-instruction-expression symbol rest)]
             [(asl lsr rol ror)
