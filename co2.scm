@@ -393,14 +393,11 @@
      (emit 'dex)
      (emit 'bne label))))
 
-;; optimised version of poke for sprites
-(define (emit-set-sprites-x-2x2! x)
-  (append
-   (emit-expr (list-ref x 2)) ;; value
-   (emit 'pha)
-   (emit-expr (list-ref x 1)) ;; sprite addr
+(define (process-set-sprites-2x2-x! context-sprite-num context-xpos)
+  (begin
+   (process-argument context-sprite-num #:atom 'lda #:skip-context #t)
    (emit 'tay) ;; put offset in y
-   (emit 'pla) ;; value
+   (process-argument context-xpos #:atom 'lda)
    (emit 'sta "$203,y")
    (emit 'sta "$20b,y")
    (emit 'clc)
@@ -408,13 +405,11 @@
    (emit 'sta "$207,y")
    (emit 'sta "$20f,y")))
 
-(define (emit-set-sprites-y-2x2! x)
-  (append
-   (emit-expr (list-ref x 2)) ;; value
-   (emit 'pha)
-   (emit-expr (list-ref x 1)) ;; sprite addr
+(define (process-set-sprites-2x2-y! context-sprite-num context-ypos)
+  (begin
+   (process-argument context-sprite-num #:atom 'lda #:skip-context #t)
    (emit 'tay) ;; put offset in y
-   (emit 'pla) ;; value
+   (process-argument context-ypos #:atom 'lda)
    (emit 'sta "$200,y")
    (emit 'sta "$204,y")
    (emit 'clc)
@@ -422,25 +417,20 @@
    (emit 'sta "$208,y")
    (emit 'sta "$20c,y")))
 
-;; optimised version of poke for sprites
-(define (emit-animate-sprites-2x2! x)
-  (append
-   (emit-expr (list-ref x 2)) ;; value
-   (emit 'pha)
-   (emit-expr (list-ref x 1)) ;; sprite num offset
+(define (process-animate-sprites-2x2! context-sprite-num context-tile)
+  (begin
+   (process-argument context-sprite-num #:atom 'lda #:skip-context #t)
    (emit 'asl) ;; *2
    (emit 'asl) ;; *4
    (emit 'tay) ;; put offset in y
-   (emit 'iny) ;; id byte offset
-   (emit 'pla) ;; value
-   (emit 'sta "$200,y") ;; sprite 1
-   ;;(emit "clc")
+   (process-argument context-tile #:atom 'lda)
+   (emit 'sta "$201,y") ;; sprite 1
    (emit 'adc "#$01")
-   (emit 'sta "$204,y") ;; sprite 2
+   (emit 'sta "$205,y") ;; sprite 2
    (emit 'adc "#$0f")
-   (emit 'sta "$208,y") ;; sprite 3
+   (emit 'sta "$209,y") ;; sprite 3
    (emit 'adc "#$01")
-   (emit 'sta "$20c,y"))) ;; sprite 4
+   (emit 'sta "$20d,y"))) ;; sprite 4
 
 (define (emit-mul x)
   (let ((label (generate-label "mul")))
@@ -779,7 +769,7 @@
      ; TODO: Generalize to other instructions.
      ([= (length args) 3]
       (begin
-        (assert instr (lambda (n) (eq? n 'ora)))
+        (assert instr (lambda (n) (or (eq? n 'or) (eq? n 'ora))))
         (assert first atom?)
         (assert second atom?)
         (assert third atom?)
@@ -1217,6 +1207,12 @@
             [(memset) (process-memset (lref rest 0) (lref rest 1))]
             [(peek16) (process-peek16 (lref rest 0) (lref rest 1))]
             [(set16!) (process-set16! (lref rest 0) (lref rest 1))]
+            [(animate-sprites-2x2!)
+             (process-animate-sprites-2x2! (lref rest 0) (lref rest 1))]
+            [(set-sprites-2x2-y!)
+             (process-set-sprites-2x2-y! (lref rest 0) (lref rest 1))]
+            [(set-sprites-2x2-x!)
+             (process-set-sprites-2x2-x! (lref rest 0) (lref rest 1))]
             [(adc and cmp cpx cpy eor lda ora sta)
              (process-instruction-expression symbol rest)]
             [(asl lsr rol ror)
