@@ -393,6 +393,19 @@
      (emit 'dex)
      (emit 'bne label))))
 
+(define (process-underscore-rnd)
+  (let ((label (generate-label "rnd"))
+        (okay (generate-label "okay")))
+     (emit 'lda (as-arg rnd-reg))
+     (emit 'bne okay)
+     (emit 'lda "#$c7")
+     (emit-label okay)
+     (emit 'asl)
+     (emit 'bcc label)
+     (emit 'eor "#$1d")
+     (emit-label label)
+     (emit 'sta (as-arg rnd-reg))))
+
 (define (process-set-sprites-2x2-x! context-sprite-num context-xpos)
   (begin
    (process-argument context-sprite-num #:atom 'lda #:skip-context #t)
@@ -1236,6 +1249,7 @@
              (process-set-sprites-2x2-y! (lref rest 0) (lref rest 1))]
             [(set-sprites-2x2-x!)
              (process-set-sprites-2x2-x! (lref rest 0) (lref rest 1))]
+            [(_rnd) (process-underscore-rnd)]
             [(adc and cmp cpx cpy eor lda ora sta)
              (process-instruction-expression symbol rest)]
             [(or) (process-instruction-expression 'ora rest)]
