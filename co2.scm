@@ -1008,14 +1008,17 @@
   (let* ((lhs (process-argument context-left
                                 #:atom (lambda (n) (emit 'lda n))))
          (rhs (process-argument context-right #:preserve '(a)
-                                #:skip-context #t)))
+                                #:skip-context #t))
+         (right (syntax->datum context-right)))
     (case operator
       [(+) (begin (emit 'clc)
                   (emit 'adc (as-arg rhs)))]
       [(-) (begin (emit 'sec)
                   (emit 'sbc (as-arg rhs)))]
-      [(eq?) (begin (emit 'sec)
-                    (emit 'sbc (as-arg rhs))
+      [(eq?) (begin ; Small optimization: don't subtract 0, just compare to 1.
+                    (when (not (eq? right 0))
+                          (emit 'sec)
+                          (emit 'sbc (as-arg rhs)))
                     (emit 'cmp "#1")
                     (emit 'rol "a")
                     (emit 'and "#$fe"))]
@@ -1033,7 +1036,12 @@
                   (emit 'rol "a")
                   (emit 'xor "#$01")
                   (emit 'and "#$fe"))]
-      )))
+      [(>>) (begin (assert right number?)
+                   (for ([i (in-range right)])
+                        (emit 'lsr "a")))]
+      [(<<) (begin (assert right number?)
+                   (for ([i (in-range right)])
+                        (emit 'asl "a")))])))
 
 (define (process-not operator context-arg)
   (assert operator symbol?)
@@ -1073,22 +1081,6 @@
              (context-value context-arg0))
         (process-argument context-value #:atom (lambda (n) (emit 'lda n)))
         (emit 'sta (as-arg address)))))
-
-(define (process-operation operator context-left context-right)
-  (assert operator symbol?)
-  (assert context-left syntax?)
-  (assert context-right syntax?)
-  (emit-context)
-  (let* ((lhs (process-argument context-left
-                                #:atom (lambda (n) (emit 'lda n))
-                                #:skip-context #t))
-         (right (syntax->datum context-right)))
-    (assert right number?)
-    (case operator
-      [(>>) (for ([i (in-range right)])
-                 (emit 'lsr "a"))]
-      [(<<) (for ([i (in-range right)])
-                 (emit 'asl "a"))])))
 
 (define (process-stack action registers #:skip-context [skip-context #f])
   (assert action symbol?)
@@ -1214,11 +1206,9 @@
              (process-instruction-implied symbol)]
             [(asm byte text org)
              (process-raw symbol (car rest))]
-            [(+ - eq? > <)
+            [(+ - eq? > < >> <<)
              (process-math symbol (lref rest 0) (lref rest 1))]
             [(not) (process-not symbol (car rest))]
-            [(>> <<)
-             (process-operation symbol (car rest) (cadr rest))]
             [else (printf ";Unknown: ~a ~a\n" symbol rest)
                   (emit (format ";Unknown: ~a ~a" symbol rest))])))))
 
