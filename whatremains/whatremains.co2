@@ -50,6 +50,8 @@
  (defconst doorway-michael-out 5)
  (defconst doorway-michael-future 6)
 
+ (defconst ppu-name-table-0 #x2000)
+
  ;; famitone stuff
  (asm "FT_BASE_ADR = $0600 ;; page in the RAM used for FT2 variables, should be $xx00
        FT_TEMP = $a5 ;; 3 bytes in zeropage used by the library as a scratchpad

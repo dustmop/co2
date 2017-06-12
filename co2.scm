@@ -278,79 +278,83 @@
    (emit 'inx)
    (emit 'bne "-")))
 
-; (memset base-symbol high-offset low-offset length value)
-(define (emit-ppu-memset x)
-  (append
-   (emit-expr (list-ref x 2)) ;; dest offset high
+(define (process-ppu-memset context-ppu-base context-dest-high
+                            context-dest-low context-length context-value)
+  (let ((ppu-base (syntax->datum context-ppu-base)))
+   (process-argument context-dest-high)
    (emit 'clc)
-   (emit 'adc (car (immediate-value (list-ref x 1))))
-   (emit 'sta (reg-table-lookup 'reg-ppu-addr))
-   (emit-expr (list-ref x 3)) ;; dest offset low
+   (emit 'adc (format "#<~a" (normalize-name ppu-base)))
+   (emit 'sta "REG_PPU_ADDR")
+   (process-argument context-dest-low)
    (emit 'clc)
-   (emit 'adc (cadr (immediate-value (list-ref x 1))))
-   (emit 'sta (reg-table-lookup 'reg-ppu-addr))
-   (emit-expr (list-ref x 5)) ;; value
+   (emit 'adc (format "#>~a" (normalize-name ppu-base)))
+   (emit 'sta "REG_PPU_ADDR")
+   (process-argument context-value)
    (emit 'pha)
-   (emit-expr (list-ref x 4)) ;; length
+   (process-argument context-length)
    (emit 'tax)
    (emit 'pla)
-   (emit "-" 'sta (reg-table-lookup 'reg-ppu-data))
+   (emit "-" 'sta "REG_PPU_DATA")
    (emit 'dex)
    (emit 'bne "-")
    ;; reset ppu addr
    (emit 'lda "#$00")
-   (emit 'sta (reg-table-lookup 'reg-ppu-addr))
+   (emit 'sta "REG_PPU_ADDR")
    (emit 'lda "#$00")
-   (emit 'sta (reg-table-lookup 'reg-ppu-addr))))
+   (emit 'sta "REG_PPU_ADDR")))
 
-
-; (memcpy base-symbol high-offset low-offset prg-end prg-base prg-start)
-(define (emit-ppu-memcpy x)
-  (append
-   (emit-expr (list-ref x 2)) ;; dest offset high
+(define (process-ppu-memcpy context-ppu-base context-dest-high
+                            context-dest-low context-end-index
+                            context-prg-base context-start-index)
+  (let ((ppu-base (syntax->datum context-ppu-base))
+        (end-index (syntax->datum context-end-index))
+        (prg-base (syntax->datum context-prg-base))
+        (start-index (syntax->datum context-start-index)))
+   (process-argument context-dest-high)
    (emit 'clc)
-   (emit 'adc (car (immediate-value (list-ref x 1))))
-   (emit 'sta (reg-table-lookup 'reg-ppu-addr))
-   (emit-expr (list-ref x 3)) ;; dest offset low
+   (emit 'adc (format "#<~a" (normalize-name ppu-base)))
+   (emit 'sta "REG_PPU_ADDR")
+   (process-argument context-dest-low)
    (emit 'clc)
-   (emit 'adc (cadr (immediate-value (list-ref x 1))))
-   (emit 'sta (reg-table-lookup 'reg-ppu-addr))
-   (emit 'ldx (immediate-value (list-ref x 6))) ;; start addr
-   (emit "-" 'lda (immediate-value (list-ref x 5)) ",x") ;; base addr
-   (emit 'sta (reg-table-lookup 'reg-ppu-data))
+   (emit 'adc (format "#>~a" (normalize-name ppu-base)))
+   (emit 'sta "REG_PPU_ADDR")
+   (emit 'ldx (as-arg start-index))
+   (emit "-" 'lda (format "~a,x" (as-arg prg-base)))
+   (emit 'sta "REG_PPU_DATA")
    (emit 'inx)
-   (emit 'cpx (immediate-value (list-ref x 4))) ;; end addr
+   (emit 'cpx (as-arg end-index))
    (emit 'bne "-")
    ;; reset ppu addr
    (emit 'lda "#$00")
-   (emit 'sta (reg-table-lookup 'reg-ppu-addr))
+   (emit 'sta "REG_PPU_ADDR")
    (emit 'lda "#$00")
-   (emit 'sta (reg-table-lookup 'reg-ppu-addr))))
+   (emit 'sta "REG_PPU_ADDR")))
 
-; (memcpy base-symbol high-offset low-offset prg-end prg-base-h prg-base-l)
-(define (emit-ppu-memcpy16 x)
-  (display (immediate-value (list-ref x 5)))(newline)
-  (append
-   (emit-expr (list-ref x 2)) ;; dest offset high
+(define (process-ppu-memcpy16 context-ppu-base context-dest-high
+                              context-dest-low context-length
+                              context-pointer)
+  (let ((ppu-base (syntax->datum context-ppu-base))
+        (pointer (syntax->datum context-pointer))
+        (length (syntax->datum context-length)))
+   (process-argument context-dest-high)
    (emit 'clc)
-   (emit 'adc (car (immediate-value (list-ref x 1))))
-   (emit 'sta (reg-table-lookup 'reg-ppu-addr))
-   (emit-expr (list-ref x 3)) ;; dest offset low
+   (emit 'adc (format "#<~a" (normalize-name ppu-base)))
+   (emit 'sta "REG_PPU_ADDR")
+   (process-argument context-dest-low)
    (emit 'clc)
-   (emit 'adc (cadr (immediate-value (list-ref x 1))))
-   (emit 'sta (reg-table-lookup 'reg-ppu-addr))
+   (emit 'adc (format "#>~a" (normalize-name ppu-base)))
+   (emit 'sta "REG_PPU_ADDR")
    (emit 'ldy "#0")
-   (emit "-" 'lda (string-append "(" (immediate-value (list-ref x 5)) "),y"))
-   (emit 'sta (reg-table-lookup 'reg-ppu-data))
+   (emit "-" 'lda (format "(~a),y" (normalize-name pointer)))
+   (emit 'sta "REG_PPU_DATA")
    (emit 'iny)
-   (emit 'cpy (immediate-value (list-ref x 4))) ;; end addr
+   (emit 'cpy (as-arg length))
    (emit 'bne "-")
    ;; reset ppu addr
    (emit 'lda "#$00")
-   (emit 'sta (reg-table-lookup 'reg-ppu-addr))
+   (emit 'sta "REG_PPU_ADDR")
    (emit 'lda "#$00")
-   (emit 'sta (reg-table-lookup 'reg-ppu-addr))))
-
+   (emit 'sta "REG_PPU_ADDR")))
 
 ;; optimised version of poke for sprites
 (define (emit-set-sprite! n x)
@@ -1200,6 +1204,15 @@
                        (process-form elem))]
             [(peek) (process-peek (lref rest 0) (lref rest 1))]
             [(poke!) (process-poke! (lref rest 0) (lref rest 1) (lref rest 2))]
+            [(ppu-memset) (process-ppu-memset
+                           (lref rest 0) (lref rest 1) (lref rest 2)
+                           (lref rest 3) (lref rest 4))]
+            [(ppu-memcpy) (process-ppu-memcpy
+                           (lref rest 0) (lref rest 1) (lref rest 2)
+                           (lref rest 3) (lref rest 4) (lref rest 5))]
+            [(ppu-memcpy16) (process-ppu-memcpy16
+                             (lref rest 0) (lref rest 1) (lref rest 2)
+                             (lref rest 3) (lref rest 4))]
             [(adc and cmp cpx cpy eor lda ora sta)
              (process-instruction-expression symbol rest)]
             [(asl lsr rol ror)
