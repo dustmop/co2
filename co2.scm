@@ -585,6 +585,12 @@
 (define (register? text)
   (or (eq? text 'x) (eq? text 'y)))
 
+(define (immediate? obj)
+  (or (number? obj)
+      (and (symbol? obj)
+           (let ((lookup (sym-label-lookup obj)))
+             (and lookup (eq? (sym-label-kind lookup) 'const))))))
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Source file context information for debugging / compiler metadata
 
@@ -659,6 +665,12 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Main processor.
+
+(define (merge-const instr accum arg)
+  (assert instr (lambda (n) (or (eq? n 'or) (eq? n 'ora))))
+  (if (not accum)
+      (as-arg arg)
+      (format "~a|~a" accum (as-arg arg))))
 
 (define (process-defvar name [value 0])
   (let* ((def (normalize-name name))
@@ -743,7 +755,7 @@
   (assert args list?)
   (let ((first (datum-ref args 0))
         (second (datum-ref args 1))
-        (third (datum-ref args 2)))
+        (const #f))
     (cond
      ; Single argument to instruction just outputs the instruction.
      ([= (length args) 1]
@@ -765,17 +777,28 @@
                (rhs (process-argument (cadr args) #:preserve '(a)
                                       #:skip-context #t)))
           (emit instr (as-arg rhs)))))
-     ; Three arguments. Only works for ORA currently.
-     ; TODO: Generalize to other instructions.
-     ([= (length args) 3]
+     ; More than two arguments. Load first, generate code for others, folding
+     ; constants along the way.
+     ([> (length args) 2]
       (begin
-        (assert instr (lambda (n) (or (eq? n 'or) (eq? n 'ora))))
-        (assert first atom?)
-        (assert second atom?)
-        (assert third atom?)
-        (emit-context)
-        (emit 'lda (as-arg first))
-        (emit instr (format "~a|~a" (as-arg second) (as-arg third)))))
+        (process-argument (car args) #:atom 'lda)
+        (for ([elem (cdr args)])
+             (if (immediate? (syntax->datum elem))
+                 ; Fold constant
+                 (set! const (merge-const instr const (syntax->datum elem)))
+                 ; Flush constant
+                 (begin
+                   (when const
+                         (emit instr const)
+                         (set! const #f))
+                   (let ((val (process-argument elem #:preserve '(a)
+                                                #:skip-context #t)))
+                     (emit instr val)))))
+        ; Flush any remaining constants.
+        (when const
+              (emit instr const)
+              (set! const #f))))
+        ;(emit instr (format "~a|~a" (as-arg second) (as-arg third)))))
      (else (error (format "ERROR expression: ~a ~a" instr args))))))
 
 (define (process-instruction-accumulator instr context-arg)
@@ -1215,6 +1238,7 @@
              (process-set-sprites-2x2-x! (lref rest 0) (lref rest 1))]
             [(adc and cmp cpx cpy eor lda ora sta)
              (process-instruction-expression symbol rest)]
+            [(or) (process-instruction-expression 'ora rest)]
             [(asl lsr rol ror)
              (process-instruction-accumulator symbol (car rest))]
             [(bit dec inc)
