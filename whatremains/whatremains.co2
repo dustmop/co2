@@ -310,14 +310,14 @@
       (when (eq? (peek display-list display-list-index) command-palette-change)
         (set! o (peek display-list start)) ;; palette index
         (cond
-         ((eq? o title-palette-id) (ppu-memcpy ppu-palette 0 0 #x10 title_palette 0))
-         ((eq? o title1-palette-id) (ppu-memcpy ppu-palette 0 0 #x10 title1_palette 0))
-         ((eq? o title2-palette-id) (ppu-memcpy ppu-palette 0 0 #x10 title2_palette 0))
-         ((eq? o title3-palette-id) (ppu-memcpy ppu-palette 0 0 #x10 title3_palette 0))
-         ((eq? o eighties-palette-id) (ppu-memcpy ppu-palette 0 0 #x20 eighties_palette 0)) ;; + sprites
-         ((eq? o indoor-palette-id) (ppu-memcpy ppu-palette 0 0 #x20 indoor_palette 0))
-         ((eq? o future-palette-id) (ppu-memcpy ppu-palette 0 0 #x10 future_palette 0))
-         (else (ppu-memcpy ppu-palette 0 0 #x20 black_palette 0))))
+         ((eq? o title-palette-id) (ppu-memcpy ppu-palette 0 0 #x10 title-palette 0))
+         ((eq? o title1-palette-id) (ppu-memcpy ppu-palette 0 0 #x10 title1-palette 0))
+         ((eq? o title2-palette-id) (ppu-memcpy ppu-palette 0 0 #x10 title2-palette 0))
+         ((eq? o title3-palette-id) (ppu-memcpy ppu-palette 0 0 #x10 title3-palette 0))
+         ((eq? o eighties-palette-id) (ppu-memcpy ppu-palette 0 0 #x20 eighties-palette 0)) ;; + sprites
+         ((eq? o indoor-palette-id) (ppu-memcpy ppu-palette 0 0 #x20 indoor-palette 0))
+         ((eq? o future-palette-id) (ppu-memcpy ppu-palette 0 0 #x10 future-palette 0))
+         (else (ppu-memcpy ppu-palette 0 0 #x20 black-palette 0))))
 
       (set! display-list-index (- display-list-index n)))))
 
@@ -510,7 +510,7 @@
  ;; still some tweaks todo here
  (defsub (bb-collide-pos-screen0 x y)
    ;; read the length of rects to get the end
-   (set! end (+ 1 (<< (peek collision_bboxes0) 2))) ;; rect so * 4
+   (set! end (+ 1 (<< (peek collision-bboxes0) 2))) ;; rect so * 4
    ;; setup for the loop
    (set! i 1) ;; address
    (set! j 0) ;; return value (1=collision)
@@ -519,17 +519,17 @@
      (set! j
            (and ;; check bounding boxes
             (and
-             (> x (peek collision_bboxes0 i))
-             (< x (peek collision_bboxes0 (+ i 2))))
+             (> x (peek collision-bboxes0 i))
+             (< x (peek collision-bboxes0 (+ i 2))))
             (and
-             (> y (peek collision_bboxes0 (+ i 1)))
-             (< y (peek collision_bboxes0 (+ i 3))))))
+             (> y (peek collision-bboxes0 (+ i 1)))
+             (< y (peek collision-bboxes0 (+ i 3))))))
      (set! i (+ i 4))) ;; next bbox
    j)
 
  (defsub (bb-collide-pos-screen1 x y)
    ;; read the length of rects to get the end
-   (set! end (+ 1 (<< (peek collision_bboxes1) 2))) ;; rect so * 4
+   (set! end (+ 1 (<< (peek collision-bboxes1) 2))) ;; rect so * 4
    ;; setup for the loop
    (set! i 1) ;; address
    (set! j 0) ;; return value (1=collision)
@@ -538,17 +538,17 @@
      (set! j
            (and ;; check bounding boxes
             (and
-             (> x (peek collision_bboxes1 i))
-             (< x (peek collision_bboxes1 (+ i 2))))
+             (> x (peek collision-bboxes1 i))
+             (< x (peek collision-bboxes1 (+ i 2))))
             (and
-             (> y (peek collision_bboxes1 (+ i 1)))
-             (< y (peek collision_bboxes1 (+ i 3))))))
+             (> y (peek collision-bboxes1 (+ i 1)))
+             (< y (peek collision-bboxes1 (+ i 3))))))
      (set! i (+ i 4))) ;; next bbox
    j)
 
  (defsub (bb-collide-pos-aerobic x y)
    ;; read the length of rects to get the end
-   (set! end (+ 1 (<< (peek collision_bboxes_aerobic) 2))) ;; rect so * 4
+   (set! end (+ 1 (<< (peek collision-bboxes-aerobic) 2))) ;; rect so * 4
    ;; setup for the loop
    (set! i 1) ;; address
    (set! j 0) ;; return value (1=collision)
@@ -557,17 +557,17 @@
      (set! j
            (and ;; check bounding boxes
             (and
-             (> x (peek collision_bboxes_aerobic i))
-             (< x (peek collision_bboxes_aerobic (+ i 2))))
+             (> x (peek collision-bboxes-aerobic i))
+             (< x (peek collision-bboxes-aerobic (+ i 2))))
             (and
-             (> y (peek collision_bboxes_aerobic (+ i 1)))
-             (< y (peek collision_bboxes_aerobic (+ i 3))))))
+             (> y (peek collision-bboxes-aerobic (+ i 1)))
+             (< y (peek collision-bboxes-aerobic (+ i 3))))))
      (set! i (+ i 4))) ;; next bbox
    j)
 
  (defsub (bb-collide-pos-tobacco x y)
    ;; read the length of rects to get the end
-   (set! end (+ 1 (<< (peek collision_bboxes_tobacco) 2))) ;; rect so * 4
+   (set! end (+ 1 (<< (peek collision-bboxes-tobacco) 2))) ;; rect so * 4
    ;; setup for the loop
    (set! i 1) ;; address
    (set! j 0) ;; return value (1=collision)
@@ -576,17 +576,17 @@
      (set! j
            (and ;; check bounding boxes
             (and
-             (> x (peek collision_bboxes_tobacco i))
-             (< x (peek collision_bboxes_tobacco (+ i 2))))
+             (> x (peek collision-bboxes-tobacco i))
+             (< x (peek collision-bboxes-tobacco (+ i 2))))
             (and
-             (> y (peek collision_bboxes_tobacco (+ i 1)))
-             (< y (peek collision_bboxes_tobacco (+ i 3))))))
+             (> y (peek collision-bboxes-tobacco (+ i 1)))
+             (< y (peek collision-bboxes-tobacco (+ i 3))))))
      (set! i (+ i 4))) ;; next bbox
    j)
 
  (defsub (bb-collide-pos-michael x y)
    ;; read the length of rects to get the end
-   (set! end (+ 1 (<< (peek collision_bboxes_michael) 2))) ;; rect so * 4
+   (set! end (+ 1 (<< (peek collision-bboxes-michael) 2))) ;; rect so * 4
    ;; setup for the loop
    (set! i 1) ;; address
    (set! j 0) ;; return value (1=collision)
@@ -595,11 +595,11 @@
      (set! j
            (and ;; check bounding boxes
             (and
-             (> x (peek collision_bboxes_michael i))
-             (< x (peek collision_bboxes_michael (+ i 2))))
+             (> x (peek collision-bboxes-michael i))
+             (< x (peek collision-bboxes-michael (+ i 2))))
             (and
-             (> y (peek collision_bboxes_michael (+ i 1)))
-             (< y (peek collision_bboxes_michael (+ i 3))))))
+             (> y (peek collision-bboxes-michael (+ i 1)))
+             (< y (peek collision-bboxes-michael (+ i 3))))))
      (set! i (+ i 4))) ;; next bbox
    j)
 
@@ -610,11 +610,11 @@
    (set! i (<< door 2))
    (and ;; check bounding boxes
     (and
-     (> x (peek doorway_bbox i))
-     (< x (peek doorway_bbox (+ i 2))))
+     (> x (peek doorway-bbox i))
+     (< x (peek doorway-bbox (+ i 2))))
     (and
-     (> y (peek doorway_bbox (+ i 1)))
-     (< y (peek doorway_bbox (+ i 3))))))
+     (> y (peek doorway-bbox (+ i 1)))
+     (< y (peek doorway-bbox (+ i 3))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
  ;; entity system
@@ -1496,7 +1496,7 @@
  (asm "future_2:")(text "    CAN I TRUST YOU?        ENTER THE CODE")(byte "0")
 
  ;; bounding box data
- (asm "collision_bboxes0:")
+ (deflabel collision-bboxes0)
  (byte "15") ;; number of boxes
  (byte "0, 0, 255, 32")
  (byte "0, 0, 16, 238")
@@ -1519,19 +1519,19 @@
  (asm "dmc_data:")
  (asm ".incbin \"whatremains/music/whatremains.dmc\"")
 
- (asm "collision_bboxes1:")
+ (deflabel collision-bboxes1)
  (byte "2") ;; number of boxes
  (byte "0, 0, 23, 82")
  (byte "0, 0, 33, 64")
 
- (asm "collision_bboxes_aerobic:")
+ (deflabel collision-bboxes-aerobic)
  (byte "0")
- (asm "collision_bboxes_tobacco:")
+ (deflabel collision-bboxes-tobacco)
  (byte "0")
- (asm "collision_bboxes_michael:")
+ (deflabel collision-bboxes-michael)
  (byte "0")
 
- (asm "doorway_bbox")
+ (deflabel doorway-bbox)
  (byte "32, 16, 48, 32") ;; aerobic in
  (byte "65, 81, 80, 97") ;; aerobic out
  (byte "210, 17, 226, 32") ;; tobacco in
@@ -1546,16 +1546,16 @@
  (asm ".include \"whatremains/music/whatremains.asm\"")
 
  ;; the palettes
- (asm "title_palette:")
+ (deflabel title-palette)
  (asm ".incbin \"whatremains/binary/title-screen-main.pal\"")
- (asm "title1_palette:")
+ (deflabel title1-palette)
  (asm ".incbin \"whatremains/binary/cut-01-skate.pal\"")
- (asm "title2_palette:")
+ (deflabel title2-palette)
  (asm ".incbin \"whatremains/binary/cut-02-cartridge.pal\"")
- (asm "title3_palette:")
+ (deflabel title3-palette)
  (asm ".incbin \"whatremains/binary/cut-03-car.pal\"")
 
- (asm "eighties_palette:")
+ (deflabel eighties-palette)
  (asm ".incbin \"whatremains/binary/eighties-palette.pal\"")
  ;; general sprite palette
  (byte "$30,$21,$26,$36")
@@ -1563,7 +1563,7 @@
  (byte "$0f,$23,$0b,$36")
  (byte "$0f,$2b,$06,$16")
 
- (asm "indoor_palette:")
+ (deflabel indoor-palette)
  (asm ".incbin \"whatremains/binary/INDOOR_color_palette.pal\"")
  ;; general sprite palette
  (byte "$30,$21,$26,$36")
@@ -1571,10 +1571,10 @@
  (byte "$0f,$23,$0b,$36")
  (byte "$0f,$2b,$06,$16")
 
- (asm "future_palette:")
+ (deflabel future-palette)
  (asm ".incbin \"whatremains/binary/PETSCIIish.pal\"")
 
- (asm "black_palette:")
+ (deflabel black-palette)
 
  (byte "$0f,$0f,$0f,$0f")
  (byte "$0f,$0f,$0f,$0f")
@@ -1588,27 +1588,27 @@
 
  ;; screen tiles
  (asm ".align $100") ;; align so we don't need 16 address maths!
- (asm "title_nam:")
+ (deflabel title-nam)
  (asm ".incbin \"whatremains/binary/title-screen-main.nam\"")
- (asm "title1_nam:")
+ (deflabel title1-nam)
  (asm ".incbin \"whatremains/binary/cut-01-skate.nam\"")
- (asm "title2_nam:")
+ (deflabel title2-nam)
  (asm ".incbin \"whatremains/binary/cut-02-cartridge.nam\"")
- (asm "title3_nam:")
+ (deflabel title3-nam)
  (asm ".incbin \"whatremains/binary/cut-03-car.nam\"")
 
- (asm "bgtiles:")
+ (deflabel bgtiles)
  (asm ".incbin \"whatremains/binary/OUTDOOR_city01.bin\"")
  (asm ".incbin \"whatremains/binary/OUTDOOR_city02.bin\"")
 
- (asm "aerobic_nam:")
+ (deflabel aerobic-nam)
  (asm ".incbin \"whatremains/binary/INDOOR_aerobic.bin\"")
- (asm "tobacco_nam:")
+ (deflabel tobacco-nam)
  (asm ".incbin \"whatremains/binary/INDOOR_tobacco.bin\"")
- (asm "michael_nam:")
+ (deflabel michael-nam)
  (asm ".incbin \"whatremains/binary/INDOOR_michael.bin\"")
 
- (asm "future1_nam:")
+ (deflabel future1-nam)
  (asm ".incbin \"whatremains/binary/cart-startup.nam\"")
 
  ;; interrupt vectors (addresses for functions)

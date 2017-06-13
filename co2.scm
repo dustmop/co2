@@ -1,5 +1,5 @@
 #lang racket
-;; co2 Copyright (C) 2016 Dave Griffiths
+;; co2 Copyright (C) 2016 Dave Griffiths, 2017 Dustin Long
 ;;
 ;; This program is free software: you can redistribute it and/or modify
 ;; it under the terms of the GNU Affero General Public License as
@@ -671,6 +671,13 @@
     (emit-context)
     (emit (format "~a = $~a" def (left-pad (number->string value 16) #\0 2)))))
 
+(define (process-deflabel context-name)
+  (let* ((name (syntax->datum context-name))
+         (def (normalize-name name)))
+    (emit-blank)
+    (emit-context)
+    (emit (format "~a:" def))))
+
 (define (process-proc type context-decl body)
   (assert type symbol?)
   (assert context-decl syntax?)
@@ -1175,6 +1182,7 @@
             [(defvar) (apply process-defvar (unwrap-args rest 1 1))]
             [(defsub) (process-proc 'sub (car rest) (cdr rest))]
             [(defvector) (process-proc 'vector (car rest) (cdr rest))]
+            [(deflabel) (process-deflabel (car rest))]
             [(push pull) (process-stack symbol (unwrap-args rest 0 3))]
             [(set!) (process-set-bang (car rest) (cadr rest))]
             [(block) (process-block (car rest) (cdr rest))]
@@ -1249,6 +1257,11 @@
     ; TODO: Add number of parameters to table, to check when called.
     (make-function! name)))
 
+(define (analyze-label context-name)
+  (assert context-name syntax?)
+  (let* ((name (syntax->datum context-name)))
+    (make-address! name 0)))
+
 (define (analyze-form form)
   (assert form syntax?)
   (let* ((inner (syntax-e form))
@@ -1262,6 +1275,7 @@
             ; Main expression walker.
             [(defsub) (analyze-proc (car rest) (cdr rest))]
             [(defvector) (analyze-proc (car rest) (cdr rest))]
+            [(deflabel) (analyze-label (car rest))]
             [(do) (for ([elem rest])
                        (analyze-form elem))])))))
 
