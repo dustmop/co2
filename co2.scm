@@ -95,15 +95,22 @@
 
 (struct sym-label (sym name address kind))
 
-(define (make-variable! sym #:label [label #f])
+(define (make-variable! sym #:label [label #f] #:global [global #f])
   (let* ((name (normalize-name sym))
-         (n var-allocation))
+         (n var-allocation)
+         (table (car sym-label-defs)))
+    (define (get-global ls)
+      (if (null? (cdr ls))
+          (car ls)
+          (get-global (cdr ls))))
+    (when global
+          (set! table (get-global sym-label-defs)))
     (when label
           (set! name label))
-    (when (not (hash-has-key? (car sym-label-defs) sym))
-          (hash-set! (car sym-label-defs) sym (sym-label sym name n 'var))
+    (when (not (hash-has-key? table sym))
+          (hash-set! table sym (sym-label sym name n 'var))
           (set! var-allocation (+ 1 var-allocation)))
-    (hash-ref (car sym-label-defs) sym)))
+    (hash-ref table sym)))
 
 (define (make-address! sym addr)
   (let ((name (normalize-name sym)))
@@ -649,11 +656,14 @@
 
 (define (process-defvar name [value 0])
   (let* ((def (normalize-name name))
-         (sym-label (make-variable! name))
+         (sym-label (make-variable! name #:global #t))
          (addr (sym-label-address sym-label)))
     (emit-blank)
     (emit-context)
-    (emit (format "~a = $~a" def (left-pad (number->string addr 16) #\0 2)))))
+    (emit (format "~a = $~a" def (left-pad (number->string addr 16) #\0 2)))
+    (when (not (= value 0))
+          (emit 'lda (format "#$~x" value))
+          (emit 'sta def))))
 
 (define (process-defaddr name value)
   (let* ((def (normalize-name name))
