@@ -51,6 +51,14 @@
  (defconst doorway-michael-future 6)
 
  (defconst ppu-name-table-0 #x2000)
+ (defconst joypad-a 0)
+ (defconst joypad-b 1)
+ (defconst joypad-select 2)
+ (defconst joypad-start 3)
+ (defconst joypad-up 4)
+ (defconst joypad-down 5)
+ (defconst joypad-left 6)
+ (defconst joypad-right 7)
 
  ;; famitone stuff
  (asm "FT_BASE_ADR = $0600 ;; page in the RAM used for FT2 variables, should be $xx00
