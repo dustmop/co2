@@ -172,34 +172,6 @@
                       get-sprite-attr get-sprite-x)))
 
 ;;----------------------------------------------------------------
-; TODO: Combine with other utilities, or remove when replaced.
-
-(define (dash->underscore s)
-  (foldl
-   (lambda (c r)
-     (if (eq? c #\-)
-         (string-append r "_")
-         (string-append r (string c))))
-   ""
-   (string->list s)))
-
-(define (is-fnarg? x)
-  ; TODO: Remove.
-  #f)
-
-(define (immediate-value x)
-  ; TODO: Remove.
-  #f)
-
-(define (emit-expr x)
-  ; TODO: Remove.
-  #f)
-
-(define (assert val fn)
-  (when (not (fn val))
-    (error (format "assert failed: ~a ~a" val fn))))
-
-;;----------------------------------------------------------------
 ; Emit
 
 (define *result* (make-gvector))
@@ -230,7 +202,6 @@
   (gvector-add! *result* (format "~a:" label)))
 
 ;;----------------------------------------------------------------
-; TODO: Reintroduce these utilities back into the evaluator.
 
 (define (process-set16! context-place context-value)
   ; TODO: Rename to set-pointer!
@@ -440,22 +411,6 @@
    (emit 'adc "#$01")
    (emit 'sta "$20d,y"))) ;; sprite 4
 
-(define (emit-mul x)
-  (let ((label (generate-label "mul")))
-    (append
-     (emit-expr (cadr x))
-     (emit 'pha)
-     (emit-expr (caddr x))
-     (emit 'sta working-reg)
-     (emit 'dec working-reg)
-     (emit 'pla)
-     (emit 'tax)
-     (emit-label label)
-     (emit 'clc)
-     (emit 'adc working-reg)
-     (emit 'dex)
-     (emit 'bne label))))
-
 ;; add two 8 bit numbers to a 16 bit one
 (define (process-add16 context-place context-high context-low)
   (let ((place (syntax->datum context-place)))
@@ -491,7 +446,6 @@
    (emit 'sta (format "~a+1" (normalize-name place)))))
 
 ;----------------------------------------------------------------
-; TODO: Use these for built-in macros.
 
 (define (m-expand-cond-to-if x)
   (define (_ l)
@@ -557,6 +511,19 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Utilities
+
+(define (dash->underscore s)
+  (foldl
+   (lambda (c r)
+     (if (eq? c #\-)
+         (string-append r "_")
+         (string-append r (string c))))
+   ""
+   (string->list s)))
+
+(define (assert val fn)
+  (when (not (fn val))
+    (error (format "assert failed: ~a ~a" val fn))))
 
 (define (find-keyword keyword elems)
   (if (or (empty? elems) (empty? (cdr elems)))
