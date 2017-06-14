@@ -51,6 +51,8 @@
  (defconst doorway-michael-future 6)
 
  (defconst ppu-name-table-0 #x2000)
+ (defconst ppu-palette      #x3f00)
+
  (defconst joypad-a 0)
  (defconst joypad-b 1)
  (defconst joypad-select 2)
@@ -67,9 +69,9 @@
        FT_SFX_STREAMS = 4 ;; number of sound effects played at once, 1..4
       ;; FT_DPCM_ENABLE ;; undefine to exclude all DMC code
       ;; FT_SFX_ENABLE  ;; undefine to exclude all sound effects code
-       FT_THREAD        ;; undefine if you are calling sound effects from the same thread as the sound update call
+       FT_THREAD = 1     ;; undefine if you are calling sound effects from the same thread as the sound update call
       ;; FT_PAL_SUPPORT   ;; undefine to exclude PAL support
-       FT_NTSC_SUPPORT  ;; undefine to exclude NTSC support
+       FT_NTSC_SUPPORT = 1;; undefine to exclude NTSC support
   ")
 
  ;; code start
@@ -197,10 +199,10 @@
  (defsub (rnd) (_rnd))
 
  (defsub (wait-new-frame)
-   ; Assumes that gframe is at $00.
-   (asm "lda $00")
+   ; Assumes that gframe is at $00
+   (lda gframe)
    (asm "WaitLoop:")
-   (asm "cmp $00")
+   (cmp gframe)
    (asm "beq WaitLoop"))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -1438,7 +1440,7 @@
    (asm "jmp MainLoop"))
 
 
- (defvector (vblank)
+ (defvector (nmi)
    ;; preserve registers for the main thread
    (asm "pha")
    (asm "txa")
@@ -1621,7 +1623,7 @@
 
  ;; interrupt vectors (addresses for functions)
  (asm ".pad $fffa") ;; jump to the end of prg-rom
- (asm ".word vblank, reset, irq")
+ (asm ".word nmi, reset, 0")
 
  ;; finally ppu-rom
  (asm

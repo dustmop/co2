@@ -237,20 +237,21 @@
   (let ((address (syntax->datum context-address)))
    (process-argument context-value)
    (emit 'ldx "#$00")
-   (emit "-" 'sta (format "$~a,x" (normalize-name address)))
+   (emit "-" 'sta (format "~a,x" (normalize-name address)))
    (emit 'inx)
    (emit 'bne "-")))
 
 (define (process-ppu-memset context-ppu-base context-dest-high
                             context-dest-low context-length context-value)
   (let ((ppu-base (syntax->datum context-ppu-base)))
+   (emit-context)
    (process-argument context-dest-high)
    (emit 'clc)
-   (emit 'adc (format "#<~a" (normalize-name ppu-base)))
+   (emit 'adc (format "#>~a" (normalize-name ppu-base)))
    (emit 'sta "REG_PPU_ADDR")
    (process-argument context-dest-low)
    (emit 'clc)
-   (emit 'adc (format "#>~a" (normalize-name ppu-base)))
+   (emit 'adc (format "#<~a" (normalize-name ppu-base)))
    (emit 'sta "REG_PPU_ADDR")
    (process-argument context-value)
    (emit 'pha)
@@ -273,13 +274,14 @@
         (end-index (syntax->datum context-end-index))
         (prg-base (syntax->datum context-prg-base))
         (start-index (syntax->datum context-start-index)))
+   (emit-context)
    (process-argument context-dest-high)
    (emit 'clc)
-   (emit 'adc (format "#<~a" (normalize-name ppu-base)))
+   (emit 'adc (format "#>~a" (normalize-name ppu-base)))
    (emit 'sta "REG_PPU_ADDR")
    (process-argument context-dest-low)
    (emit 'clc)
-   (emit 'adc (format "#>~a" (normalize-name ppu-base)))
+   (emit 'adc (format "#<~a" (normalize-name ppu-base)))
    (emit 'sta "REG_PPU_ADDR")
    (emit 'ldx (as-arg start-index))
    (emit "-" 'lda (format "~a,x" (as-arg prg-base)))
@@ -299,13 +301,14 @@
   (let ((ppu-base (syntax->datum context-ppu-base))
         (pointer (syntax->datum context-pointer))
         (length (syntax->datum context-length)))
+   (emit-context)
    (process-argument context-dest-high)
    (emit 'clc)
-   (emit 'adc (format "#<~a" (normalize-name ppu-base)))
+   (emit 'adc (format "#>~a" (normalize-name ppu-base)))
    (emit 'sta "REG_PPU_ADDR")
    (process-argument context-dest-low)
    (emit 'clc)
-   (emit 'adc (format "#>~a" (normalize-name ppu-base)))
+   (emit 'adc (format "#<~a" (normalize-name ppu-base)))
    (emit 'sta "REG_PPU_ADDR")
    (emit 'ldy "#0")
    (emit "-" 'lda (format "(~a),y" (normalize-name pointer)))
@@ -599,7 +602,8 @@
     (emit (format ".byte ~a"
                   (string-join (build-list 9 (lambda (x) "$0")) ",")))
     (emit "")
-    (emit ".org $c000")
+    ; TODO: Fix this. Only display if no org in entire file?
+    ;(emit ".org $c000")
     (emit "")))
 
 (define (built-in-init-system)
@@ -986,7 +990,10 @@
     (emit "; condition begin")
     ; Check the condition of the `if`.
     (process-argument context-condition #:skip-context #t)
-    (emit 'bne false-label)
+    ; TODO: Optimize to the negative case `beq`, but only if the branch is
+    ; within range (< 128 bytes away).
+    (emit 'bne truth-label)
+    (emit 'jmp false-label)
     ; Truth case of the `if`.
     (emit-label truth-label)
     (process-argument context-truth #:skip-context #t)
@@ -1006,7 +1013,7 @@
     ; Check the condition of the `while`.
     (emit-label start-label)
     (process-argument context-condition #:skip-context #t)
-    (emit 'beq body-label)
+    (emit 'bne body-label)
     (emit 'jmp done-label)
     ; Truth case of the `while`.
     (emit-label body-label)
@@ -1029,27 +1036,42 @@
                   (emit 'adc (as-arg rhs)))]
       [(-) (begin (emit 'sec)
                   (emit 'sbc (as-arg rhs)))]
-      [(eq?) (begin ; Small optimization: don't subtract 0, just compare to 1.
-                    (when (not (eq? right 0))
-                          (emit 'sec)
-                          (emit 'sbc (as-arg rhs)))
-                    (emit 'cmp "#1")
-                    (emit 'rol "a")
-                    (emit 'and "#$fe"))]
-      [(>) (begin (let ((neq-label (generate-label "not_equal"))
-                        (done-label (generate-label "done")))
-                    (emit 'cmp (as-arg rhs))
-                    (emit 'bne neq-label)
-                    (emit 'lda "#0")
-                    (emit 'jmp done-label)
-                    (emit-label neq-label)
-                    (emit 'rol "a")
-                    (emit 'and "#$fe")
-                    (emit-label done-label)))]
-      [(<) (begin (emit 'cmp (as-arg rhs))
-                  (emit 'rol "a")
-                  (emit 'xor "#$01")
-                  (emit 'and "#$fe"))]
+      [(eq?) (let ((is-label (generate-label "is_eq"))
+                   (done-label (generate-label "done_eq")))
+               (emit 'cmp (as-arg rhs))
+               (emit 'beq is-label)
+               ; not equal
+               (emit 'lda "#0")
+               (emit 'jmp done-label)
+               ; is equal
+               (emit-label is-label)
+               (emit 'lda "#1")
+               (emit-label done-label))]
+      [(>) (let ((not-label (generate-label "not_gt"))
+                 (is-label (generate-label "is_gt"))
+                 (done-label (generate-label "done_gt")))
+             (emit 'cmp (as-arg rhs))
+             (emit 'beq not-label)
+             (emit 'bcs is-label)
+             ; not gt
+             (emit-label not-label)
+             (emit 'lda "#0")
+             (emit 'jmp done-label)
+             ; is gt
+             (emit-label is-label)
+             (emit 'lda "#1")
+             (emit-label done-label))]
+      [(<) (let ((is-label (generate-label "is_lt"))
+                 (done-label (generate-label "done_lt")))
+             (emit 'cmp (as-arg rhs))
+             (emit 'bcc is-label)
+             ; not lt
+             (emit 'lda "#0")
+             (emit 'jmp done-label)
+             ; is lt
+             (emit-label is-label)
+             (emit 'lda "#1")
+             (emit-label done-label))]
       [(>>) (begin (assert right number?)
                    (for ([i (in-range right)])
                         (emit 'lsr "a")))]
@@ -1060,11 +1082,17 @@
 (define (process-not operator context-arg)
   (assert operator symbol?)
   (assert context-arg syntax?)
-  (process-argument context-arg)
-  (emit 'eor "#$ff")
-  (emit 'cmp "#$ff")
-  (emit 'rol "a")
-  (emit 'and "#$fe"))
+  (let ((is-label (generate-label "not"))
+        (done-label (generate-label "not")))
+    (process-argument context-arg)
+    (emit 'beq is-label)
+    ; not zero
+    (emit 'lda "#0")
+    (emit 'jmp done-label)
+    ; is zero
+    (emit-label is-label)
+    (emit 'lda "#1")
+    (emit-label done-label)))
 
 (define (process-peek context-address context-index)
   (let ((address (syntax->datum context-address))
@@ -1120,10 +1148,10 @@
                               (when (member 'a registers)
                                     (emit 'pla)))]))
 
-(define (process-raw symbol arg)
-  (let ((value (syntax->datum arg)))
+(define (process-raw symbol args)
+  (let ((value (syntax->datum (car args))))
     (cond
-     [(eq? symbol 'asm) (emit value)]
+     [(eq? symbol 'asm) (for ([elem args]) (emit (syntax->datum elem)))]
      [(eq? symbol 'org) (emit (format ".org $~x" value))]
      [(eq? symbol 'byte) (emit (format ".byte ~a" value))]
      [(eq? symbol 'text) (emit (format ".byte \"~a\"" value))])))
@@ -1245,8 +1273,7 @@
              (process-instruction-branch symbol (car rest))]
             [(clc)
              (process-instruction-implied symbol)]
-            [(asm byte text org)
-             (process-raw symbol (car rest))]
+            [(asm byte text org) (process-raw symbol rest)]
             [(+ - eq? > < >> <<)
              (process-math symbol (lref rest 0) (lref rest 1))]
             [(+16!)
@@ -1379,14 +1406,16 @@
         (emit (format "  .byte ~a" (list->byte-string value)))
         (emit (format "~a_length = ~a" label (length value)))
         (emit ""))))
-  (emit ".pad $fffa")
+  ; TODO: Fix this. Only display if no org in entire file?
+  ;(emit ".pad $fffa")
   ; Output the vectors, entry points defined by hardware.
-  (let ((build '()))
-    (for ([entry '(irq reset nmi)])
-         (if (member entry *entry-points*)
-             (set! build (cons (symbol->string entry) build))
-             (set! build (cons "0" build))))
-    (emit (string-append ".word " (string-join build ",")))))
+  ;(let ((build '()))
+  ;  (for ([entry '(irq reset nmi)])
+  ;       (if (member entry *entry-points*)
+  ;           (set! build (cons (symbol->string entry) build))
+  ;           (set! build (cons "0" build))))
+  ;  (emit (string-append ".word " (string-join build ",")))))
+  )
 
 (define (analyze-func-defs fname)
   (let ((f (open-input-file fname)))
