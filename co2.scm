@@ -568,7 +568,9 @@
   (substring text (- (string-length text) 1)))
 
 (define (register? text)
-  (or (eq? text 'x) (eq? text 'y)))
+  (when (symbol? text)
+        (set! text (symbol->string text)))
+  (or (string=? text "a") (string=? text "x") (string=? text "y")))
 
 (define (immediate? obj)
   (or (number? obj)
@@ -870,6 +872,8 @@
     (when (and (not skip-context) (vector-ref (*co2-source-context*) 1))
           (emit-context)
           (vector-set! (*co2-source-context*) 1 #f))
+    (when (and (not (eq? atom 'rhs)) (not (register? ret)))
+          (emit 'lda ret))
     ret))
 
 (define (process-instruction-standalone instr operand)
@@ -1181,7 +1185,7 @@
 
 (define (process-invocation context-original symbol rest)
   (cond
-   [(not symbol) #f]
+   [(not symbol) (process-argument context-original)]
    [(function? symbol) (process-jump-subroutine symbol rest)]
    [(macro? symbol) (let* ((forms (list (syntax->datum context-original)))
                            (expanded (car (macro-expand forms)))
