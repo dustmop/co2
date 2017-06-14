@@ -225,7 +225,7 @@
   (emit-context)
   (let ((pointer (syntax->datum context-pointer)))
     (if context-index
-        (begin (process-argument context-index #:atom 'lda #:skip-context #t)
+        (begin (process-argument context-index #:skip-context #t)
                (emit 'tay)
                (emit 'lda (format "(~a),y" (normalize-name pointer))))
         (begin (emit 'ldy "#0")
@@ -235,7 +235,7 @@
 ;; (set-page variable/value expr)
 (define (process-memset context-address context-value)
   (let ((address (syntax->datum context-address)))
-   (process-argument context-value #:atom 'lda)
+   (process-argument context-value)
    (emit 'ldx "#$00")
    (emit "-" 'sta (format "$~a,x" (normalize-name address)))
    (emit 'inx)
@@ -381,9 +381,9 @@
 
 (define (process-set-sprites-2x2-x! context-sprite-num context-xpos)
   (begin
-   (process-argument context-sprite-num #:atom 'lda)
+   (process-argument context-sprite-num)
    (emit 'tay) ;; put offset in y
-   (process-argument context-xpos #:atom 'lda #:skip-context #t)
+   (process-argument context-xpos #:skip-context #t)
    (emit 'sta "$203,y")
    (emit 'sta "$20b,y")
    (emit 'clc)
@@ -393,9 +393,9 @@
 
 (define (process-set-sprites-2x2-y! context-sprite-num context-ypos)
   (begin
-   (process-argument context-sprite-num #:atom 'lda)
+   (process-argument context-sprite-num)
    (emit 'tay) ;; put offset in y
-   (process-argument context-ypos #:atom 'lda #:skip-context #t)
+   (process-argument context-ypos #:skip-context #t)
    (emit 'sta "$200,y")
    (emit 'sta "$204,y")
    (emit 'clc)
@@ -405,11 +405,11 @@
 
 (define (process-animate-sprites-2x2! context-sprite-num context-tile)
   (begin
-   (process-argument context-sprite-num #:atom 'lda)
+   (process-argument context-sprite-num)
    (emit 'asl) ;; *2
    (emit 'asl) ;; *4
    (emit 'tay) ;; put offset in y
-   (process-argument context-tile #:atom 'lda #:skip-context #t)
+   (process-argument context-tile #:skip-context #t)
    (emit 'sta "$201,y") ;; sprite 1
    (emit 'adc "#$01")
    (emit 'sta "$205,y") ;; sprite 2
@@ -421,9 +421,9 @@
 ;; add two 8 bit numbers to a 16 bit one
 (define (process-add16 context-place context-high context-low)
   (let ((place (syntax->datum context-place)))
-   (process-argument context-high #:atom 'lda)
+   (process-argument context-high)
    (emit 'pha)
-   (process-argument context-low #:atom 'lda #:skip-context #t)
+   (process-argument context-low #:skip-context #t)
    (emit 'sta "_tmp")
    (emit 'clc)
    (emit 'lda (normalize-name place))
@@ -438,9 +438,9 @@
 ;; subtract two 8 bit numbers to a 16 bit one
 (define (process-sub16 context-place context-high context-low)
   (let ((place (syntax->datum context-place)))
-   (process-argument context-high #:atom 'lda)
+   (process-argument context-high)
    (emit 'pha)
-   (process-argument context-low #:atom 'lda #:skip-context #t)
+   (process-argument context-low #:skip-context #t)
    (emit 'sta "_tmp")
    (emit 'sec)
    (emit 'lda (normalize-name place))
@@ -738,7 +738,7 @@
   (assert target syntax?)
   (assert expr syntax?)
   (let ((place (syntax->datum target)))
-    (process-argument expr #:atom 'lda)
+    (process-argument expr)
     ; TODO: Assert that place is a valid lvalue for set!
     (emit 'sta (as-arg place))))
 
@@ -765,15 +765,15 @@
      ; and output the instruction using the second arg as the operand.
      ([= (length args) 2]
       (begin
-        (let* ((lhs (process-argument (car args) #:atom 'lda))
-               (rhs (process-argument (cadr args) #:preserve '(a)
+        (let* ((lhs (process-argument (car args)))
+               (rhs (process-argument (cadr args) #:preserve '(a) #:atom 'rhs
                                       #:skip-context #t)))
           (emit instr (as-arg rhs)))))
      ; More than two arguments. Load first, generate code for others, folding
      ; constants along the way.
      ([> (length args) 2]
       (begin
-        (process-argument (car args) #:atom 'lda)
+        (process-argument (car args))
         (for ([elem (cdr args)])
              (if (immediate? (syntax->datum elem))
                  ; Fold constant
@@ -783,7 +783,7 @@
                    (when const
                          (emit instr const)
                          (set! const #f))
-                   (let ((val (process-argument elem #:preserve '(a)
+                   (let ((val (process-argument elem #:preserve '(a) #:atom 'rhs
                                                 #:skip-context #t)))
                      (emit instr val)))))
         ; Flush any remaining constants.
@@ -800,7 +800,7 @@
     (when (not (list? (syntax->datum context-arg)))
           (set! did-context #t)
           (emit-context))
-    (let ((value (process-argument context-arg #:skip-context #t)))
+    (let ((value (process-argument context-arg #:skip-context #t #:atom 'rhs)))
       (when (not did-context)
             (emit-context))
       (emit instr value))))
@@ -858,10 +858,11 @@
           (when (and (not skip-context) (vector-ref (*co2-source-context*) 1))
                 (emit-context)
                 (vector-set! (*co2-source-context*) 1 #f))
-          (if atom
-              (begin (emit atom val)
-                     (set! ret (string-last (symbol->string atom))))
-              (set! ret val))))
+          (cond
+           [(not atom) (emit 'lda val)]
+           [(eq? atom 'rhs) (set! ret val)]
+           [else (begin (emit atom val)
+                        (set! ret (string-last (symbol->string atom))))])))
     (when (and (not skip-context) (vector-ref (*co2-source-context*) 1))
           (emit-context)
           (vector-set! (*co2-source-context*) 1 #f))
@@ -984,15 +985,15 @@
     (emit-context)
     (emit "; condition begin")
     ; Check the condition of the `if`.
-    (process-argument context-condition #:atom 'lda #:skip-context #t)
+    (process-argument context-condition #:skip-context #t)
     (emit 'bne false-label)
     ; Truth case of the `if`.
     (emit-label truth-label)
-    (process-argument context-truth #:atom 'lda #:skip-context #t)
+    (process-argument context-truth #:skip-context #t)
     (emit 'jmp if-done-label)
     ; False case of the `if`.
     (emit-label false-label)
-    (process-argument context-false #:atom 'lda #:skip-context #t)
+    (process-argument context-false #:skip-context #t)
     (emit-label if-done-label)
     (emit "; condition done")))
 
@@ -1004,7 +1005,7 @@
     (emit "; while begin")
     ; Check the condition of the `while`.
     (emit-label start-label)
-    (process-argument context-condition #:atom 'lda #:skip-context #t)
+    (process-argument context-condition #:skip-context #t)
     (emit 'beq body-label)
     (emit 'jmp done-label)
     ; Truth case of the `while`.
@@ -1019,8 +1020,8 @@
   (assert operator symbol?)
   (assert context-left syntax?)
   (assert context-right syntax?)
-  (let* ((lhs (process-argument context-left #:atom 'lda))
-         (rhs (process-argument context-right #:preserve '(a)
+  (let* ((lhs (process-argument context-left))
+         (rhs (process-argument context-right #:preserve '(a) #:atom 'rhs
                                 #:skip-context #t))
          (right (syntax->datum context-right)))
     (case operator
@@ -1059,7 +1060,7 @@
 (define (process-not operator context-arg)
   (assert operator symbol?)
   (assert context-arg syntax?)
-  (process-argument context-arg #:atom 'lda)
+  (process-argument context-arg)
   (emit 'eor "#$ff")
   (emit 'cmp "#$ff")
   (emit 'rol "a")
@@ -1083,11 +1084,11 @@
              (arg #f))
         (when (string=? (process-argument context-index #:atom 'ldx) "a")
               (emit 'tax))
-        (process-argument context-value #:atom 'lda #:preserve '(x))
+        (process-argument context-value #:preserve '(x))
         (emit 'sta (format "~a,x" (as-arg address))))
       (let* ((address (syntax->datum context-address))
              (context-value context-arg0))
-        (process-argument context-value #:atom 'lda)
+        (process-argument context-value)
         (emit 'sta (as-arg address)))))
 
 (define (process-address-specifier specifier context-address)
@@ -1133,17 +1134,17 @@
     (when (> (length params) 3)
           (for ([elem (reverse (cdddr params))])
                (set! pop-count (+ 1 pop-count))
-               (process-argument elem #:atom 'lda #:skip-context #t)
+               (process-argument elem #:skip-context #t)
                (emit 'pha)))
     (for ([elem params] [i (in-naturals)])
          (cond
           ([= i 0]
-           (process-argument elem #:atom 'lda #:skip-context #t))
+           (process-argument elem #:skip-context #t))
           ([= i 1]
-           (emit 'ldx (process-argument elem #:preserve '(a)
+           (emit 'ldx (process-argument elem #:preserve '(a) #:atom 'rhs
                                         #:skip-context #t)))
           ([= i 2]
-           (emit 'ldy (process-argument elem #:preserve '(a x)
+           (emit 'ldy (process-argument elem #:preserve '(a x) #:atom 'rhs
                                         #:skip-context #t)))))
     (emit 'jsr (normalize-name fname))
     (for ([i (in-range pop-count)])
