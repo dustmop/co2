@@ -959,7 +959,8 @@
       (emit (format "  de~a" reg))
       (emit 'bne loop-label))))
 
-(define (process-loop-up context-iter context-start context-end body)
+(define (process-loop-up context-iter context-start context-end body
+                         #:inclusive [inclusive #f])
   (assert context-iter syntax?)
   (assert context-start syntax?)
   (assert context-end syntax?)
@@ -991,12 +992,20 @@
          (process-form stmt))
     (emit-context)
     ; Increment and compare to sentinal value.
-    (if (register? iter)
-        (begin (emit (format "  in~a" iter))
-               (emit (format "  cp~a ~a" iter sentinal-value)))
-        (begin (emit 'inc (as-arg iter))
-               (emit 'lda (as-arg iter))
-               (emit 'cmp (as-arg sentinal-value))))
+    (if inclusive
+         (if (register? iter)
+             (begin (emit (format "  t~aa" iter))
+                    (emit (format "  in~a" iter))
+                    (emit (format "  cmp ~a" iter sentinal-value)))
+             (begin (emit 'lda (as-arg iter))
+                    (emit 'inc (as-arg iter))
+                    (emit 'cmp (as-arg sentinal-value))))
+         (if (register? iter)
+             (begin (emit (format "  in~a" iter))
+                    (emit (format "  cp~a ~a" iter sentinal-value)))
+             (begin (emit 'inc (as-arg iter))
+                    (emit 'lda (as-arg iter))
+                    (emit 'cmp (as-arg sentinal-value)))))
     ; Loop back to start.
     (emit 'bne loop-label)))
 
@@ -1254,8 +1263,11 @@
             [(block) (process-block (car rest) (cdr rest))]
             [(loop-down-from) (process-loop-down (car rest) (cadr rest)
                                                  (cddr rest))]
-            [(loop loop-up-to) (process-loop-up (car rest) (cadr rest)
-                                                (caddr rest) (cdddr rest))]
+            [(loop-up-to) (process-loop-up (car rest) (cadr rest)
+                                           (caddr rest) (cdddr rest))]
+            [(loop) (process-loop-up (car rest) (cadr rest)
+                                     (caddr rest) (cdddr rest)
+                                     #:inclusive #t)]
             [(let) (process-let (car rest) (cdr rest))]
             [(if) (process-if (car rest) (cadr rest) (caddr rest))]
             [(while) (process-while (car rest) (cdr rest))]
