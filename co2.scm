@@ -18,9 +18,6 @@
 (require data/gvector)
 
 ;; internal compiler register on zero page
-(define working-reg "$ff")
-(define stack-frame-h "$fe")
-(define stack-frame-l "$fd")
 (define rnd-reg "$fc")
 
 (define reg-table
@@ -70,10 +67,6 @@
     (frame-num                   #x02)
     (-count                      #x03)
     (-tmp                        #x04)))
-
-(define (reg-table-lookup x)
-  (let ((lu (assoc x reg-table)))
-    (if lu (cadr lu) #f)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Label generation
@@ -604,9 +597,9 @@
     (emit (format ".byte ~a"
                   (string-join (build-list 9 (lambda (x) "$0")) ",")))
     (emit "")
-    ; TODO: Fix this. Only display if no org in entire file?
-    ;(emit ".org $c000")
-    (emit "")))
+    (when (not *user-specified-org*)
+      (emit ".org $c000")
+      (emit ""))))
 
 (define (built-in-init-system)
   ;; disable interrupts while we set stuff up
@@ -772,7 +765,7 @@
      ([= (length args) 2]
       (begin
         (let* ((lhs (process-argument (car args)))
-               (rhs (process-argument (cadr args) #:preserve '(a) #:atom 'rhs
+               (rhs (process-argument (cadr args) #:preserve '(a) #:as 'rhs
                                       #:skip-context #t)))
           (emit instr (as-arg rhs)))))
      ; More than two arguments. Load first, generate code for others, folding
@@ -789,7 +782,7 @@
                    (when const
                          (emit instr const)
                          (set! const #f))
-                   (let ((val (process-argument elem #:preserve '(a) #:atom 'rhs
+                   (let ((val (process-argument elem #:preserve '(a) #:as 'rhs
                                                 #:skip-context #t)))
                      (emit instr val)))))
         ; Flush any remaining constants.
@@ -806,7 +799,7 @@
     (when (not (list? (syntax->datum context-arg)))
           (set! did-context #t)
           (emit-context))
-    (let ((value (process-argument context-arg #:skip-context #t #:atom 'rhs)))
+    (let ((value (process-argument context-arg #:skip-context #t #:as 'rhs)))
       (when (not did-context)
             (emit-context))
       (emit instr value))))
@@ -845,7 +838,7 @@
 ;Generate code to get a single value into the desired return value, which
 ; defaults to the accumulator. Preserve registers to the stack if needed.
 ; Output context if loading an atomic value, unless context should be skipped.
-(define (process-argument context-arg #:preserve [preserve #f] #:atom [atom #f]
+(define (process-argument context-arg #:preserve [preserve #f] #:as [as #f]
                           #:skip-context [skip-context #f])
   (let ((ret "a")
         (arg (syntax->datum context-arg)))
@@ -859,20 +852,20 @@
                 (set! ret "_tmp")
                 (emit 'sta ret)
                 (process-stack 'pull preserve #:skip-context #t)))
-        ; Load the atomic value.
+        ; Load an atomic value.
         (let ((val (as-arg arg)))
           (when (and (not skip-context) (vector-ref (*co2-source-context*) 1))
                 (emit-context)
                 (vector-set! (*co2-source-context*) 1 #f))
           (cond
-           [(not atom) (emit 'lda val)]
-           [(eq? atom 'rhs) (set! ret val)]
-           [else (begin (emit atom val)
-                        (set! ret (string-last (symbol->string atom))))])))
+           [(not as) (emit 'lda val)]
+           [(eq? as 'rhs) (set! ret val)]
+           [else (begin (emit as val)
+                        (set! ret (string-last (symbol->string as))))])))
     (when (and (not skip-context) (vector-ref (*co2-source-context*) 1))
           (emit-context)
           (vector-set! (*co2-source-context*) 1 #f))
-    (when (and (not (eq? atom 'rhs)) (not (register? ret)))
+    (when (and (not (eq? as 'rhs)) (not (register? ret)))
           (emit 'lda ret))
     ret))
 
@@ -1032,7 +1025,7 @@
   (assert context-left syntax?)
   (assert context-right syntax?)
   (let* ((lhs (process-argument context-left))
-         (rhs (process-argument context-right #:preserve '(a) #:atom 'rhs
+         (rhs (process-argument context-right #:preserve '(a) #:as 'rhs
                                 #:skip-context #t))
          (right (syntax->datum context-right)))
     (case operator
@@ -1104,7 +1097,7 @@
     (if (not index)
         (emit 'lda (as-arg address))
         (begin
-          (when (string=? (process-argument context-index #:atom 'ldx) "a")
+          (when (string=? (process-argument context-index #:as 'ldx) "a")
                 (emit 'tax))
           (emit 'lda (format "~a,x" (as-arg address)))))))
 
@@ -1114,7 +1107,7 @@
              (context-index context-arg0)
              (context-value context-arg1)
              (arg #f))
-        (when (string=? (process-argument context-index #:atom 'ldx) "a")
+        (when (string=? (process-argument context-index #:as 'ldx) "a")
               (emit 'tax))
         (process-argument context-value #:preserve '(x))
         (emit 'sta (format "~a,x" (as-arg address))))
@@ -1173,10 +1166,10 @@
           ([= i 0]
            (process-argument elem #:skip-context #t))
           ([= i 1]
-           (emit 'ldx (process-argument elem #:preserve '(a) #:atom 'rhs
+           (emit 'ldx (process-argument elem #:preserve '(a) #:as 'rhs
                                         #:skip-context #t)))
           ([= i 2]
-           (emit 'ldy (process-argument elem #:preserve '(a x) #:atom 'rhs
+           (emit 'ldy (process-argument elem #:preserve '(a x) #:as 'rhs
                                         #:skip-context #t)))))
     (emit 'jsr (normalize-name fname))
     (for ([i (in-range pop-count)])
@@ -1290,6 +1283,8 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+(define *user-specified-org* #f)
+
 (define (analyze-proc context-decl body)
   (assert context-decl syntax?)
   (assert body list?)
@@ -1303,6 +1298,9 @@
   (assert context-name syntax?)
   (let* ((name (syntax->datum context-name)))
     (make-address! name 0)))
+
+(define (analyze-org)
+  (set! *user-specified-org* #t))
 
 (define (analyze-form form)
   (assert form syntax?)
@@ -1318,6 +1316,7 @@
             [(defsub) (analyze-proc (car rest) (cdr rest))]
             [(defvector) (analyze-proc (car rest) (cdr rest))]
             [(deflabel) (analyze-label (car rest))]
+            [(org) (analyze-org)]
             [(do) (for ([elem rest])
                        (analyze-form elem))])))))
 
@@ -1410,16 +1409,15 @@
         (emit (format "  .byte ~a" (list->byte-string value)))
         (emit (format "~a_length = ~a" label (length value)))
         (emit ""))))
-  ; TODO: Fix this. Only display if no org in entire file?
-  ;(emit ".pad $fffa")
-  ; Output the vectors, entry points defined by hardware.
-  ;(let ((build '()))
-  ;  (for ([entry '(irq reset nmi)])
-  ;       (if (member entry *entry-points*)
-  ;           (set! build (cons (symbol->string entry) build))
-  ;           (set! build (cons "0" build))))
-  ;  (emit (string-append ".word " (string-join build ",")))))
-  )
+  (when (not *user-specified-org*)
+    (emit ".pad $fffa")
+    ; Output the vectors, entry points defined by hardware.
+    (let ((build '()))
+      (for ([entry '(irq reset nmi)])
+           (if (member entry *entry-points*)
+               (set! build (cons (symbol->string entry) build))
+               (set! build (cons "0" build))))
+      (emit (string-append ".word " (string-join build ","))))))
 
 (define (analyze-func-defs fname)
   (let ((f (open-input-file fname)))
