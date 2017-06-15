@@ -9,7 +9,8 @@
                    (lambda ()
                      (set! ret-val (system* (find-executable-path "asm6")
                                             source-name rom-name "-l")))))
-    (printf "ret: ~a out: [~a]\n" ret-val stdout)))
+    (when (not ret-val)
+          (printf "Error:\n~a" stdout))))
 
 
 (let* ((fname (command-line #:args (input) input)))
