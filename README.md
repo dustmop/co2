@@ -1,21 +1,10 @@
-# co2: Lisp on NES/Famicom
+# CO2
 
-A lisp for building NES/Famicom games.
+A Lisp-like language for creating NES / Famicom software. Version 2.0 is a partial rewrite of co2 by Dave Griffiths.
 
 ![](shot.png)
 
-More impressive screenshots to follow.
-
-Generates 6502 assembly tested with [asm6](https://github.com/freem/asm6f) and [nestopia](http://nestopia.sourceforge.net/).
-
-Quite close to asm, no garbage collection, variables and direct memory
-peek/poke only. Supports decent recursion compatible function calling
-with arguments stored on the stack. Comes with NES specific calls for
-sprites, backgrounds and sound as used in a game.
-
-16bit base addresses are generally specified via constants or
-predefined registers with 8 bit offsets. Some 16bit functionality, but
-not fully there yet.
+CO2 takes Lispy source files and compiles them into 6502 ROMs meant to run in an NES emulator. High-level control structures like subroutines, loop, and conditionals are provided, as are low-level access to direct memory and individual 6502 CPU instructions. Minimal support for 16-bit math exists, and more will be added in the future.
 
 Small example code, for reading the joypad button state:
 
@@ -28,24 +17,7 @@ Small example code, for reading the joypad button state:
       (loop n 0 8
          (poke! pad-data n (and (peek reg-joypad-0) #x1))))
 
-    (defun (pressed key)
-      (peek pad-data key))
-
-    (defun (update-sprite)
-      ;; start sprite data dma to the oam
-      (set! reg-oam-dma sprite-dma)
-
-      (read-joypad)
-
-      ;; control a range of sprites with the joypad
-      (cond
-       ((pressed joypad-up) (sub-sprites-y! 0 4 1))
-       ((pressed joypad-down) (add-sprites-y! 0 4 1))
-       ((pressed joypad-left) (sub-sprites-x! 0 4 1))
-       ((pressed joypad-right) (add-sprites-x! 0 4 1))
-       (else 0))
-            
-See example.co2 for more of this.
+See example/example.co2 for full program.
 
 ## Quick start
 
@@ -55,18 +27,17 @@ Requires racket, asm6 and nestopia
 
 ## Memory use
 
-    $000 - $0fa : defvar reserves it's addresses here
+    $000 - $00f : used internally
+    $010 - $03f : defvar reserves it's addresses here
+    $040 - $0fb : function parameters
     $0fc        : random state register
-    $0fd        : stack frame low
-    $0fe        : stack frame high
-    $0ff        : compiler working register 
     $100 - $1ff : stack
     $200 - $2ff : sprite control data
     $300 - ...  : free
 
 ## Fundamental stuff
 
-General purpose 6502 code (so might work on c64 etc?). All numbers
+General purpose 6502 code. All numbers
 follow racket conventions in terms of representation: `38` is decimal,
 `#xff` is hex, `#b11011011` is binary.
 
@@ -76,24 +47,30 @@ define and initialise a variable:
 
     (defvar num-poodles 45)
 
-### (defun (name args ...) code)
+### (defsub (name args ...) code)
 
-defines a function:
+defines a subroutine:
 
-    (deffun (square x) (* x x))
+    (defsub (square x) (* x x))
 
-### (defint (name) code)
+### (defvector (name) code)
 
-defines a function used as an interrupt handler (ends with "rts" opcode)
+defines a system entry point (ends with "rti" opcode)
 
-    (defint (vblank) 
+    (defvector (nmi)
         (do-game-things))
 
 ### (defconst name value)
 
-defines a constant, compiler only - so no associated memory overhead
+defines a constant for use as an immediate value
 
-     (defconst sprite-data "$200") ;; where the sprite control data is
+     (defconst num-players 2)
+
+### (defaddr name address)
+
+defines a label for a specific memory location
+
+     (defconst sprite-data #x200) ;; where the sprite control data is
 
 ### (if expr true-expr false-expr)
 
@@ -102,7 +79,7 @@ if this then that else the other
     (if (pressed joypad-up)
         (set! up 1)
         (set! up 0))
-        
+
 as a proper scheme it returns it's expression result, so you can also do this:
 
     (set! up (if (pressed joypad-up) 1 0))
@@ -141,7 +118,7 @@ works...
 
 returns true (1) if two bytes are equal otherwise returns false (0):
 
-    (when (eq? (sprite-x player-sprite) 100) 
+    (when (eq? (sprite-x player-sprite) 100)
         (do-something))
 
 ### (< a b)
@@ -149,7 +126,7 @@ returns true (1) if two bytes are equal otherwise returns false (0):
 returns true (1) if a byte is less than another otherwise returns false
 (0):
 
-    (when (< (sprite-x player-sprite) 100) 
+    (when (< (sprite-x player-sprite) 100)
         (do-something))
 
 ### (> a b)
@@ -157,28 +134,8 @@ returns true (1) if a byte is less than another otherwise returns false
 returns true (1) if a byte is greater than another otherwise returns
 false (0):
 
-    (when (> (sprite-x player-sprite) 100) 
+    (when (> (sprite-x player-sprite) 100)
         (do-something))
-
-### (<= a b)
-
-returns true (1) if a byte is less than or equal to another otherwise
-returns false (0):
-
-    (when (<= (sprite-x player-sprite) 100) 
-        (do-something))
-
-### (<s a b)
-
-signed version of <
-
-### (>s a b)
-
-signed version of >
-
-### (<=s a b)
-
-signed version of <=
 
 ### (not a)
 
@@ -206,15 +163,15 @@ general purpose looping
 
 ### (do expr-list)
 
-collect a bunch of expression together, returns result of the last one 
+collect a bunch of expression together, returns result of the last one
 
-    (do 
+    (do
       (something)
       (something-else))
 
 ### (asm assembly-string)
 
-insert raw assembly code 
+insert raw assembly code
 
     (asm
       ".byte \"NES\",$1a" ;; number of prg-rom blocks
@@ -309,7 +266,6 @@ increment a variable by one - maps to a single instruction
     (while (< n 10)
         (set-sprite-x! n (* n 10))
         (inc n))
-    
 
 ## (dec a)
 
@@ -396,7 +352,7 @@ two byte in-place addition for 16bit maths
 
     (defvar h 0)
     (defvar l 255)
-    (+16! h 0 1) 
+    (+16! h 0 1)
     ;; h is now 1, l is 0
 
 ### (-16! val-h h l)
@@ -405,7 +361,7 @@ two byte in-place subtraction for 16bit maths
 
     (defvar h 1)
     (defvar l 9)
-    (-16! h 0 10) 
+    (-16! h 0 10)
     ;; h is now 0, l is 255
 
 # Experimental
@@ -417,14 +373,8 @@ programming.
 ## (init-system)
 
 clears memory, resets stack pointer and stack frame, initialises
-random number generator etc. needs to be called at the start of 
+random number generator etc. needs to be called at the start of
 your reset interrupt.
-
-## (wait-vblank)
-
-delay for a vblank
-
-    (wait-vblank)
 
 ## (org addr)
 
@@ -536,84 +486,101 @@ these are defined as constants for your convenience and enjoyment.
 
 ## ppu/oam registers
 
-- reg-ppu-ctl              
-- reg-ppu-mask             
-- reg-ppu-status           
-- reg-oam-addr             
-- reg-oam-data             
-- reg-ppu-scroll           
-- reg-ppu-addr             
-- reg-ppu-data             
-- reg-oam-dma 
+- REG-PPU-CTRL
+- REG-PPU-MASK
+- REG-PPU-STATUS
+- REG-OAM-ADDR
+- REG-OAM-DATA
+- REG-PPU-SCROLL
+- REG-PPU-ADDR
+- REG-PPU-DATA
+- REG-OAM-DMA
 
 ### apu registers
 
-- reg-apu-pulse1-control   
-- reg-apu-pulse1-ramp      
-- reg-apu-pulse1-ft        
-- reg-apu-pulse1-ct        
-- reg-apu-pulse2-control   
-- reg-apu-pulse2-ramp      
-- reg-apu-pulse2-ft        
-- reg-apu-pulse2-ct        
-- reg-apu-tri-control      
-- reg-apu-tri-ft           
-- reg-apu-tri-ct           
-- reg-apu-noise-env        
-- reg-apu-noise-ft         
-- reg-apu-noise-ct         
-- reg-apu-dmc-control      
-- reg-apu-dmc-dac          
-- reg-apu-dmc-addr         
-- reg-apu-dmc-size         
-- reg-apu-channel          
+- REG-APU-PULSE1-CONTROL
+- REG-APU-PULSE1-RAMP
+- REG-APU-PULSE1-FT
+- REG-APU-PULSE1-CT
+- REG-APU-PULSE2-CONTROL
+- REG-APU-PULSE2-RAMP
+- REG-APU-PULSE2-FT
+- REG-APU-PULSE2-CT
+- REG-APU-TRI-CONTROL
+- REG-APU-TRI-FT
+- REG-APU-TRI-CT
+- REG-APU-NOISE-ENV
+- REG-APU-NOISE-FT
+- REG-APU-NOISE-CT
+- REG-APU-DMC-CONTROL
+- REG-APU-DMC-DAC
+- REG-APU-DMC-ADDR
+- REG-APU-DMC-SIZE
+- REG-APU-CHANNEL
 
 ### input
 
-- reg-joypad-0             
-- reg-joypad-1 
+- REG-JOYPAD-0
+- REG-JOYPAD-1
 
-- joypad-a 
-- joypad-b 
-- joypad-select 
-- joypad-start 
-- joypad-up 
-- joypad-down 
-- joypad-left
-- joypad-right
-            
+- JOYPAD-A
+- JOYPAD-B
+- JOYPAD-SELECT
+- JOYPAD-START
+- JOYPAD-UP
+- JOYPAD-DOWN
+- JOYPAD-LEFT
+- JOYPAD-RIGHT
+
 ### ppu vram addresses
 
-- ppu-name-table-0  
-- ppu-attr-table-0  
-- ppu-name-table-1  
-- ppu-attr-table-1  
-- ppu-name-table-2  
-- ppu-attr-table-2  
-- ppu-name-table-3  
-- ppu-attr-table-3  
-- ppu-palette       
-- ppu-bg-palette    
-- ppu-sprite-palette 
+- PPU-NAME-TABLE-0
+- PPU-ATTR-TABLE-0
+- PPU-NAME-TABLE-1
+- PPU-ATTR-TABLE-1
+- PPU-NAME-TABLE-2
+- PPU-ATTR-TABLE-2
+- PPU-NAME-TABLE-3
+- PPU-ATTR-TABLE-3
+- PPU-PALETTE
+- PPU-BG-PALETTE
+- PPU-SPRITE-PALETTE
 
 # program structure
 
 follows normal NES/Famicom behaviour
 
     (do
-      NES header stuff...
+      (nes-header ...)
       (org #xc000) ;; code start
       (defun ...)
       (defun ...)
       ...
-      (defint (vblank) ...)
-      (defint (reset) 
+      (defint (nmi) ...)
+      (defint (reset)
          (init-system)
-	 ...)
+         ...)
       (defint (irq) ...)
       data
       ;; set up the interrupt vectors
-      (asm ".word vblank, reset, irq")
+      (asm ".word nmi, reset, irq")
       more data
       )
-      
+
+# Version 2.0
+
+The rewrite is mostly backwards-compatible with Version 1.0, with a few superficial changes: `defconst` takes integers to define immediate values, `defaddr` is used for addresses, built-in NES registers are capitalized, `defsub` is used for subroutines and `defvector` is used for `reset` / `nmi` / `irq`. More breaking changes are coming too:
+
+1) Moving some functions out of the core implementation and into a stdlib
+
+2) Loop not being inclusive by default
+
+3) Sprite support changes
+
+4) Replacing the commonly used display-list with a better supported feature.
+
+5) Single command-line invocation to produce a ROM with debugging info.
+
+For semantics, CO2 treats the `A` register as the "current value" being operated on, whether it's a value to be set! into a RAM location, the conditional for an if statement, the return value from a subroutine, or the evaluation of an expression to be passed to a function call. Parameters passed to functions used fastcall, A for the 0th arg, X for the 1st, Y for the 2nd, and the system stack for more (evaluated and pushed in reverse order). There is also the option to directly manipulation X and Y with raw 6502 instructions, in which case it is up to the programmer to not evaluate any instrucitons that could clobber these registers.
+
+Recursion is not supported. Functions store their parameter into statically determined memory addresses (calculated by looking at the total program call tree). Because these addresses are not stack based, recursion won't work.
