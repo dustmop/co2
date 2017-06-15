@@ -24,48 +24,28 @@
   ".byte $00,$00" ;; filler
   ".byte $00,$00,$00,$00,$00,$00,$00,$00")
 
- (defconst sprite-data "$200") ;; where the sprite control data is
- (defconst sprite-dma "#$2") ;; dma address is 100X this = $200
- (defconst pad-data "$300")
+ (defaddr sprite-data #x200) ;; where the sprite control data is
+ (defconst sprite-dma 2) ;; dma address is 100X this = $200
+ (defaddr pad-data #x300)
+ (defconst ppu-name-table-1 #x2400)
+ (defconst ppu-palette #x3f00)
+
 
 
  ;; code start
  (org #xc000)
 
- (defun (reset)
-   ;; disable interrupts while we set stuff up
-   (asm "sei"
-        ;; make sure we're not using decimal mode
-        "cld")
-   ;; have to pause here
-   (wait-vblank)
-   (wait-vblank)
-   (asm
-    ;; clear out all ram
-    "lda #$00"
-    "ldx #$00"
-    "- sta $000,x"
-    "sta $100,x"
-    "sta $200,x"
-    "sta $300,x"
-    "sta $400,x"
-    "sta $500,x"
-    "sta $600,x"
-    "sta $700,x"
-    "inx"
-    "bne -"
-    ;; reset the stack pointer.
-    "ldx #$ff"
-    "txs")
+ (defvector (reset)
+   (init-system)
 
    ;; disable all graphics.
-   (set! reg-ppu-ctl 0)
-   (set! reg-ppu-mask 0)
+   (set! REG-PPU-CTRL 0)
+   (set! REG-PPU-MASK 0)
    (init-graphics)
    ;; set basic ppu registers.  load background from $0000,
    ;; sprites from $1000, and the name table from $2000.
-   (set! reg-ppu-ctl #b10001000)
-   (set! reg-ppu-mask #b00011110)
+   (set! REG-PPU-CTRL #b10001000)
+   (set! REG-PPU-MASK #b00011110)
 
    ;; a global frame counter
    (defvar gframe 0)
@@ -76,11 +56,11 @@
     ;; go into in infite loop - vblank interrupt takes over
     "loop: jmp loop"))
 
- (defun (init-graphics)
+ (defsub (init-graphics)
    (init-sprites)
    (load-palette))
 
- (defun (init-sprites)
+ (defsub (init-sprites)
    ;; clear page #2, which we'll use to hold sprite data
    ;; (memset writes 256 bytes in one go)
    (memset sprite-data 0)
@@ -93,40 +73,40 @@
          (set-sprite-attr! n 0) ;; attributes
          ))
 
- (defun (load-palette)
+ (defsub (load-palette)
    ;; copy 32 bytes of bg and sprite palette
    (ppu-memcpy ppu-palette 0 0 #x20 palette 0))
 
 
  (defvar rnd-v 200)
- (defun (rnd)
+ (defsub (rnd)
    (set! rnd-v (+ (xor rnd-v 103) 5))
    rnd-v)
  ;; (defun (rnd)
  ;;   (set! rnd-v (>> (+ (* rnd-v 3) 5) 2))
  ;;   rnd-v)
 
- (defun (read-joypad)
+ (defsub (read-joypad)
    ;; need to 'strobe' register before reading
-   (set! reg-joypad-0 1)
-   (set! reg-joypad-0 0)
+   (set! REG-JOYPAD-0 1)
+   (set! REG-JOYPAD-0 0)
    (loop n 0 8
-         (poke! pad-data n (and (peek reg-joypad-0) #x1))))
+         (poke! pad-data n (and (peek REG-JOYPAD-0) #x1))))
 
- (defun (pressed key)
+ (defsub (pressed key)
    (loop n 0 key
          (peek pad-data n)))
 
  (defvar sx 0)
  (defvar sy 0)
 
- (defun (update-sprite)
+ (defsub (update-sprite)
    ;; start sprite data dma to the oam
-   (set! reg-oam-dma sprite-dma)
+   (set! REG-OAM-DMA sprite-dma)
    (set! sx (+ sx (>> (rnd) 5)))
    (set! sy (+ sy (>> (rnd) 5)))
-   ;(set! reg-ppu-scroll sx)
-   ;(set! reg-ppu-scroll sy)
+   ;(set! REG-PPU-SCROLL sx)
+   ;(set! REG-PPU-SCROLL sy)
    (read-joypad)
 
    ;; (cond
@@ -165,42 +145,42 @@
 
  (defvar snd 0)
 
- (defint (vblank)
+ (defvector (nmi)
    ;; move a sprite or two
    (update-sprite)
 
    ;; test scrolling
-   (set! reg-ppu-scroll gframe)
-   (set! reg-ppu-scroll gframe)
+   (set! REG-PPU-SCROLL gframe)
+   (set! REG-PPU-SCROLL gframe)
 
    ;; do some stuff with sound
-   (set! reg-apu-channel (xor (rnd) 123))
+   (set! REG-APU-CHANNEL (xor (rnd) 123))
 
-   (set! reg-apu-pulse1-control #b10011111)
-   (set! reg-apu-pulse1-ft (>> (rnd) 5))
-   (set! reg-apu-pulse1-ramp (<< (rnd) 5))
-   (set! reg-apu-pulse1-ct #b11111000)
-   (set! reg-apu-pulse2-control #b10011111)
-   (set! reg-apu-pulse2-ft (>> (rnd) 4))
-   (set! reg-apu-pulse2-ct #b11111000)
-   (set! reg-apu-tri-control (xor (rnd) 321))
-   (set! reg-apu-tri-ft (xor (rnd) 244))
-   (set! reg-apu-tri-ct (xor (rnd) 82))
-   (set! reg-apu-noise-env (xor (rnd) 321))
-   (set! reg-apu-noise-ft (xor (rnd) 323))
-   (set! reg-apu-noise-ct (xor (rnd) 21))
-   (set! reg-apu-dmc-control (xor (rnd) 22))
-   (set! reg-apu-dmc-dac (xor (rnd) 22))
-   (set! reg-apu-dmc-addr (xor (rnd) 22))
-   (set! reg-apu-dmc-size (xor (rnd) 22))
+   (set! REG-APU-PULSE1-CONTROL #b10011111)
+   (set! REG-APU-PULSE1-FT (>> (rnd) 5))
+   (set! REG-APU-PULSE1-RAMP (<< (rnd) 5))
+   (set! REG-APU-PULSE1-CT #b11111000)
+   (set! REG-APU-PULSE2-CONTROL #b10011111)
+   (set! REG-APU-PULSE2-FT (>> (rnd) 4))
+   (set! REG-APU-PULSE2-CT #b11111000)
+   (set! REG-APU-TRI-CONTROL (xor (rnd) 321))
+   (set! REG-APU-TRI-FT (xor (rnd) 244))
+   (set! REG-APU-TRI-CT (xor (rnd) 82))
+   (set! REG-APU-NOISE-ENV (xor (rnd) 321))
+   (set! REG-APU-NOISE-FT (xor (rnd) 323))
+   (set! REG-APU-NOISE-CT (xor (rnd) 21))
+   (set! REG-APU-DMC-CONTROL (xor (rnd) 22))
+   (set! REG-APU-DMC-DAC (xor (rnd) 22))
+   (set! REG-APU-DMC-ADDR (xor (rnd) 22))
+   (set! REG-APU-DMC-SIZE (xor (rnd) 22))
    (inc gframe))
 
- (defint (irq))
 
  ;; stuff still to tidy up follows...
 
  ;; load palettes and most chr-rom from binary files
- (asm "palette: .incbin \"example/example.pal\"")
+ (deflabel palette)
+ (asm ".incbin \"example/example.pal\"")
 
  (asm "bg:
   ;; attribute table
@@ -210,7 +190,7 @@
     .byte $ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$0f,$0f,$0f,$0f,$0f,$0f,$0f,$0f
     .pad $fffa")
 
- (asm ".word vblank, reset, irq")
+ (asm ".word nmi, reset, 0")
 
  (asm ".incbin \"example/sprites.chr\"
 ; fill the rest of the first chr-rom block with zeroes.

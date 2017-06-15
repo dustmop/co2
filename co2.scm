@@ -414,6 +414,32 @@
    (emit 'adc "#$01")
    (emit 'sta "$20d,y"))) ;; sprite 4
 
+(define (process-mul context-left context-right)
+  (let ((start-label (generate-label "mul_start"))
+        (loop-label (generate-label "mul_loop"))
+        (inc-label (generate-label "mul_inc"))
+        (done-label (generate-label "mul_done")))
+    (emit-context)
+    (process-argument context-right #:skip-context #t)
+    (emit 'bne start-label)
+    (emit 'lda "#0")
+    (emit 'jmp done-label)
+    (emit-label start-label)
+    (emit 'sta "_count")
+    (process-argument context-left #:skip-context #t)
+    (emit 'sta "_tmp")
+    (emit 'lda "#0")
+    (emit-label loop-label)
+    (emit 'asl "a")
+    (emit 'lsr "_count")
+    (emit 'bcc inc-label)
+    (emit 'clc)
+    (emit 'adc "_tmp")
+    (emit-label inc-label)
+    (emit 'lda "_count")
+    (emit 'bne loop-label)
+    (emit-label done-label)))
+
 ;; add two 8 bit numbers to a 16 bit one
 (define (process-add16 context-place context-high context-low)
   (let ((place (syntax->datum context-place)))
@@ -1262,6 +1288,7 @@
             [(adc and cmp cpx cpy eor lda ora sta)
              (process-instruction-expression symbol rest)]
             [(or) (process-instruction-expression 'ora rest)]
+            [(xor) (process-instruction-expression 'eor rest)]
             [(asl lsr rol ror)
              (process-instruction-accumulator symbol (car rest))]
             [(bit dec inc)
@@ -1273,6 +1300,8 @@
             [(asm byte text org) (process-raw symbol rest)]
             [(+ - eq? > < >> <<)
              (process-math symbol (lref rest 0) (lref rest 1))]
+            [(*)
+             (process-mul (lref rest 0) (lref rest 1))]
             [(+16!)
              (process-add16 (lref rest 0) (lref rest 1) (lref rest 2))]
             [(-16!)
