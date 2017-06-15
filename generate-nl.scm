@@ -17,7 +17,7 @@
   (let ((c (string-ref text 0)))
     (or (char-alphabetic? c) (char-numeric? c))))
 
-(define (generate-nl lines)
+(define (process-listing lines f)
   (let ((count 0)
         (build (make-gvector)))
     (for ([line lines])
@@ -32,7 +32,12 @@
                  (when (valid-address? address)
                        (gvector-add! build (format "$~a#~a#" address label))))))
     (for ([elem (gvector->list build)])
-         (printf "~a\n" elem))))
+         (write-string elem f)
+         (newline f))))
 
-(let* ((fname (command-line #:args (input) input)))
-  (generate-nl (file->lines fname)))
+(define (generate-nl in-name out-name)
+  (let ((f (open-output-file out-name #:exists 'replace)))
+    (process-listing (file->lines in-name) f)
+    (close-output-port f)))
+
+(provide generate-nl)

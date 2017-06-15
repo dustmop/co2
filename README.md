@@ -21,9 +21,9 @@ See example/example.co2 for full program.
 
 ## Quick start
 
-Requires racket, asm6 and nestopia
+Requires racket and asm6
 
-    $ ./build.sh example/example.co2
+    $ racket co2 -o rom.nes example/example.co2
 
 ## Memory use
 
