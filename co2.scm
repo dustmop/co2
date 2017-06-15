@@ -334,9 +334,9 @@
    (emit 'tay)
    (emit 'lda (format "$~x,y" (+ field #x200)))))
 
-(define (process-or-sprites-attr! context-sprite-id context-num-sprites
-                                  context-attr-bits)
-  (let ((label (generate-label "or_sprites")))
+(define (process-sprites-apply-to-field! context-sprite-id context-num-sprites
+                                         context-attr-bits field instr)
+  (let ((label (generate-label "sprites_apply")))
      (process-argument context-attr-bits)
      (emit 'pha)
      (process-argument context-num-sprites)
@@ -345,7 +345,7 @@
      (emit 'asl) ;; *2
      (emit 'asl) ;; *4
      (emit 'clc)
-     (emit 'adc "#2") ;; attr field
+     (emit 'adc (as-arg field)) ;; field
      (emit 'tay) ;; put offset in y
      (emit 'pla) ;; pull count out
      (emit 'tax) ;; put sprite count in x
@@ -353,7 +353,10 @@
      (emit 'sta "_tmp")
      (emit-label label)
      (emit 'lda "$200,y") ;; load previous
-     (emit 'eor "_tmp")
+     (cond
+      [(eq? instr 'adc) (emit 'clc)]
+      [(eq? instr 'sbc) (emit 'sec)])
+     (emit instr "_tmp")
      (emit 'sta "$200,y")
      (emit 'iny) ;; skip
      (emit 'iny) ;; to
@@ -428,15 +431,16 @@
     (emit 'sta "_count")
     (process-argument context-left #:skip-context #t)
     (emit 'sta "_tmp")
+    (emit 'ldx "#8")
     (emit 'lda "#0")
     (emit-label loop-label)
     (emit 'asl "a")
-    (emit 'lsr "_count")
+    (emit 'asl "_count")
     (emit 'bcc inc-label)
     (emit 'clc)
     (emit 'adc "_tmp")
     (emit-label inc-label)
-    (emit 'lda "_count")
+    (emit 'dex)
     (emit 'bne loop-label)
     (emit-label done-label)))
 
@@ -1282,8 +1286,20 @@
             [(set-sprites-2x2-x!)
              (process-set-sprites-2x2-x! (lref rest 0) (lref rest 1))]
             [(or-sprites-attr!)
-             (process-or-sprites-attr! (lref rest 0) (lref rest 1)
-                                       (lref rest 2))]
+             (process-sprites-apply-to-field! (lref rest 0) (lref rest 1)
+                                              (lref rest 2) 2 'eor)]
+            [(add-sprites-y!)
+             (process-sprites-apply-to-field! (lref rest 0) (lref rest 1)
+                                              (lref rest 2) 0 'adc)]
+            [(add-sprites-x!)
+             (process-sprites-apply-to-field! (lref rest 0) (lref rest 1)
+                                              (lref rest 2) 3 'adc)]
+            [(sub-sprites-y!)
+             (process-sprites-apply-to-field! (lref rest 0) (lref rest 1)
+                                              (lref rest 2) 0 'sbc)]
+            [(sub-sprites-x!)
+             (process-sprites-apply-to-field! (lref rest 0) (lref rest 1)
+                                              (lref rest 2) 3 'sbc)]
             [(_rnd) (process-underscore-rnd)]
             [(adc and cmp cpx cpy eor lda ora sta)
              (process-instruction-expression symbol rest)]
