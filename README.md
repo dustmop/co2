@@ -1,6 +1,6 @@
 # CO2
 
-A Lisp-like language for creating NES / Famicom software. Version 2.0 is a partial rewrite of co2 by Dave Griffiths.
+A Lisp-like language for creating NES / Famicom software. Version 2.0 is a partial rewrite of co2 by [Dave Griffiths](https://gitlab.com/nebogeo/co2).
 
 ![](shot.png)
 
