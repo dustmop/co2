@@ -1,89 +1,94 @@
 ;; -*- mode: lisp; -*-
-;; What Remains 
+;; What Remains
 ;; Copyright (C) 2016 What Remains Entertainment Consortium
 ;;
 ;; Licence TBD
 
 (do
- ;; NES header follows
 
- (asm
-  ".byte \"NES\",$1a" ;; "NES" followed by MS-DOS end-of-file
-   ".byte $02" ;; number of prg-rom blocks in 16 KB units
-   ".byte $06"  ;; number of chr-rom blocks 8 KB units (value 0 means the board uses CHR RAM)   
-   ".byte $11" ;; flags 6 (mapper = 1 in high nybble), vertical mirror in lower nybble
-   ".byte $00" ;; flags 7 - more rom control bytes
-   ".byte $00,$00,$00,$00,$00,$00,$00,$00")
- 
-    ;; our memory layout
- (defconst sprite-shadow "$200") ;; where the sprite control data is
- (defconst sprite-dma    "#$2") ;; dma address is 100X this = $200
- (defconst display-list  "$300") ;; the display list
- (defconst pad-data      "$400") ;; cache of the current pad state
- (defconst entity-data   "$500") ;; entity state list
+ (nes-header #:num-prg 2 #:num-chr 6 #:mapper 1)
+
+ ;; our memory layout
+ (defaddr sprite-shadow #x200) ;; where the sprite control data is
+ (defconst sprite-dma       2) ;; dma address is 100X this = $200
+ (defaddr display-list  #x300) ;; the display list
+ (defaddr pad-data      #x400) ;; cache of the current pad state
+ (defaddr entity-data   #x500) ;; entity state list
 
  ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
  ;; display commands
  ;; ----------------
- ;; 
+ ;;
  ;; tile-data display primitive: [list of bytes to copy as tile ids]
- (defconst command-tile-data "#$01")
- ;; tile-value display primitive: [length tile-id] 
+ (defconst command-tile-data 1)
+ ;; tile-value display primitive: [length tile-id]
  ;; for clearing screen etc - 128 long is about max for timing
- (defconst command-tile-value "#$02")
+ (defconst command-tile-value 2)
  ;; 2x2 tile quad [tile top left id]
- (defconst command-quad "#$03")
+ (defconst command-quad 3)
  ;; rom dump [high low length] - 64 maxish
- (defconst command-rom-data "#$04")
+ (defconst command-rom-data 4)
  ;; palette change [palette-id]
- (defconst command-palette-change "#$05")
+ (defconst command-palette-change 5)
 
- (defconst screen-blank-delay "#30")
- 
- (defconst title-palette-id "#0")
- (defconst title1-palette-id "#1")
- (defconst title2-palette-id "#2")
- (defconst title3-palette-id "#3")
- (defconst eighties-palette-id "#4")
- (defconst indoor-palette-id "#5")
- (defconst future-palette-id "#6")
- (defconst black-palette-id "#7")
+ (defconst screen-blank-delay 30)
 
- (defconst doorway-aerobic-in "#0")
- (defconst doorway-aerobic-out "#1")
- (defconst doorway-tobacco-in "#2")
- (defconst doorway-tobacco-out "#3")
- (defconst doorway-michael-in "#4")
- (defconst doorway-michael-out "#5")
- (defconst doorway-michael-future "#6")
- 
+ (defconst title-palette-id 0)
+ (defconst title1-palette-id 1)
+ (defconst title2-palette-id 2)
+ (defconst title3-palette-id 3)
+ (defconst eighties-palette-id 4)
+ (defconst indoor-palette-id 5)
+ (defconst future-palette-id 6)
+ (defconst black-palette-id 7)
+
+ (defconst doorway-aerobic-in 0)
+ (defconst doorway-aerobic-out 1)
+ (defconst doorway-tobacco-in 2)
+ (defconst doorway-tobacco-out 3)
+ (defconst doorway-michael-in 4)
+ (defconst doorway-michael-out 5)
+ (defconst doorway-michael-future 6)
+
+ (defconst ppu-name-table-0 #x2000)
+ (defconst ppu-palette      #x3f00)
+
+ (defconst joypad-a 0)
+ (defconst joypad-b 1)
+ (defconst joypad-select 2)
+ (defconst joypad-start 3)
+ (defconst joypad-up 4)
+ (defconst joypad-down 5)
+ (defconst joypad-left 6)
+ (defconst joypad-right 7)
+
  ;; famitone stuff
  (asm "FT_BASE_ADR = $0600 ;; page in the RAM used for FT2 variables, should be $xx00
        FT_TEMP = $a5 ;; 3 bytes in zeropage used by the library as a scratchpad
        FT_DPCM_OFF = dmc_data
        FT_SFX_STREAMS = 4 ;; number of sound effects played at once, 1..4
-      ;; FT_DPCM_ENABLE	;; undefine to exclude all DMC code
-      ;; FT_SFX_ENABLE	;; undefine to exclude all sound effects code
-       FT_THREAD	;; undefine if you are calling sound effects from the same thread as the sound update call
+      ;; FT_DPCM_ENABLE ;; undefine to exclude all DMC code
+      ;; FT_SFX_ENABLE  ;; undefine to exclude all sound effects code
+       FT_THREAD = 1     ;; undefine if you are calling sound effects from the same thread as the sound update call
       ;; FT_PAL_SUPPORT   ;; undefine to exclude PAL support
-       FT_NTSC_SUPPORT	;; undefine to exclude NTSC support
+       FT_NTSC_SUPPORT = 1;; undefine to exclude NTSC support
   ")
 
  ;; code start
  (org #x8000)
- 
- ;; we love globals 
+
+ ;; we love globals
  (defvar gframe 0) ;; 8bit frame counter
- (defvar ganim-frame 0) ;; global anim frame for sprite animation  
+ (defvar ganim-frame 0) ;; global anim frame for sprite animation
  (defvar ggame-mode 0) ;; stores what section of the game we are in, title/eighties/future
  (defvar gtext-box 0) ;; are we showing a text box?
- ;; draw-phase ramps from 0-255 when game modes are switched, for 
- ;; sequencing initialisation/drawlist updates 
+ ;; draw-phase ramps from 0-255 when game modes are switched, for
+ ;; sequencing initialisation/drawlist updates
  (defvar gdraw-phase 0)
  (defvar gdisable-scroll 0)
  (defvar ggame-state 0)
- 
- ;; the current display list index 
+
+ ;; the current display list index
  (defvar display-list-index 0)
 
  (defvar gscroll-x 0)
@@ -108,37 +113,52 @@
  (defvar text-pos 0)
  (defvar text-x 0)
  (defvar text-line 0)
- (defvar text-time 0) 
+ (defvar text-time 0)
  (defvar text-addr 0)
  (defvar text-addr-h 0)
 
  (defvar setup-eighties 0)
  (defvar password-pos 0)
 
- (defconst title-mode "#0")
- (defconst eighties-mode "#1")
- (defconst aerobic-mode "#2")
- (defconst tobacco-mode "#3")
- (defconst michael-mode "#4")
- (defconst future-mode "#5")
+ (defconst title-mode 0)
+ (defconst eighties-mode 1)
+ (defconst aerobic-mode 2)
+ (defconst tobacco-mode 3)
+ (defconst michael-mode 4)
+ (defconst future-mode 5)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
  ;; library code follows
 
- (defun (enable-rendering)
+ (defsub (enable-rendering)
    ;; ;; set basic ppu registers.  load background from $0000,
    ;; ;; sprites from $1000, and the name table from $2000.
-   (set! reg-ppu-ctl #b10001000)
-   (set! reg-ppu-mask #b00011110))
+   (set! REG-PPU-CTRL #b10001000)
+   (set! REG-PPU-MASK #b00011110))
 
- (defun (disable-rendering)
-   (set! reg-ppu-ctl 0)
-   (set! reg-ppu-mask 0)
-   (set! reg-ppu-scroll 0)
-   (set! reg-ppu-scroll 0))
+ (defsub (disable-rendering)
+   (set! REG-PPU-CTRL 0)
+   (set! REG-PPU-MASK 0)
+   (set! REG-PPU-SCROLL 0)
+   (set! REG-PPU-SCROLL 0))
 
- ;; mmc1 stuff 
- (defun (mmc1-control a)
+(defsub (clear-nametables)
+   (asm "bit $2002")
+   (asm "lda #$20")
+   (asm "sta $2006")
+   (asm "lda #$00")
+   (asm "sta $2006")
+   (asm "ldx #$00")
+   (asm "ldy #$08")
+   (asm "- sta $2007")
+   (asm "dex")
+   (asm "bne -")
+   (asm "dey")
+   (asm "bne -")
+   (asm "rts"))
+
+ ;; mmc1 stuff
+ (defsub (mmc1-control a)
    a ;; get argument into register
    ;; rotate into serial output
    (asm "sta $8000")
@@ -151,7 +171,7 @@
    (asm "lsr a")
    (asm "sta $8000"))
 
- (defun (mmc1-chrbank0 a)
+ (defsub (mmc1-chrbank0 a)
    a
    (asm "sta $a000")
    (asm "lsr a")
@@ -163,7 +183,7 @@
    (asm "lsr a")
    (asm "sta $a000"))
 
- (defun (mmc1-chrbank1 a)
+ (defsub (mmc1-chrbank1 a)
    a
    (asm "sta $c000")
    (asm "lsr a")
@@ -176,69 +196,76 @@
    (asm "sta $c000"))
 
  ;; calls the random number generator
- (defun (rnd) (_rnd))
+ (defsub (rnd) (_rnd))
+
+ (defsub (wait-new-frame)
+   ; Assumes that gframe is at $00
+   (lda gframe)
+   (asm "WaitLoop:")
+   (cmp gframe)
+   (asm "beq WaitLoop"))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
  ;; sound
- (defun (init-sound)
-   (asm "ldx #<whatremains_music_data	
-   	ldy #>whatremains_music_data
-   	lda #80
-   	jsr FamiToneInit
-   	lda #0
-   	jsr FamiToneMusicPlay")
+ (defsub (init-sound)
+   (asm "ldx #<whatremains_music_data
+        ldy #>whatremains_music_data
+        lda #80
+        jsr FamiToneInit
+        lda #0
+        jsr FamiToneMusicPlay")
 
-   ;; (asm "ldx #<danger_streets_music_data	;play second song
-   ;; 	ldy #>danger_streets_music_data
-   ;; 	lda #80
-   ;; 	jsr FamiToneInit
-   ;; 	lda #0
-   ;; 	jsr FamiToneMusicPlay")
-   
+   ;; (asm "ldx #<danger_streets_music_data     ;play second song
+   ;;   ldy #>danger_streets_music_data
+   ;;   lda #80
+   ;;   jsr FamiToneInit
+   ;;   lda #0
+   ;;   jsr FamiToneMusicPlay")
+
    0)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
  ;; input stuff
 
- (defun (read-joypad)
+ (defsub (read-joypad)
    ;; need to 'strobe' register before reading
-   (set! reg-joypad-0 1)
-   (set! reg-joypad-0 0)
+   (set! REG-JOYPAD-0 1)
+   (set! REG-JOYPAD-0 0)
    (loop n 0 8
-         (poke! pad-data n (and (peek reg-joypad-0) #x1))))
+         (poke! pad-data n (and (peek REG-JOYPAD-0) #x1))))
 
- (defun (pressed key)
+ (defsub (pressed key)
    (peek pad-data key))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
  ;; the display list
 
  ;; adds a byte to the list
- (defun (display-list-add-byte data)
-   (poke! display-list display-list-index data) 
+ (defsub (display-list-add-byte data)
+   (poke! display-list display-list-index data)
    (inc display-list-index))
 
  ;; finishes a packet for rendering
- (defun (display-list-end-packet command-id x y nbytes)
-   (poke! display-list display-list-index command-id) 
+ (defsub (display-list-end-packet command-id x y nbytes)
+   (poke! display-list display-list-index command-id)
    (inc display-list-index)
    (poke! display-list display-list-index x)
    (inc display-list-index)
    (poke! display-list display-list-index y)
    (inc display-list-index)
    ;; last byte needs to be size for all commands
-   (poke! display-list display-list-index nbytes) 
+   (poke! display-list display-list-index nbytes)
    (inc display-list-index))
 
  ;; clear pending commands
- (defun (display-list-flush)
+ (defsub (display-list-flush)
    (set! display-list-index 0))
 
- (defun (display-list-is-empty)
+ (defsub (display-list-is-empty)
    (eq? display-list-index 0))
 
  ;; to be called in vblank, all ppu updates should be in here
- (defun (display-list-execute)
+ (defsub (display-list-execute)
    ;; is there anything in the queue?
    (if (eq? display-list-index 0) 0 ;; early out (avoid long branch)
      (do
@@ -250,64 +277,65 @@
       (set! end display-list-index)
 
       ;; update tile data
-      (when (eq? (peek display-list display-list-index) command-tile-data) 
-	(set! end display-list-index)
-	(ppu-memcpy ppu-name-table-0 
-		    (peek display-list (+ display-list-index 1)) 
-		    (peek display-list (+ display-list-index 2))
-		    end ;; w
-		    display-list
-		    start)) ;; start
+      (when (eq? (peek display-list display-list-index) command-tile-data)
+        (set! end display-list-index)
+        (ppu-memcpy ppu-name-table-0
+                    (peek display-list (+ display-list-index 1))
+                    (peek display-list (+ display-list-index 2))
+                    end ;; w
+                    display-list
+                    start)) ;; start
 
       ;; update arbitrary length strips of one value (RLE)
-      (when (eq? (peek display-list display-list-index) command-tile-value) ;; tileset
-	(ppu-memset ppu-name-table-0 
-		    (peek display-list (+ display-list-index 1)) 
-		    (peek display-list (+ display-list-index 2))
-		    (peek display-list start) ;; length
-		    (peek display-list (+ start 1)))) ;; tile id
+      (when (eq? (peek display-list display-list-index) command-tile-value)
+        ;; tileset
+        (ppu-memset ppu-name-table-0
+                    (peek display-list (+ display-list-index 1))
+                    (peek display-list (+ display-list-index 2))
+                    (peek display-list start) ;; length
+                    (peek display-list (+ start 1)))) ;; tile id
 
       ;; 2x2 metatile block
-      (when (eq? (peek display-list display-list-index) command-quad) 
-	(set! o (peek display-list (+ display-list-index 1)))
-	(set! p (peek display-list (+ display-list-index 2)))
-	(set! i (peek display-list start))
-	;; could be optimised a lot
-	(ppu-memset ppu-name-table-0 o p 1 i) 
-	(ppu-memset ppu-name-table-0 o (+ p 1) 1 (+ i 1)) 
-	(ppu-memset ppu-name-table-0 o (+ p 32) 1 (+ i 16)) 
-	(ppu-memset ppu-name-table-0 o (+ p 33) 1 (+ i 17))
-	)
+      (when (eq? (peek display-list display-list-index) command-quad)
+        (set! o (peek display-list (+ display-list-index 1)))
+        (set! p (peek display-list (+ display-list-index 2)))
+        (set! i (peek display-list start))
+        ;; could be optimised a lot
+        (ppu-memset ppu-name-table-0 o p 1 i)
+        (ppu-memset ppu-name-table-0 o (+ p 1) 1 (+ i 1))
+        (ppu-memset ppu-name-table-0 o (+ p 32) 1 (+ i 16))
+        (ppu-memset ppu-name-table-0 o (+ p 33) 1 (+ i 17))
+        )
 
       ;; copy from PRG-ROM to tile data
-      (when (eq? (peek display-list display-list-index) command-rom-data) 
-	(set! o (peek display-list start)) ;; prg high
-	(set! p (peek display-list (+ start 1))) ;; prg low
-	(set! i (peek display-list (+ start 2))) ;; length
-	(ppu-memcpy16 ppu-name-table-0 
-		      (peek display-list (+ display-list-index 1)) 
-		      (peek display-list (+ display-list-index 2))
-		      i o))
+      (when (eq? (peek display-list display-list-index) command-rom-data)
+        (set! o (peek display-list start)) ;; prg high
+        (set! p (peek display-list (+ start 1))) ;; prg low
+        (set! i (peek display-list (+ start 2))) ;; length
+        (ppu-memcpy16 ppu-name-table-0
+                      (peek display-list (+ display-list-index 1))
+                      (peek display-list (+ display-list-index 2))
+                      i o))
 
-      (when (eq? (peek display-list display-list-index) command-palette-change) 
-	(set! o (peek display-list start)) ;; palette index
-	(cond
-	 ((eq? o title-palette-id) (ppu-memcpy ppu-palette 0 0 #x10 title_palette 0))
-	 ((eq? o title1-palette-id) (ppu-memcpy ppu-palette 0 0 #x10 title1_palette 0))
-	 ((eq? o title2-palette-id) (ppu-memcpy ppu-palette 0 0 #x10 title2_palette 0))
-	 ((eq? o title3-palette-id) (ppu-memcpy ppu-palette 0 0 #x10 title3_palette 0))
-	 ((eq? o eighties-palette-id) (ppu-memcpy ppu-palette 0 0 #x20 eighties_palette 0)) ;; + sprites
-	 ((eq? o indoor-palette-id) (ppu-memcpy ppu-palette 0 0 #x20 indoor_palette 0)) 
-	 ((eq? o future-palette-id) (ppu-memcpy ppu-palette 0 0 #x10 future_palette 0))
-	 (else (ppu-memcpy ppu-palette 0 0 #x20 black_palette 0))))
-      
+      (when (eq? (peek display-list display-list-index) command-palette-change)
+        (set! o (peek display-list start)) ;; palette index
+        (cond
+         ((eq? o title-palette-id) (ppu-memcpy ppu-palette 0 0 #x10 title-palette 0))
+         ((eq? o title1-palette-id) (ppu-memcpy ppu-palette 0 0 #x10 title1-palette 0))
+         ((eq? o title2-palette-id) (ppu-memcpy ppu-palette 0 0 #x10 title2-palette 0))
+         ((eq? o title3-palette-id) (ppu-memcpy ppu-palette 0 0 #x10 title3-palette 0))
+         ((eq? o eighties-palette-id) (ppu-memcpy ppu-palette 0 0 #x20 eighties-palette 0)) ;; + sprites
+         ((eq? o indoor-palette-id) (ppu-memcpy ppu-palette 0 0 #x20 indoor-palette 0))
+         ((eq? o future-palette-id) (ppu-memcpy ppu-palette 0 0 #x10 future-palette 0))
+         (else (ppu-memcpy ppu-palette 0 0 #x20 black-palette 0))))
+
       (set! display-list-index (- display-list-index n)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
  ;; utilities that use the display list
 
  ;; draws a single page of prg-rom defined tiles
- (defun (draw-bg l h page)
+ (defsub (draw-bg l h page)
    (set! h (+ h page))
    (display-list-add-byte (+ l 0))
    (display-list-add-byte h)
@@ -327,14 +355,14 @@
    (display-list-end-packet command-rom-data page 192 3))
 
  ;; draws an entire screens worth of prg-rom defined tiles
- (defun (draw-screen l h)
+ (defsub (draw-screen l h)
    (draw-bg l h 0)
    (draw-bg l h 1)
    (draw-bg l h 2)
    (draw-bg l h 3))
 
 ;; takes offset from screen 1 in rom
- (defun (draw-screen2 l h)
+ (defsub (draw-screen2 l h)
    (draw-bg l h 4)
    (draw-bg l h 5)
    (draw-bg l h 6)
@@ -344,7 +372,7 @@
  ;; text display
 
  ;; draw text straight to screen
- (defun (draw-text h l)
+ (defsub (draw-text h l)
    ;; zero terminating strings
    (set! i 1) ;; char
    (set! j 0) ;; count
@@ -356,7 +384,7 @@
    )
 
  ;; gradually type text to screen
- (defun (update-typed-text h l)
+ (defsub (update-typed-text h l)
    (cond
     ((eq? text-time 255)
      ;; don't start till all other drawing has finished
@@ -367,20 +395,21 @@
      (when (or (> text-time 3) (eq? i 32)) ;; space
        ;; zero terminating strings
        (when (not (eq? i 0))
-	 (display-list-add-byte i)
-	 (display-list-end-packet command-tile-data h (+ text-line (+ l text-x)) 1)
-	 (inc text-pos)
-	 (inc text-x)
-	 (when (> text-x 22)
-	   (set! text-line (+ text-line 32))
-	   (set! text-x 0)))
+         (display-list-add-byte i)
+         (display-list-end-packet command-tile-data h
+                                  (+ text-line (+ l text-x)) 1)
+         (inc text-pos)
+         (inc text-x)
+         (when (> text-x 22)
+           (set! text-line (+ text-line 32))
+           (set! text-x 0)))
        (set! text-time 0)))))
 
- (defun (text-finished)
+ (defsub (text-finished)
    (set! i (peek16 text-addr text-pos))
    (if (eq? i 0) 1 0))
 
- (defun (reset-text) 
+ (defsub (reset-text)
    (set! text-x 0)
    (set! text-line 0)
    (set! text-time 255)
@@ -392,45 +421,45 @@
  ;; gtext-box is used both as activation and countdown
  ;; to avoid repeated activation when next to characters
 
- (defconst text-box-deactivated "#0")
- (defconst text-box-activated "#254")
- (defconst text-box-start-delay "#253")
+ (defconst text-box-deactivated 0)
+ (defconst text-box-activated #xfe)
+ (defconst text-box-start-delay #xfd)
 
  ;; create the text box
- (defun (show-textbox)   
+ (defsub (show-textbox)
    (when (eq? gtext-box text-box-deactivated)  ;; not shown already
      (reset-text)
      (set! text-pos 0)                         ;; reset typing pos
      (set! gtext-box  text-box-activated)))    ;; set to shown
 
- (defun (update-textbox)   
+ (defsub (update-textbox)
    (when (eq? gtext-box text-box-activated)   ;; shown activated
      (update-typed-text 3 5)  ;; update typing
      (when (pressed joypad-b)  ;; exit pressed
        (set! gdraw-phase 1)    ;; redraw background
        (set! gtext-box text-box-start-delay)))  ;; start countdown running
    ;; do the count down
-   (when (and (< gtext-box text-box-activated) 
-	      (not (eq? gtext-box text-box-deactivated))) 
+   (when (and (< gtext-box text-box-activated)
+              (not (eq? gtext-box text-box-deactivated)))
      (dec gtext-box)))
 
- (defun (update-textbox2)   
+ (defsub (update-textbox2)
    (when (eq? gtext-box text-box-activated)   ;; shown activated
      (update-typed-text 5 0)  ;; update typing
      (when (pressed joypad-b)  ;; exit pressed
        (set! gdraw-phase 1)    ;; redraw background
        (set! gtext-box text-box-start-delay)))  ;; start countdown running
    ;; do the count down
-   (when (and (< gtext-box text-box-activated) 
-	      (not (eq? gtext-box text-box-deactivated))) 
+   (when (and (< gtext-box text-box-activated)
+              (not (eq? gtext-box text-box-deactivated)))
      (dec gtext-box)))
- 
+
 
  ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
  ;; sprite stuff
- 
+
  ;; set up a 2x2 block meta sprite
- (defun (setup-character block id)
+ (defsub (setup-character block id)
    (set-sprite-x! id 0)
    (set-sprite-y! id 0)
    (set-sprite-id! id block)
@@ -455,26 +484,26 @@
  ;; collisions: all assume 2x2 sprites...
 
  ;; sprites colliding against sprites
- (defun (sprite-collide-sprite sprite-id-a sprite-id-b)
+ (defsub (sprite-collide-sprite sprite-id-a sprite-id-b)
    ;; collide with 4th sprite x/y as centre of 2x2
-   (sprite-collide-pos 
-    sprite-id-a 
+   (sprite-collide-pos
+    sprite-id-a
     (get-sprite-x (+ sprite-id-b 3))
     (get-sprite-y (+ sprite-id-b 3))))
- 
+
  ;; sprite pixel pos collision
- (defun (sprite-collide-pos sprite-id x y)
-   (and 
+ (defsub (sprite-collide-pos sprite-id x y)
+   (and
     (and
      ;; expanding bbox to get edge-edge collision
      ;; can reduce this to get 'softer' collisions
      (> x (- (get-sprite-x sprite-id) 8))
      (< x (+ (get-sprite-x (+ sprite-id 1)) 16)))
-    (and 
+    (and
      (> y (- (get-sprite-y sprite-id) 8))
      (< y (+ (get-sprite-y (+ sprite-id 2)) 16)))))
 
- (defun (bb-collide-pos screen x y)
+ (defsub (bb-collide-pos screen x y)
    (cond
     ((eq? ggame-mode eighties-mode)
      (if (eq? screen 0) (bb-collide-pos-screen0 x y)
@@ -485,153 +514,153 @@
      (bb-collide-pos-tobacco x y))
     (else
      (bb-collide-pos-michael x y))))
-  
+
  ;; bounding box list collisions for level terrain
  ;; different directions use different hotspots
  ;; still some tweaks todo here
- (defun (bb-collide-pos-screen0 x y)
+ (defsub (bb-collide-pos-screen0 x y)
    ;; read the length of rects to get the end
-   (set! end (+ 1 (<< (peek collision_bboxes0) 2))) ;; rect so * 4   
+   (set! end (+ 1 (<< (peek collision-bboxes0) 2))) ;; rect so * 4
    ;; setup for the loop
    (set! i 1) ;; address
    (set! j 0) ;; return value (1=collision)
    ;; loop through all the collision rects (or until we are inside one)
    (while (and (< i end) (eq? j 0))
      (set! j
-	   (and ;; check bounding boxes
-	    (and
-	     (> x (peek collision_bboxes0 i)) 
-	     (< x (peek collision_bboxes0 (+ i 2))))
-	    (and 
-	     (> y (peek collision_bboxes0 (+ i 1)))
-	     (< y (peek collision_bboxes0 (+ i 3))))))
+           (and ;; check bounding boxes
+            (and
+             (> x (peek collision-bboxes0 i))
+             (< x (peek collision-bboxes0 (+ i 2))))
+            (and
+             (> y (peek collision-bboxes0 (+ i 1)))
+             (< y (peek collision-bboxes0 (+ i 3))))))
      (set! i (+ i 4))) ;; next bbox
    j)
 
- (defun (bb-collide-pos-screen1 x y)
+ (defsub (bb-collide-pos-screen1 x y)
    ;; read the length of rects to get the end
-   (set! end (+ 1 (<< (peek collision_bboxes1) 2))) ;; rect so * 4   
+   (set! end (+ 1 (<< (peek collision-bboxes1) 2))) ;; rect so * 4
    ;; setup for the loop
    (set! i 1) ;; address
    (set! j 0) ;; return value (1=collision)
    ;; loop through all the collision rects (or until we are inside one)
    (while (and (< i end) (eq? j 0))
      (set! j
-	   (and ;; check bounding boxes
-	    (and
-	     (> x (peek collision_bboxes1 i)) 
-	     (< x (peek collision_bboxes1 (+ i 2))))
-	    (and 
-	     (> y (peek collision_bboxes1 (+ i 1)))
-	     (< y (peek collision_bboxes1 (+ i 3))))))
+           (and ;; check bounding boxes
+            (and
+             (> x (peek collision-bboxes1 i))
+             (< x (peek collision-bboxes1 (+ i 2))))
+            (and
+             (> y (peek collision-bboxes1 (+ i 1)))
+             (< y (peek collision-bboxes1 (+ i 3))))))
      (set! i (+ i 4))) ;; next bbox
    j)
 
- (defun (bb-collide-pos-aerobic x y)
+ (defsub (bb-collide-pos-aerobic x y)
    ;; read the length of rects to get the end
-   (set! end (+ 1 (<< (peek collision_bboxes_aerobic) 2))) ;; rect so * 4   
+   (set! end (+ 1 (<< (peek collision-bboxes-aerobic) 2))) ;; rect so * 4
    ;; setup for the loop
    (set! i 1) ;; address
    (set! j 0) ;; return value (1=collision)
    ;; loop through all the collision rects (or until we are inside one)
    (while (and (< i end) (eq? j 0))
      (set! j
-	   (and ;; check bounding boxes
-	    (and
-	     (> x (peek collision_bboxes_aerobic i)) 
-	     (< x (peek collision_bboxes_aerobic (+ i 2))))
-	    (and 
-	     (> y (peek collision_bboxes_aerobic (+ i 1)))
-	     (< y (peek collision_bboxes_aerobic (+ i 3))))))
+           (and ;; check bounding boxes
+            (and
+             (> x (peek collision-bboxes-aerobic i))
+             (< x (peek collision-bboxes-aerobic (+ i 2))))
+            (and
+             (> y (peek collision-bboxes-aerobic (+ i 1)))
+             (< y (peek collision-bboxes-aerobic (+ i 3))))))
      (set! i (+ i 4))) ;; next bbox
    j)
 
- (defun (bb-collide-pos-tobacco x y)
+ (defsub (bb-collide-pos-tobacco x y)
    ;; read the length of rects to get the end
-   (set! end (+ 1 (<< (peek collision_bboxes_tobacco) 2))) ;; rect so * 4   
+   (set! end (+ 1 (<< (peek collision-bboxes-tobacco) 2))) ;; rect so * 4
    ;; setup for the loop
    (set! i 1) ;; address
    (set! j 0) ;; return value (1=collision)
    ;; loop through all the collision rects (or until we are inside one)
    (while (and (< i end) (eq? j 0))
      (set! j
-	   (and ;; check bounding boxes
-	    (and
-	     (> x (peek collision_bboxes_tobacco i)) 
-	     (< x (peek collision_bboxes_tobacco (+ i 2))))
-	    (and 
-	     (> y (peek collision_bboxes_tobacco (+ i 1)))
-	     (< y (peek collision_bboxes_tobacco (+ i 3))))))
+           (and ;; check bounding boxes
+            (and
+             (> x (peek collision-bboxes-tobacco i))
+             (< x (peek collision-bboxes-tobacco (+ i 2))))
+            (and
+             (> y (peek collision-bboxes-tobacco (+ i 1)))
+             (< y (peek collision-bboxes-tobacco (+ i 3))))))
      (set! i (+ i 4))) ;; next bbox
    j)
 
- (defun (bb-collide-pos-michael x y)
+ (defsub (bb-collide-pos-michael x y)
    ;; read the length of rects to get the end
-   (set! end (+ 1 (<< (peek collision_bboxes_michael) 2))) ;; rect so * 4   
+   (set! end (+ 1 (<< (peek collision-bboxes-michael) 2))) ;; rect so * 4
    ;; setup for the loop
    (set! i 1) ;; address
    (set! j 0) ;; return value (1=collision)
    ;; loop through all the collision rects (or until we are inside one)
    (while (and (< i end) (eq? j 0))
      (set! j
-	   (and ;; check bounding boxes
-	    (and
-	     (> x (peek collision_bboxes_michael i)) 
-	     (< x (peek collision_bboxes_michael (+ i 2))))
-	    (and 
-	     (> y (peek collision_bboxes_michael (+ i 1)))
-	     (< y (peek collision_bboxes_michael (+ i 3))))))
+           (and ;; check bounding boxes
+            (and
+             (> x (peek collision-bboxes-michael i))
+             (< x (peek collision-bboxes-michael (+ i 2))))
+            (and
+             (> y (peek collision-bboxes-michael (+ i 1)))
+             (< y (peek collision-bboxes-michael (+ i 3))))))
      (set! i (+ i 4))) ;; next bbox
    j)
 
 
  ;; doors to other dimensions
 
- (defun (doorway-collide-pos door x y)
+ (defsub (doorway-collide-pos door x y)
    (set! i (<< door 2))
    (and ;; check bounding boxes
     (and
-     (> x (peek doorway_bbox i)) 
-     (< x (peek doorway_bbox (+ i 2))))
-    (and 
-     (> y (peek doorway_bbox (+ i 1)))
-     (< y (peek doorway_bbox (+ i 3))))))
+     (> x (peek doorway-bbox i))
+     (< x (peek doorway-bbox (+ i 2))))
+    (and
+     (> y (peek doorway-bbox (+ i 1)))
+     (< y (peek doorway-bbox (+ i 3))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
  ;; entity system
 
- (defconst entity-id "#0") ;; the sprite id
- (defconst entity-x "#1")
- (defconst entity-screen "#2") ;; the high byte of x
- (defconst entity-y "#3")
- (defconst entity-pattern "#4") ;; for whatever
- (defconst entity-size "#5")
+ (defconst entity-id 0) ;; the sprite id
+ (defconst entity-x 1)
+ (defconst entity-screen 2) ;; the high byte of x
+ (defconst entity-y 3)
+ (defconst entity-pattern 4) ;; for whatever
+ (defconst entity-size 5)
 
- (defconst num-entities "#7")
+ (defconst num-entities 7)
 
- (defconst player-entity "#0")
- (defconst npc1-entity "#5")
- (defconst npc2-entity "#10")
- (defconst npc3-entity "#15")
- (defconst npc4-entity "#20")
- (defconst npc5-entity "#25")
- (defconst npc6-entity "#30")
+ (defconst player-entity 0)
+ (defconst npc1-entity 5)
+ (defconst npc2-entity 10)
+ (defconst npc3-entity 15)
+ (defconst npc4-entity 20)
+ (defconst npc5-entity 25)
+ (defconst npc6-entity 30)
 
- (defconst player-sprite "#0")
+ (defconst player-sprite 0)
 
- (defconst player-sprite-pattern-id "#$00")
- (defconst teacher-sprite-pattern-id "#$a0")
- (defconst dancer1-sprite-pattern-id "#$c0")
- (defconst dancer2-sprite-pattern-id "#$a6")
- (defconst dancer3-sprite-pattern-id "#$c6")
- (defconst dancer4-sprite-pattern-id "#$e0")
- (defconst dancer5-sprite-pattern-id "#$e6")
- (defconst smoker1-sprite-pattern-id "#$60")
- (defconst smoker2-sprite-pattern-id "#$80")
- (defconst michael-sprite-pattern-id "#$40")
- (defconst friend-sprite-pattern-id "#$86")
+ (defconst player-sprite-pattern-id #x00)
+ (defconst teacher-sprite-pattern-id #xa0)
+ (defconst dancer1-sprite-pattern-id #xc0)
+ (defconst dancer2-sprite-pattern-id #xa6)
+ (defconst dancer3-sprite-pattern-id #xc6)
+ (defconst dancer4-sprite-pattern-id #xe0)
+ (defconst dancer5-sprite-pattern-id #xe6)
+ (defconst smoker1-sprite-pattern-id #x60)
+ (defconst smoker2-sprite-pattern-id #x80)
+ (defconst michael-sprite-pattern-id #x40)
+ (defconst friend-sprite-pattern-id #x86)
 
- (defun (setup-npc-entity type eaddr screen x y col)
+ (defsub (setup-npc-entity type eaddr screen x y col)
    (set! n (peek entity-data (+ eaddr entity-id))) ;; entity/sprite id
    (setup-character type n)
    (or-sprites-attr! n 4 col)
@@ -639,10 +668,10 @@
    (poke! entity-data (+ eaddr entity-x) x)
    (poke! entity-data (+ eaddr entity-screen) screen)
    (poke! entity-data (+ eaddr entity-y) y))
- 
- ;; convert the logical 16bit entity positions into 
+
+ ;; convert the logical 16bit entity positions into
  ;; 8bit screen positions
- (defun (update-entities)
+ (defsub (update-entities)
    (set! n 0) ;; entity addr
    (set! j 0) ;; sprite addr
    (set! i 0) ;; entity id
@@ -654,97 +683,97 @@
      ;; clip left/right sides for npc's
      (when (> i 0)
        (if (eq? (peek entity-data (+ n entity-screen)) 0)
-	   ;; move off the screen
-	   (when (> gscroll-x o) (set-sprites-2x2-y! j 245))
-	   (when (< gscroll-x (+ o 8)) (set-sprites-2x2-y! j 245))))
+           ;; move off the screen
+           (when (> gscroll-x o) (set-sprites-2x2-y! j 245))
+           (when (< gscroll-x (+ o 8)) (set-sprites-2x2-y! j 245))))
 
      (set! j (+ j 16)) ;; 4 sprites in bytes
      (set! n (+ n entity-size))
      (inc i)))
 
- (defun (hide-entities)
+ (defsub (hide-entities)
    (set! j 0)
    (loop i 0 num-entities
      (set-sprites-2x2-y! j 255)
      (set! j (+ j entity-size)))
    (update-entities))
 
- (defun (entity-move-left addr)
+ (defsub (entity-move-left addr)
    (set! i (peek entity-data (+ addr entity-x)))
    (set! j (peek entity-data (+ addr entity-screen)))
    (-16! i 0 1)
    (poke! entity-data (+ addr entity-x) i)
    (poke! entity-data (+ addr entity-screen) j))
 
- (defun (entity-move-right addr)
+ (defsub (entity-move-right addr)
    (set! i (peek entity-data (+ addr entity-x)))
    (set! j (peek entity-data (+ addr entity-screen)))
    (+16! i 0 1)
    (poke! entity-data (+ addr entity-x) i)
    (poke! entity-data (+ addr entity-screen) j))
 
- (defun (entity-move-up addr)
-   (poke! entity-data 
-	  (+ addr entity-y) 
-	  (- (peek entity-data (+ addr entity-y)) 1)))
+ (defsub (entity-move-up addr)
+   (poke! entity-data
+          (+ addr entity-y)
+          (- (peek entity-data (+ addr entity-y)) 1)))
 
- (defun (entity-move-down addr)
-   (poke! entity-data 
-	  (+ addr entity-y) 
-	  (+ (peek entity-data (+ addr entity-y)) 1)))
+ (defsub (entity-move-down addr)
+   (poke! entity-data
+          (+ addr entity-y)
+          (+ (peek entity-data (+ addr entity-y)) 1)))
 
- (defun (bb-collide-entity-left addr)
+ (defsub (bb-collide-entity-left addr)
    (bb-collide-pos
     (peek entity-data (+ addr entity-screen))
-    (peek entity-data (+ addr entity-x)) 
+    (peek entity-data (+ addr entity-x))
     (+ (peek entity-data (+ addr entity-y)) 9)))
-      
- (defun (bb-collide-entity-right addr)
+
+ (defsub (bb-collide-entity-right addr)
    ;; check 16 bit left/right
    (set! i (peek entity-data (+ addr entity-x)))
    (set! j (peek entity-data (+ addr entity-screen)))
    (+16! i 0 16) ;; add 16 to current x pos
-   (bb-collide-pos 
+   (bb-collide-pos
     j ;; screen id
     i (+ (peek entity-data (+ addr entity-y)) 9)))
-   
- (defun (bb-collide-entity-up addr)
-   (bb-collide-pos 
+
+ (defsub (bb-collide-entity-up addr)
+   (bb-collide-pos
     (peek entity-data (+ addr entity-screen))
     (+ (peek entity-data (+ addr entity-x)) 8)
     (+ (peek entity-data (+ addr entity-y)) 8)))
 
- (defun (bb-collide-entity-down addr)
-   (bb-collide-pos 
+ (defsub (bb-collide-entity-down addr)
+   (bb-collide-pos
     (peek entity-data (+ addr entity-screen))
     (+ (peek entity-data (+ addr entity-x)) 8)
     (+ (peek entity-data (+ addr entity-y)) 16)))
 
- (defun (doorway-collide-entity screen door addr)
+ (defsub (doorway-collide-entity screen door addr)
    (if (eq? (peek entity-data (+ addr entity-screen)) screen)
-       (doorway-collide-pos 
-	door
-	(+ (peek entity-data (+ addr entity-x)) 8)
-	(+ (peek entity-data (+ addr entity-y)) 8))
+       (doorway-collide-pos
+        door
+        (+ (peek entity-data (+ addr entity-x)) 8)
+        (+ (peek entity-data (+ addr entity-y)) 8))
      0))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
  ;; game modes
 
- (defun (switch-game-mode new-mode)
+ (defsub (switch-game-mode new-mode)
    ;; clear all pending stuff in the queue
    (display-list-flush)
    ;; blank the screen to hide update
-   (display-list-add-byte black-palette-id) 
+   (display-list-add-byte black-palette-id)
    (display-list-end-packet command-palette-change 0 0 1)
    (set! ggame-mode new-mode)
    (set! text-pos 0)
    ;; reset the draw phase
    (set! gdraw-phase 0))
 
- (defun (any-key)
+ (defsub (any-key)
    (or (or (pressed joypad-a)
-	   (pressed joypad-b))
+           (pressed joypad-b))
        (pressed joypad-select)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -754,19 +783,19 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
  ;; title
 
- (defun (update-screen bank palette nam-l nam-h)
+ (defsub (update-screen bank palette nam-l nam-h)
    (mmc1-chrbank0 bank)
-   (display-list-add-byte palette) 
+   (display-list-add-byte palette)
    (display-list-end-packet command-palette-change 0 0 1)
    (draw-screen nam-l nam-h)
-   (display-list-add-byte black-palette-id) 
+   (display-list-add-byte black-palette-id)
    (display-list-end-packet command-palette-change 0 0 1)
    (reset-text)
    (set! title-text-line 0))
 
- (defun (update-title)
+ (defsub (update-title)
    (cond
-    ((eq? gdraw-phase 1) 
+    ((eq? gdraw-phase 1)
      (set! debounce 1)
      (set16! text-addr null_text)
      (set! title-screen 0)
@@ -777,24 +806,24 @@
      (mmc1-chrbank1 1)
      (update-sprites-title))
     ((eq? gdraw-phase 2)
-    
+
      )
     ;; wait before reveal
     ((eq? gdraw-phase screen-blank-delay)
-     (display-list-add-byte title1-palette-id) 
+     (display-list-add-byte title1-palette-id)
      (display-list-end-packet command-palette-change 0 0 1))
     ;; let clear happen first
     ((> gdraw-phase screen-blank-delay)
      (if (< title-screen 5)
-	 (update-typed-text 1 100)     
-	 (update-typed-text 2 100))
+         (update-typed-text 1 100)
+         (update-typed-text 2 100))
      ))
-  
+
    ;; timed section
    (cond
     ((and (eq? title-screen 0) (eq? gframe 127))
      (reset-text)
-     (set16! text-addr titles_1)     
+     (set16! text-addr titles_1)
      (set! title-screen 1))
     ((and (eq? title-screen 1) (eq? gframe 255))
      (reset-text)
@@ -819,127 +848,127 @@
      (set! title-screen 4))
     ((and (eq? title-screen 4) (eq? gframe 255))
      (draw-screen (low title_nam) (high title_nam))
-     (display-list-add-byte title-palette-id) 
+     (display-list-add-byte title-palette-id)
      (display-list-end-packet command-palette-change 0 0 1)
      (set! title-screen 5)))
 
    (when (not (any-key)) (set! debounce 1))
 
    ;; slideshow mode
-   (cond 
-    ((and debounce (any-key))     
+   (cond
+    ((and debounce (any-key))
      (set! debounce 0)
-     (cond 
+     (cond
       ((eq? title-screen 5)
        (asm
-	"lda #1
+        "lda #1
          jsr FamiToneMusicPlay")
        (update-screen 2 title1-palette-id (low title1_nam) (high title1_nam))
        (set16! text-addr intro_1_1)
        (set! title-screen 6))
 
       ((eq? title-screen 6)
-       (cond 
-     	((eq? title-text-line 0)
-	 (draw-screen (low title1_nam) (high title1_nam))
-     	 (set16! text-addr intro_1_2)
-     	 (set! title-text-line 1)
-     	 (reset-text))
-     	((eq? title-text-line 1)
-	 (update-screen 4 title2-palette-id (low title2_nam) (high title2_nam))
-     	 (set16! text-addr intro_2_1)
-     	 (reset-text)
-     	 (set! title-text-line 0)
-     	 (set! title-screen 7))))
+       (cond
+        ((eq? title-text-line 0)
+         (draw-screen (low title1_nam) (high title1_nam))
+         (set16! text-addr intro_1_2)
+         (set! title-text-line 1)
+         (reset-text))
+        ((eq? title-text-line 1)
+         (update-screen 4 title2-palette-id (low title2_nam) (high title2_nam))
+         (set16! text-addr intro_2_1)
+         (reset-text)
+         (set! title-text-line 0)
+         (set! title-screen 7))))
 
       ((eq? title-screen 7)
-       (cond 
-     	((eq? title-text-line 0)
-	 (draw-screen (low title2_nam) (high title2_nam))
-     	 (set16! text-addr intro_2_2)
-     	 (set! title-text-line 1)
-     	 (reset-text))
-     	((eq? title-text-line 1)
-	 (update-screen 6 title3-palette-id (low title3_nam) (high title3_nam))
-     	 (set16! text-addr intro_3_1)
-     	 (reset-text)
-     	 (set! title-text-line 0)
-     	 (set! title-screen 8))))
-       
-      ((eq? title-screen 8)
-       (cond 
-     	((eq? title-text-line 0)
-	 (draw-screen (low title3_nam) (high title3_nam))
-     	 (set16! text-addr intro_3_2)
-     	 (set! title-text-line 1)
-     	 (reset-text))
-     	((eq? title-text-line 1)
-	 (draw-screen (low title3_nam) (high title3_nam))
-     	 (set16! text-addr intro_3_3)
-     	 (set! title-text-line 2)
-     	 (reset-text))
-     	((eq? title-text-line 2)
-	 (draw-screen (low title3_nam) (high title3_nam))
-     	 (set16! text-addr intro_3_4)
-     	 (set! title-text-line 3)
-     	 (reset-text))
-     	((eq? title-text-line 3)
-	 (asm
-	  "lda #2
-           jsr FamiToneMusicPlay")
-	 (switch-game-mode eighties-mode)))))))) 
+       (cond
+        ((eq? title-text-line 0)
+         (draw-screen (low title2_nam) (high title2_nam))
+         (set16! text-addr intro_2_2)
+         (set! title-text-line 1)
+         (reset-text))
+        ((eq? title-text-line 1)
+         (update-screen 6 title3-palette-id (low title3_nam) (high title3_nam))
+         (set16! text-addr intro_3_1)
+         (reset-text)
+         (set! title-text-line 0)
+         (set! title-screen 8))))
 
- (defun (update-sprites-title)
+      ((eq? title-screen 8)
+       (cond
+        ((eq? title-text-line 0)
+         (draw-screen (low title3_nam) (high title3_nam))
+         (set16! text-addr intro_3_2)
+         (set! title-text-line 1)
+         (reset-text))
+        ((eq? title-text-line 1)
+         (draw-screen (low title3_nam) (high title3_nam))
+         (set16! text-addr intro_3_3)
+         (set! title-text-line 2)
+         (reset-text))
+        ((eq? title-text-line 2)
+         (draw-screen (low title3_nam) (high title3_nam))
+         (set16! text-addr intro_3_4)
+         (set! title-text-line 3)
+         (reset-text))
+        ((eq? title-text-line 3)
+         (asm
+          "lda #2
+           jsr FamiToneMusicPlay")
+         (switch-game-mode eighties-mode))))))))
+
+ (defsub (update-sprites-title)
    (memset sprite-shadow #xff))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
  ;; eighties
 
- (defun (init-sprites-eighties)
+ (defsub (init-sprites-eighties)
    ;; coming back from another mode?
    (when (eq? setup-eighties 0)
      (set! j 0)
      (loop i 0 num-entities
-	   (poke! entity-data (+ j entity-id) (<< i 2)) ;; * 4 sprite id
-	   (set! j (+ j entity-size)))
-     
+           (poke! entity-data (+ j entity-id) (<< i 2)) ;; * 4 sprite id
+           (set! j (+ j entity-size)))
+
      (set! n (peek entity-data (+ player-entity entity-id)))
      (poke! entity-data (+ n entity-x) 48)
      (poke! entity-data (+ n entity-y) 191))
-   
+
    (set! j entity-size)
    (loop i 1 num-entities
-	 (poke! entity-data (+ j entity-y) #xf0) 
-	 (poke! entity-data (+ j entity-x) #xf0) 
-	 (set! j (+ j entity-size)))
+         (poke! entity-data (+ j entity-y) #xf0)
+         (poke! entity-data (+ j entity-x) #xf0)
+         (set! j (+ j entity-size)))
 
    ;;(set! setup-eighties 1)
-   
+
    (defvar direction 1)
    (defvar last-dir 1)
-   
+
    (setup-character player-sprite-pattern-id n)
    (setup-npc-entity friend-sprite-pattern-id npc1-entity 1 95 108 3)
-   
+
    )
 
- (defun (update-eighties) 
+ (defsub (update-eighties)
    (when (not (eq? gtext-box 255))
-     (cond 
-      ((eq? gdraw-phase 1) 
+     (cond
+      ((eq? gdraw-phase 1)
        (mmc1-chrbank0 8)
        (mmc1-chrbank1 9)
        (set! gdisable-scroll 0)
        (init-sprites-eighties))
       ;; separate phase so the textbox can redraw on clear
       ;; but leave the sprites where they are etc
-      ((eq? gdraw-phase 2) 
+      ((eq? gdraw-phase 2)
        (draw-screen (low bgtiles) (high bgtiles))
        (draw-screen2 (low bgtiles) (high bgtiles))
        )
       ;; wait before reveal
       ((eq? gdraw-phase screen-blank-delay)
-       (display-list-add-byte eighties-palette-id) 
+       (display-list-add-byte eighties-palette-id)
        (display-list-end-packet command-palette-change 0 0 1)))
 
      (when (not (eq? gtext-box text-box-activated))
@@ -950,7 +979,7 @@
 
    (update-textbox2))
 
- (defun (update-player player-sprite)
+ (defsub (update-player player-sprite)
    ;; is the player character moving?
    (defvar running 1)
    (set! i 0)
@@ -965,7 +994,7 @@
      (set! direction (+ i #x26))
      (when (not (bb-collide-entity-up player-entity))
        (entity-move-up player-entity)))
-    
+
     ((pressed joypad-down)
      (set! direction (+ i #x20))
      (when (not (bb-collide-entity-down player-entity))
@@ -976,34 +1005,34 @@
      (when (not (bb-collide-entity-left player-entity))
        (entity-move-left player-entity)
        (when (not gdisable-scroll)
-	 (when (or (and
-		    (eq? (peek entity-data entity-screen) 0)
-		    (> (peek entity-data entity-x) 127))
-		   (and
-		    (eq? (peek entity-data entity-screen) 1)
-		    (< (peek entity-data entity-x) 127)))
-	   (set! gscroll-x (- (peek entity-data entity-x) 127))))))
-		 
+         (when (or (and
+                    (eq? (peek entity-data entity-screen) 0)
+                    (> (peek entity-data entity-x) 127))
+                   (and
+                    (eq? (peek entity-data entity-screen) 1)
+                    (< (peek entity-data entity-x) 127)))
+           (set! gscroll-x (- (peek entity-data entity-x) 127))))))
+
     ((pressed joypad-right)
      (set! direction (+ i #x04))
      (when (not (bb-collide-entity-right player-entity))
        (entity-move-right player-entity)
        (when (not gdisable-scroll)
-	 (when (or (and
-		    (eq? (peek entity-data entity-screen) 0)
-		    (> (peek entity-data entity-x) 127))
-		   (and
-		    (eq? (peek entity-data entity-screen) 1)
-		    (< (peek entity-data entity-x) 127)))
-	   (set! gscroll-x (- (peek entity-data entity-x) 127))))))
-       
+         (when (or (and
+                    (eq? (peek entity-data entity-screen) 0)
+                    (> (peek entity-data entity-x) 127))
+                   (and
+                    (eq? (peek entity-data entity-screen) 1)
+                    (< (peek entity-data entity-x) 127)))
+           (set! gscroll-x (- (peek entity-data entity-x) 127))))))
+
     (else
      ;; we are not moving
      (set! running 0)))
 
    ;; animate player character
-   (when running 
-     (cond 
+   (when running
+     (cond
       ((eq? (and (>> ganim-frame 3) #x3) 0)
        (animate-sprites-2x2! player-sprite direction))
       ((eq? (and (>> ganim-frame 3) #x3) 1)
@@ -1013,17 +1042,17 @@
 
    (when (not running)
      (if (eq? last-dir (+ i #x0a)) ;; left
-	 ;; standing
-	 (animate-sprites-2x2! player-sprite #x2)
+         ;; standing
+         (animate-sprites-2x2! player-sprite #x2)
        (animate-sprites-2x2! player-sprite #x0)))
-   
+
    (when running
      (set! last-dir direction)))
 
- (defun (animate-npc pattern id)
+ (defsub (animate-npc pattern id)
    ;; convert from entity id to sprite id
    (set! id (peek entity-data (+ id entity-id)))
-   (cond 
+   (cond
     ((eq? (and (>> ganim-frame 3) 3) 0)
      (animate-sprites-2x2! id pattern))
     ((eq? (and (>> ganim-frame 3) 3) 1)
@@ -1031,11 +1060,11 @@
     (else
      (animate-sprites-2x2! id (+ pattern 4)))))
 
- (defun (pingpong-npc pattern id)
+ (defsub (pingpong-npc pattern id)
    ;; convert from entity id to sprite id
    (set! id (peek entity-data (+ id entity-id)))
    (set! i (and (>> ganim-frame 3) 7))
-   (cond 
+   (cond
     ((eq? i 0)
      (animate-sprites-2x2! id pattern))
     ((eq? i 1)
@@ -1047,14 +1076,14 @@
     ((eq? i 4)
      (animate-sprites-2x2! id pattern))))
 
- (defun (update-sprites-eighties)
+ (defsub (update-sprites-eighties)
    (update-player player-sprite)
    (animate-npc friend-sprite-pattern-id npc1-entity)
 
-   (when (sprite-collide-sprite 
-	  0 (peek entity-data (+ npc1-entity entity-id)))
+   (when (sprite-collide-sprite
+          0 (peek entity-data (+ npc1-entity entity-id)))
      (if (eq? (and ggame-state 3) 3)
-	 (set16! text-addr friendsays2)
+         (set16! text-addr friendsays2)
          (set16! text-addr friendsays))
      (show-textbox))
 
@@ -1065,12 +1094,12 @@
      (switch-game-mode tobacco-mode))
    (when
        (and
-	(eq? (and ggame-state 3) 3)
-	(doorway-collide-entity 1 doorway-michael-in player-entity))
+        (eq? (and ggame-state 3) 3)
+        (doorway-collide-entity 1 doorway-michael-in player-entity))
      (switch-game-mode michael-mode))
-   
+
    (update-entities)
-   
+
    (inc ganim-frame)
    (when (> ganim-frame 23)
      (set! ganim-frame 0))
@@ -1081,20 +1110,20 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
  ;; indoor
 
- (defun (init-sprites-indoor)
+ (defsub (init-sprites-indoor)
    (memset sprite-shadow #xff)
    (set! j 0)
    (loop i 0 num-entities
-	 (poke! entity-data (+ j entity-id) (<< i 2)) ;; * 4 sprite id
-	 (set! j (+ j entity-size)))
-   
+         (poke! entity-data (+ j entity-id) (<< i 2)) ;; * 4 sprite id
+         (set! j (+ j entity-size)))
+
    (set! n (peek entity-data (+ player-entity entity-id)))
    (setup-character player-sprite-pattern-id n)
    (poke! entity-data (+ n entity-x) 35)
    (poke! entity-data (+ n entity-y) 100)
-   
+
    (cond
-    ((eq? ggame-mode aerobic-mode)  
+    ((eq? ggame-mode aerobic-mode)
      (setup-npc-entity teacher-sprite-pattern-id npc1-entity 0 162 99 1)
      (setup-npc-entity dancer1-sprite-pattern-id npc2-entity 0 167 139 2)
      (setup-npc-entity dancer2-sprite-pattern-id npc3-entity 0 191 113 3)
@@ -1102,24 +1131,24 @@
      (setup-npc-entity dancer4-sprite-pattern-id npc5-entity 0 131 117 3)
      (setup-npc-entity dancer5-sprite-pattern-id npc6-entity 0 141 123 2)
      )
-    ((eq? ggame-mode tobacco-mode)     
+    ((eq? ggame-mode tobacco-mode)
      (setup-npc-entity smoker1-sprite-pattern-id npc1-entity 0 96 111 1)
      (setup-npc-entity smoker2-sprite-pattern-id npc2-entity 0 184 125 2)
      (setup-npc-entity smoker1-sprite-pattern-id npc3-entity 0 171 93 0)
      (setup-npc-entity smoker2-sprite-pattern-id npc4-entity 0 126 124 0)
      )
-    ((eq? ggame-mode michael-mode)     
+    ((eq? ggame-mode michael-mode)
      (setup-npc-entity michael-sprite-pattern-id npc1-entity 0 100 122 3)
      ))
-    
-   (set! setup-eighties 1)   
+
+   (set! setup-eighties 1)
    (defvar direction 1)
    (defvar last-dir 1))
-     
- (defun (update-indoor)
+
+ (defsub (update-indoor)
    (when (not (eq? gtext-box 255))
-     (cond 
-      ((eq? gdraw-phase 1) 
+     (cond
+      ((eq? gdraw-phase 1)
        (set! gscroll-x 0)
        (set! gdisable-scroll 1)
        (mmc1-chrbank0 10)
@@ -1127,39 +1156,39 @@
        (init-sprites-indoor)
        ;; put player by door
        (if (eq? ggame-mode tobacco-mode)
-	 (poke! entity-data entity-x 142)
-	 (poke! entity-data entity-x 64))
+         (poke! entity-data entity-x 142)
+         (poke! entity-data entity-x 64))
        (poke! entity-data entity-screen 0)
        (poke! entity-data entity-y 98)
        )
       ;; separate phase so the textbox can redraw on clear
       ;; but leave the sprites where they are etc
-      ((eq? gdraw-phase 2) 
+      ((eq? gdraw-phase 2)
        (cond
-	((eq? ggame-mode aerobic-mode)
-	 ;; register that we've been here
-	 (set! ggame-state (or ggame-state 1))
-	 (draw-screen (low aerobic_nam) (high aerobic_nam)))
-	((eq? ggame-mode tobacco-mode)
-	 (set! ggame-state (or ggame-state 2))
-	 (draw-screen (low tobacco_nam) (high tobacco_nam)))
-	((eq? ggame-mode michael-mode)
-	 (draw-screen (low michael_nam) (high michael_nam))))
+        ((eq? ggame-mode aerobic-mode)
+         ;; register that we've been here
+         (set! ggame-state (or ggame-state 1))
+         (draw-screen (low aerobic_nam) (high aerobic_nam)))
+        ((eq? ggame-mode tobacco-mode)
+         (set! ggame-state (or ggame-state 2))
+         (draw-screen (low tobacco_nam) (high tobacco_nam)))
+        ((eq? ggame-mode michael-mode)
+         (draw-screen (low michael_nam) (high michael_nam))))
        )
       ;; wait before reveal
       ((eq? gdraw-phase screen-blank-delay)
-       (display-list-add-byte indoor-palette-id) 
+       (display-list-add-byte indoor-palette-id)
        (display-list-end-packet command-palette-change 0 0 1)))
 
      (when (not (eq? gtext-box text-box-activated))
        (update-sprites-indoors))
      )
-   
+
    (update-textbox))
 
- (defun (update-sprites-indoors)
+ (defsub (update-sprites-indoors)
    (update-player player-sprite)
-   (cond 
+   (cond
     ((eq? ggame-mode aerobic-mode)
      (animate-npc teacher-sprite-pattern-id npc1-entity)
      (animate-npc dancer1-sprite-pattern-id npc2-entity)
@@ -1167,21 +1196,21 @@
      (animate-npc dancer3-sprite-pattern-id npc3-entity)
      (animate-npc dancer4-sprite-pattern-id npc4-entity)
      (animate-npc dancer5-sprite-pattern-id npc5-entity)
-     (when (sprite-collide-sprite 
-	    0 (peek entity-data (+ npc1-entity entity-id)))
+     (when (sprite-collide-sprite
+            0 (peek entity-data (+ npc1-entity entity-id)))
        (set16! text-addr teachersays) ;; what to say
        (show-textbox))
-     
-     (when (or (sprite-collide-sprite 
-		0 (peek entity-data (+ npc2-entity entity-id)))
-	       (sprite-collide-sprite 
-		0 (peek entity-data (+ npc3-entity entity-id)))
-	       (sprite-collide-sprite 
-		0 (peek entity-data (+ npc4-entity entity-id)))
-	       (sprite-collide-sprite 
-		0 (peek entity-data (+ npc5-entity entity-id)))
-	       (sprite-collide-sprite 
-		0 (peek entity-data (+ npc6-entity entity-id))))
+
+     (when (or (sprite-collide-sprite
+                0 (peek entity-data (+ npc2-entity entity-id)))
+               (sprite-collide-sprite
+                0 (peek entity-data (+ npc3-entity entity-id)))
+               (sprite-collide-sprite
+                0 (peek entity-data (+ npc4-entity entity-id)))
+               (sprite-collide-sprite
+                0 (peek entity-data (+ npc5-entity entity-id)))
+               (sprite-collide-sprite
+                0 (peek entity-data (+ npc6-entity entity-id))))
        (set16! text-addr dancersays) ;; what to say
        (show-textbox)))
     ((eq? ggame-mode tobacco-mode)
@@ -1190,23 +1219,23 @@
      (animate-npc smoker1-sprite-pattern-id npc3-entity)
      (animate-npc smoker2-sprite-pattern-id npc4-entity)
 
-     (when (sprite-collide-sprite 
-	    0 (peek entity-data (+ npc1-entity entity-id)))
+     (when (sprite-collide-sprite
+            0 (peek entity-data (+ npc1-entity entity-id)))
        (set16! text-addr smoker2says) ;; what to say
        (show-textbox))
-     (when (sprite-collide-sprite 
-	    0 (peek entity-data (+ npc2-entity entity-id)))
+     (when (sprite-collide-sprite
+            0 (peek entity-data (+ npc2-entity entity-id)))
        (set16! text-addr smoker1says) ;; what to say
        (show-textbox)))
     ((eq? ggame-mode michael-mode)
      (animate-npc michael-sprite-pattern-id npc1-entity)
-     
-     (when (sprite-collide-sprite 
-	    0 (peek entity-data (+ npc1-entity entity-id)))
+
+     (when (sprite-collide-sprite
+            0 (peek entity-data (+ npc1-entity entity-id)))
        (set! ggame-state (or ggame-state 4))
        (set16! text-addr michaelsaysfirst) ;; what to say
        (show-textbox))))
-     
+
    ;; exits
    (cond
     ((eq? ggame-mode aerobic-mode)
@@ -1232,13 +1261,13 @@
        (set! gscroll-x 200)
        (switch-game-mode eighties-mode))
      (when
-	 (and (eq? ggame-state 7)
-	      (doorway-collide-entity 0 doorway-michael-future player-entity))
+         (and (eq? ggame-state 7)
+              (doorway-collide-entity 0 doorway-michael-future player-entity))
        (set! gscroll-x 0)
        (switch-game-mode future-mode))))
 
    (update-entities)
-   
+
    (inc ganim-frame)
    (when (> ganim-frame 23)
      (set! ganim-frame 0))
@@ -1249,7 +1278,7 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
  ;; future
 
- (defun (clear-future)
+ (defsub (clear-future)
    (display-list-add-byte 30)
    (display-list-add-byte 32)
    (display-list-end-packet command-tile-value 0 129 2)
@@ -1278,16 +1307,16 @@
    (display-list-add-byte 32)
    (display-list-end-packet command-tile-value 3 33 2))
 
- (defun (fuzz)
+ (defsub (fuzz)
    ;; random fuzz
-   (display-list-add-byte (rnd)) 
-   (display-list-end-packet 
-    command-tile-data (and (rnd) #b00000111) 
+   (display-list-add-byte (rnd))
+   (display-list-end-packet
+    command-tile-data (and (rnd) #b00000111)
     (<< gframe 2) 1))
 
- (defun (update-future)
+ (defsub (update-future)
     (cond
-     ((eq? gdraw-phase 1) 
+     ((eq? gdraw-phase 1)
       (asm
        "lda #3
         jsr FamiToneMusicPlay")
@@ -1303,59 +1332,60 @@
       )
      ;; wait before reveal
      ((eq? gdraw-phase screen-blank-delay)
-      (display-list-add-byte future-palette-id) 
+      (display-list-add-byte future-palette-id)
       (display-list-end-packet command-palette-change 0 0 1))
      ;; let clear happen first
      ((> gdraw-phase screen-blank-delay)
-      (update-typed-text 1 100)     
+      (update-typed-text 1 100)
       ))
 
     (when (> password-pos 16) (fuzz))
-    
+
     (when (not (any-key)) (set! debounce 1))
-    
+
     ;; slideshow mode
-    (cond 
-     ((and debounce (any-key))     
+    (cond
+     ((and debounce (any-key))
       (set! debounce 0)
-      (cond 
+      (cond
        ((eq? title-screen 0)
-	(clear-future)
-	(set16! text-addr future_1) ;; can you do something for me
-	(set! title-screen 1)
-	(reset-text))
-       
+        (clear-future)
+        (set16! text-addr future_1) ;; can you do something for me
+        (set! title-screen 1)
+        (reset-text))
+
        ((eq? title-screen 1)
-	(cond 
-	 ((eq? title-text-line 0)
-	  (cond 
-	   ((pressed joypad-b) 
-	    (asm
-	     "lda #2
+        (cond
+         ((eq? title-text-line 0)
+          (cond
+           ((pressed joypad-b)
+            (asm
+             "lda #2
               jsr FamiToneMusicPlay")
-	    (switch-game-mode michael-mode))
-	   (else
-	    (clear-future)
-	    (set16! text-addr future_2)
-	    (set! title-text-line 1)
-	    (reset-text)
-	    (set! password-pos 12))))
-	 ((eq? title-text-line 1)
-	  (inc password-pos)
-	  (display-list-add-byte 42)       
-	  (display-list-end-packet command-tile-data 2 password-pos 1)
-	  (when (> password-pos 19)
-	    (asm
-	     "lda #2
+            (switch-game-mode michael-mode))
+           (else
+            (clear-future)
+            (set16! text-addr future_2)
+            (set! title-text-line 1)
+            (reset-text)
+            (set! password-pos 12))))
+         ((eq? title-text-line 1)
+          (inc password-pos)
+          (display-list-add-byte 42)
+          (display-list-end-packet command-tile-data 2 password-pos 1)
+          (when (> password-pos 19)
+            (asm
+             "lda #2
               jsr FamiToneMusicPlay")
-	    (switch-game-mode michael-mode)))))))))
- 
+            (switch-game-mode michael-mode)))))))))
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
  ;; interrupts
 
- (defint (reset)
+ (defvector (reset)
    (init-system)
    (disable-rendering)
+   (clear-nametables)
 
    ;; set mmc1 so we can update tiles/sprites separately
    ;; (using 4k blocks rather than 8k ones, mirror vertically)
@@ -1370,65 +1400,75 @@
    (set! ggame-mode 0)
 
    ;; load first palette
-   (display-list-add-byte black-palette-id) 
+   (display-list-add-byte black-palette-id)
    (display-list-end-packet command-palette-change 0 0 1)
 
-   (asm
-    "cli"            ;; restart interrupts again
-    "loop: jmp loop" ;; go into in infinite loop - vblank interrupt takes over
-    ))
-
- ;; main loop is here
- (defint (vblank)
-   ;; precious ppu update time starts
-   ;; start sprite data dma to the oam now
-   (set! reg-oam-dma sprite-dma)
-   ;; dma the display list now
-   (display-list-execute)
-
-   ;; update scroll pos
-   ;;(when (not gdisable-scroll)
-     (set! reg-ppu-scroll gscroll-x)
-     (set! reg-ppu-scroll gscroll-y);)
-
-   ;; precious ppu update time ends
+   ;; main loop is here
+   (asm "MainLoop:")
+   (wait-new-frame)
 
    ;; profiling display (breaks sprite update)
    ;; (asm "
-   ;; 	lda #%10001110	
-   ;; 	sta $2001
+   ;;   lda #%10001110
+   ;;   sta $2001
    ;; ")
 
    ;; update whichever game mode we are in
    (cond
     ((eq? ggame-mode title-mode) (update-title))
-    ((eq? ggame-mode eighties-mode) (update-eighties))    
-    ((eq? ggame-mode aerobic-mode) (update-indoor))    
-    ((eq? ggame-mode tobacco-mode) (update-indoor))    
-    ((eq? ggame-mode michael-mode) (update-indoor))    
+    ((eq? ggame-mode eighties-mode) (update-eighties))
+    ((eq? ggame-mode aerobic-mode) (update-indoor))
+    ((eq? ggame-mode tobacco-mode) (update-indoor))
+    ((eq? ggame-mode michael-mode) (update-indoor))
     (else (update-future)))
 
    ;; read the joypad state into memory
    (read-joypad)
-   (inc gframe)
 
    ;; increment the draw phase
-   (when (not (eq? gdraw-phase 255)) 
+   (when (not (eq? gdraw-phase 255))
      (inc gdraw-phase))
 
    ;; update sound driver
    (asm "jsr FamiToneUpdate")
 
    ;; (asm "
-   ;; 	lda #%00001110
-   ;; 	sta $2001
+   ;;   lda #%00001110
+   ;;   sta $2001
    ;;  ")
-   
-   )
- 
-  (defint (irq))
- 
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+   (asm "jmp MainLoop"))
+
+
+ (defvector (nmi)
+   ;; preserve registers for the main thread
+   (asm "pha")
+   (asm "txa")
+   (asm "pha")
+   (asm "tya")
+   (asm "pha")
+   ;; precious ppu update time starts
+   ;; start sprite data dma to the oam now
+   (set! REG-OAM-DMA sprite-dma)
+   ;; dma the display list now
+   (display-list-execute)
+
+   ;; update scroll pos
+   ;;(when (not gdisable-scroll)
+     (set! REG-PPU-SCROLL gscroll-x)
+     (set! REG-PPU-SCROLL gscroll-y);)
+
+   ;; precious ppu update time ends
+   (inc gframe)
+   ;; restore registers for the main thread
+   (asm "pla")
+   (asm "tay")
+   (asm "pla")
+   (asm "tax")
+   (asm "pla"))
+
+
+ ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
  ;; game data follows
 
  ;; text
@@ -1466,7 +1506,7 @@
  (asm "future_2:")(text "    CAN I TRUST YOU?        ENTER THE CODE")(byte "0")
 
  ;; bounding box data
- (asm "collision_bboxes0:")
+ (deflabel collision-bboxes0)
  (byte "15") ;; number of boxes
  (byte "0, 0, 255, 32")
  (byte "0, 0, 16, 238")
@@ -1485,23 +1525,23 @@
  (byte "238, 112, 255, 134")
 
  ;; dmc samples
-;; (asm "	.org $c000")
+;; (asm "       .org $c000")
  (asm "dmc_data:")
  (asm ".incbin \"whatremains/music/whatremains.dmc\"")
 
- (asm "collision_bboxes1:")
+ (deflabel collision-bboxes1)
  (byte "2") ;; number of boxes
  (byte "0, 0, 23, 82")
  (byte "0, 0, 33, 64")
 
- (asm "collision_bboxes_aerobic:")
+ (deflabel collision-bboxes-aerobic)
  (byte "0")
- (asm "collision_bboxes_tobacco:")
+ (deflabel collision-bboxes-tobacco)
  (byte "0")
- (asm "collision_bboxes_michael:")
+ (deflabel collision-bboxes-michael)
  (byte "0")
 
- (asm "doorway_bbox")
+ (deflabel doorway-bbox)
  (byte "32, 16, 48, 32") ;; aerobic in
  (byte "65, 81, 80, 97") ;; aerobic out
  (byte "210, 17, 226, 32") ;; tobacco in
@@ -1514,18 +1554,18 @@
  (asm ".include \"whatremains/music/famitone2_asm6.asm\"")
 ;; (asm ".include \"whatremains/music/danger_streets.asm\"")
  (asm ".include \"whatremains/music/whatremains.asm\"")
- 
+
  ;; the palettes
- (asm "title_palette:")
+ (deflabel title-palette)
  (asm ".incbin \"whatremains/binary/title-screen-main.pal\"")
- (asm "title1_palette:")
+ (deflabel title1-palette)
  (asm ".incbin \"whatremains/binary/cut-01-skate.pal\"")
- (asm "title2_palette:")
+ (deflabel title2-palette)
  (asm ".incbin \"whatremains/binary/cut-02-cartridge.pal\"")
- (asm "title3_palette:")
+ (deflabel title3-palette)
  (asm ".incbin \"whatremains/binary/cut-03-car.pal\"")
 
- (asm "eighties_palette:")
+ (deflabel eighties-palette)
  (asm ".incbin \"whatremains/binary/eighties-palette.pal\"")
  ;; general sprite palette
  (byte "$30,$21,$26,$36")
@@ -1533,7 +1573,7 @@
  (byte "$0f,$23,$0b,$36")
  (byte "$0f,$2b,$06,$16")
 
- (asm "indoor_palette:")
+ (deflabel indoor-palette)
  (asm ".incbin \"whatremains/binary/INDOOR_color_palette.pal\"")
  ;; general sprite palette
  (byte "$30,$21,$26,$36")
@@ -1541,10 +1581,10 @@
  (byte "$0f,$23,$0b,$36")
  (byte "$0f,$2b,$06,$16")
 
- (asm "future_palette:")
+ (deflabel future-palette)
  (asm ".incbin \"whatremains/binary/PETSCIIish.pal\"")
 
- (asm "black_palette:")
+ (deflabel black-palette)
 
  (byte "$0f,$0f,$0f,$0f")
  (byte "$0f,$0f,$0f,$0f")
@@ -1558,50 +1598,50 @@
 
  ;; screen tiles
  (asm ".align $100") ;; align so we don't need 16 address maths!
- (asm "title_nam:")
+ (deflabel title-nam)
  (asm ".incbin \"whatremains/binary/title-screen-main.nam\"")
- (asm "title1_nam:")
+ (deflabel title1-nam)
  (asm ".incbin \"whatremains/binary/cut-01-skate.nam\"")
- (asm "title2_nam:")
+ (deflabel title2-nam)
  (asm ".incbin \"whatremains/binary/cut-02-cartridge.nam\"")
- (asm "title3_nam:")
+ (deflabel title3-nam)
  (asm ".incbin \"whatremains/binary/cut-03-car.nam\"")
 
- (asm "bgtiles:")
+ (deflabel bgtiles)
  (asm ".incbin \"whatremains/binary/OUTDOOR_city01.bin\"")
  (asm ".incbin \"whatremains/binary/OUTDOOR_city02.bin\"")
 
- (asm "aerobic_nam:")
+ (deflabel aerobic-nam)
  (asm ".incbin \"whatremains/binary/INDOOR_aerobic.bin\"")
- (asm "tobacco_nam:")
+ (deflabel tobacco-nam)
  (asm ".incbin \"whatremains/binary/INDOOR_tobacco.bin\"")
- (asm "michael_nam:")
+ (deflabel michael-nam)
  (asm ".incbin \"whatremains/binary/INDOOR_michael.bin\"")
 
- (asm "future1_nam:")
+ (deflabel future1-nam)
  (asm ".incbin \"whatremains/binary/cart-startup.nam\"")
- 
+
  ;; interrupt vectors (addresses for functions)
  (asm ".pad $fffa") ;; jump to the end of prg-rom
- (asm ".word vblank, reset, irq")
+ (asm ".word nmi, reset, 0")
 
- ;; finally ppu-rom 
- (asm 
+ ;; finally ppu-rom
+ (asm
   ".align $1000"
-   ".incbin \"whatremains/binary/title-screen-main.chr\"" 
+   ".incbin \"whatremains/binary/title-screen-main.chr\""
    ".incbin \"whatremains/binary/cut-01-skate.chr\""
    ".incbin \"whatremains/binary/cut-02-cartridge.chr\""
    ".incbin \"whatremains/binary/cut-03-car.chr\""
   )
 
- (asm 
+ (asm
   ".incbin \"whatremains/binary/OUTDOOR_tileset.chr\""
   ".incbin \"whatremains/binary/sprites.chr\"")
 
- (asm 
+ (asm
   ".incbin \"whatremains/binary/INDOOR_tileset.chr\"")
 
- (asm 
+ (asm
   ".incbin \"whatremains/binary/PETSCIIish.chr\"")
- 
+
  )

@@ -1,5 +1,5 @@
 #lang racket
-;; co2 Copyright (C) 2016 Dave Griffiths
+;; co2 Copyright (C) 2016 Dave Griffiths, 2017 Dustin Long
 ;;
 ;; This program is free software: you can redistribute it and/or modify
 ;; it under the terms of the GNU Affero General Public License as
@@ -15,174 +15,535 @@
 ;; along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 (require racket/cmdline)
+(require data/gvector)
 
 ;; internal compiler register on zero page
-(define working-reg "$ff")
-(define stack-frame-h "$fe")
-(define stack-frame-l "$fd")
 (define rnd-reg "$fc")
 
 (define reg-table
   ;; ppu registers
-  '((reg-ppu-ctl              "$2000")
-    (reg-ppu-mask             "$2001")
-    (reg-ppu-status           "$2002")
-    (reg-oam-addr             "$2003")
-    (reg-oam-data             "$2004")
-    (reg-ppu-scroll           "$2005")
-    (reg-ppu-addr             "$2006")
-    (reg-ppu-data             "$2007")
+  '((REG-PPU-CTRL             #x2000)
+    (REG-PPU-MASK             #x2001)
+    (REG-PPU-STATUS           #x2002)
+    (REG-OAM-ADDR             #x2003)
+    (REG-OAM-DATA             #x2004)
+    (REG-PPU-SCROLL           #x2005)
+    (REG-PPU-ADDR             #x2006)
+    (REG-PPU-DATA             #x2007)
     ;;  apu registers
-    (reg-apu-pulse1-control   "$4000")
-    (reg-apu-pulse1-ramp      "$4001")
-    (reg-apu-pulse1-ft        "$4002")
-    (reg-apu-pulse1-ct        "$4003")
-    (reg-apu-pulse2-control   "$4004")
-    (reg-apu-pulse2-ramp      "$4005")
-    (reg-apu-pulse2-ft        "$4006")
-    (reg-apu-pulse2-ct        "$4007")
-    (reg-apu-tri-control      "$4008")
-    (reg-apu-tri-ft           "$400a")
-    (reg-apu-tri-ct           "$400b")
-    (reg-apu-noise-env        "$400c")
-    (reg-apu-noise-ft         "$400e")
-    (reg-apu-noise-ct         "$400f")
-    (reg-apu-dmc-control      "$4010")
-    (reg-apu-dmc-dac          "$4011")
-    (reg-apu-dmc-addr         "$4012")
-    (reg-apu-dmc-size         "$4013")
-    (reg-oam-dma              "$4014")
-    (reg-apu-channel          "$4015")
+    (REG-APU-PULSE1-CONTROL   #x4000)
+    (REG-APU-PULSE1-RAMP      #x4001)
+    (REG-APU-PULSE1-FT        #x4002)
+    (REG-APU-PULSE1-CT        #x4003)
+    (REG-APU-PULSE2-CONTROL   #x4004)
+    (REG-APU-PULSE2-RAMP      #x4005)
+    (REG-APU-PULSE2-FT        #x4006)
+    (REG-APU-PULSE2-CT        #x4007)
+    (REG-APU-TRI-CONTROL      #x4008)
+    (REG-APU-TRI-FT           #x400a)
+    (REG-APU-TRI-CT           #x400b)
+    (REG-APU-NOISE-ENV        #x400c)
+    (REG-APU-NOISE-FT         #x400e)
+    (REG-APU-NOISE-CT         #x400f)
+    (REG-APU-DMC-CONTROL      #x4010)
+    (REG-APU-DMC-DAC          #x4011)
+    (REG-APU-DMC-ADDR         #x4012)
+    (REG-APU-DMC-SIZE         #x4013)
+    (REG-OAM-DMA              #x4014)
+    (REG-APU-CHANNEL          #x4015)
     ;; input
-    (reg-joypad-0             "$4016")
-    (reg-joypad-1             "$4017")
-    ;; ppu vram addresses
-    (ppu-name-table-0 ("#$20" "#$00"))
-    (ppu-attr-table-0 ("#$23" "#$c0"))
-    (ppu-name-table-1 ("#$24" "#$00"))
-    (ppu-attr-table-1 ("#$27" "#$c0"))
-    (ppu-name-table-2 ("#$28" "#$00"))
-    (ppu-attr-table-2 ("#$2b" "#$c0"))
-    (ppu-name-table-3 ("#$2c" "#$00"))
-    (ppu-attr-table-3 ("#$2f" "#$c0"))
-    (ppu-palette      ("#$3f" "#$00"))
-    (ppu-bg-palette   ("#$3f" "#$00"))
-    (ppu-sprite-palette ("#$3f" "#$10"))
-    ;; how many times to read reg-joypad-x to get the button
-    (joypad-a "#0")
-    (joypad-b "#1")
-    (joypad-select "#2")
-    (joypad-start "#3")
-    (joypad-up "#4")
-    (joypad-down "#5")
-    (joypad-left "#6")
-    (joypad-right "#7")
-    ;; debug
-    (rnd-reg "$fb")
-    ))
+    (REG-JOYPAD-0             #x4016)
+    (REG-JOYPAD-1             #x4017)))
 
-(define (reg-table-lookup x)
-  (let ((lu (assoc x reg-table)))
-    (if lu (cadr lu) #f)))
+(define ppu-flags
+  ;; TODO: More
+  '((PPU-CTRL-NMI                #x80)
+    (PPU-MASK-SHOW-SPR           #x10)
+    (PPU-MASK-SHOW-BG            #x08)))
 
-;;-------------------------------------------------------------
-;; a label generator
+(define reserved-zero-page
+  '((ppu-ctrl                    #x00)
+    (ppu-mask                    #x01)
+    (frame-num                   #x02)
+    (-count                      #x03)
+    (-tmp                        #x04)))
 
-(define label-id 99)
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Label generation
+
+(define label-id 0)
 
 (define (generate-label name)
   (set! label-id (+ label-id 1))
-  (string-append name "_" (number->string label-id)))
+  (string-append "_" name "_" (left-pad (number->string label-id 16) #\0 4)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; Symbol / label definitions. Stores vars, consts, addresses, data.
+
+(define var-allocation #x10)
+
+(define sym-label-defs (list (make-hash)))
+
+(define data-segment '())
+
+(struct sym-label (sym name address kind))
+
+(define (make-variable! sym #:label [label #f] #:global [global #f])
+  (let* ((name (normalize-name sym))
+         (n var-allocation)
+         (table (car sym-label-defs)))
+    (define (get-global ls)
+      (if (null? (cdr ls))
+          (car ls)
+          (get-global (cdr ls))))
+    (when global
+          (set! table (get-global sym-label-defs)))
+    (when label
+          (set! name label))
+    (when (not (hash-has-key? table sym))
+          (hash-set! table sym (sym-label sym name n 'var))
+          (set! var-allocation (+ 1 var-allocation)))
+    (hash-ref table sym)))
+
+(define (make-address! sym addr)
+  (let ((name (normalize-name sym)))
+    (hash-set! (car sym-label-defs) sym (sym-label sym name addr 'addr))
+    (hash-ref (car sym-label-defs) sym)))
+
+(define (make-const! sym value)
+  (let ((name (normalize-name sym)))
+    (hash-set! (car sym-label-defs) sym (sym-label sym name value 'const))
+    (hash-ref (car sym-label-defs) sym)))
+
+(define (make-data! sym value)
+  (let ((name (normalize-name sym)))
+    (set! data-segment (cons (list name value) data-segment))
+    (hash-set! (car sym-label-defs) sym (sym-label sym name 0 'data))
+    (hash-ref (car sym-label-defs) sym)))
+
+(define (variable? sym)
+  (let ((lookup (sym-label-lookup)))
+    (and lookup (eq? (sym-label-kind lookup) 'var))))
+
+(define (address? sym)
+  (let ((lookup (sym-label-lookup)))
+    (and lookup (eq? (sym-label-kind lookup) 'addr))))
+
+(define (const? sym)
+  (let ((lookup (sym-label-lookup)))
+    (and lookup (eq? (sym-label-kind lookup) 'const))))
+
+(define (sym-label-lookup sym)
+  (define (_ table parents)
+    (if (hash-has-key? table sym)
+        (hash-ref table sym)
+        (if (null? parents)
+            #f
+            (_ (car parents) (cdr parents)))))
+  (_ (car sym-label-defs) (cdr sym-label-defs)))
+
+(define (sym-label-push-scope)
+  (set! sym-label-defs (cons (make-hash) sym-label-defs)))
+
+(define (sym-label-pop-scope)
+  (set! sym-label-defs (cdr sym-label-defs)))
+
+(define (get-data-segment)
+  data-segment)
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; Function definition
+
+(define function-defs (make-hash))
+
+(define (make-function! sym)
+  (let* ((name (normalize-name sym))
+         (n (hash-count function-defs)))
+    (when (not (hash-has-key? function-defs name))
+          (hash-set! function-defs name n))
+    (hash-ref function-defs name)))
+
+(define (function? name)
+  (hash-has-key? function-defs (normalize-name name)))
+
+(define (macro? name)
+  (member name '(cond when set-sprite-y! set-sprite-id! set-sprite-attr!
+                      set-sprite-x! get-sprite-y get-sprite-id
+                      get-sprite-attr get-sprite-x)))
 
 ;;----------------------------------------------------------------
-;; variables are just an address lookup table to the zero page
+; Emit
 
-(define variables '())
+(define *result* (make-gvector))
 
-(define (make-variable! name)
-  (when (not (memq name variables))
-        (set! variables (append variables (list name)))))
+(define (emit . args)
+  (let ((build ""))
+    ; Optional label.
+    (when (and (not (null? args)) (string? (car args)))
+          (set! build (car args))
+          (set! args (cdr args)))
+    ; Symbol for opcode...
+    (when (not (null? args))
+          (set! build (string-append build "  " (symbol->string (car args))))
+          ; ...followed by optional string.
+          (when (not (null? (cdr args)))
+                (if (string=? build "")
+                    (set! build (cadr args))
+                    (set! build (string-append build " " (cadr args))))))
+    (gvector-add! *result* build)))
 
-(define (byte->string byte)
-  (string-upcase (string-append
-                  (number->string (quotient byte 16) 16)
-                  (number->string (remainder byte 16) 16))))
+(define (emit-blank)
+  (gvector-add! *result* ""))
 
-(define (variable-lookup name)
-  (define (_ l c)
+(define (emit-context)
+  (gvector-add! *result* (co2-source-context)))
+
+(define (emit-label label)
+  (gvector-add! *result* (format "~a:" label)))
+
+;;----------------------------------------------------------------
+
+(define (process-set16! context-place context-value)
+  ; TODO: Rename to set-pointer!
+  (emit-context)
+  (let ((place (syntax->datum context-place))
+        (value (syntax->datum context-value)))
+   (emit 'lda (format "#<~a" (normalize-name value)))
+   (emit 'sta (normalize-name place))
+   (emit 'lda (format "#>~a" (normalize-name value)))
+   (emit 'sta (format "~a+1" (normalize-name place)))))
+
+(define (process-peek16 context-pointer context-index)
+  ; TODO: Rename to load-pointer
+  (emit-context)
+  (let ((pointer (syntax->datum context-pointer)))
+    (if context-index
+        (begin (process-argument context-index #:skip-context #t)
+               (emit 'tay)
+               (emit 'lda (format "(~a),y" (normalize-name pointer))))
+        (begin (emit 'ldy "#0")
+               (emit 'lda (format "(~a),y" (normalize-name pointer)))))))
+
+;; sets blocks of 256 bytes
+;; (set-page variable/value expr)
+(define (process-memset context-address context-value)
+  (let ((address (syntax->datum context-address)))
+   (process-argument context-value)
+   (emit 'ldx "#$00")
+   (emit "-" 'sta (format "~a,x" (normalize-name address)))
+   (emit 'inx)
+   (emit 'bne "-")))
+
+(define (process-ppu-memset context-ppu-base context-dest-high
+                            context-dest-low context-length context-value)
+  (let ((ppu-base (syntax->datum context-ppu-base)))
+   (emit-context)
+   (process-argument context-dest-high)
+   (emit 'clc)
+   (emit 'adc (format "#>~a" (normalize-name ppu-base)))
+   (emit 'sta "REG_PPU_ADDR")
+   (process-argument context-dest-low)
+   (emit 'clc)
+   (emit 'adc (format "#<~a" (normalize-name ppu-base)))
+   (emit 'sta "REG_PPU_ADDR")
+   (process-argument context-value)
+   (emit 'pha)
+   (process-argument context-length)
+   (emit 'tax)
+   (emit 'pla)
+   (emit "-" 'sta "REG_PPU_DATA")
+   (emit 'dex)
+   (emit 'bne "-")
+   ;; reset ppu addr
+   (emit 'lda "#$00")
+   (emit 'sta "REG_PPU_ADDR")
+   (emit 'lda "#$00")
+   (emit 'sta "REG_PPU_ADDR")))
+
+(define (process-ppu-memcpy context-ppu-base context-dest-high
+                            context-dest-low context-end-index
+                            context-prg-base context-start-index)
+  (let ((ppu-base (syntax->datum context-ppu-base))
+        (end-index (syntax->datum context-end-index))
+        (prg-base (syntax->datum context-prg-base))
+        (start-index (syntax->datum context-start-index)))
+   (emit-context)
+   (process-argument context-dest-high)
+   (emit 'clc)
+   (emit 'adc (format "#>~a" (normalize-name ppu-base)))
+   (emit 'sta "REG_PPU_ADDR")
+   (process-argument context-dest-low)
+   (emit 'clc)
+   (emit 'adc (format "#<~a" (normalize-name ppu-base)))
+   (emit 'sta "REG_PPU_ADDR")
+   (emit 'ldx (as-arg start-index))
+   (emit "-" 'lda (format "~a,x" (as-arg prg-base)))
+   (emit 'sta "REG_PPU_DATA")
+   (emit 'inx)
+   (emit 'cpx (as-arg end-index))
+   (emit 'bne "-")
+   ;; reset ppu addr
+   (emit 'lda "#$00")
+   (emit 'sta "REG_PPU_ADDR")
+   (emit 'lda "#$00")
+   (emit 'sta "REG_PPU_ADDR")))
+
+(define (process-ppu-memcpy16 context-ppu-base context-dest-high
+                              context-dest-low context-length
+                              context-pointer)
+  (let ((ppu-base (syntax->datum context-ppu-base))
+        (pointer (syntax->datum context-pointer))
+        (length (syntax->datum context-length)))
+   (emit-context)
+   (process-argument context-dest-high)
+   (emit 'clc)
+   (emit 'adc (format "#>~a" (normalize-name ppu-base)))
+   (emit 'sta "REG_PPU_ADDR")
+   (process-argument context-dest-low)
+   (emit 'clc)
+   (emit 'adc (format "#<~a" (normalize-name ppu-base)))
+   (emit 'sta "REG_PPU_ADDR")
+   (emit 'ldy "#0")
+   (emit "-" 'lda (format "(~a),y" (normalize-name pointer)))
+   (emit 'sta "REG_PPU_DATA")
+   (emit 'iny)
+   (emit 'cpy (as-arg length))
+   (emit 'bne "-")
+   ;; reset ppu addr
+   (emit 'lda "#$00")
+   (emit 'sta "REG_PPU_ADDR")
+   (emit 'lda "#$00")
+   (emit 'sta "REG_PPU_ADDR")))
+
+(define (process-set-sprite! context-sprite-id context-value context-field)
+  (let ((field (syntax->datum context-field)))
+   (process-argument context-value)
+   (emit 'pha)
+   (process-argument context-sprite-id)
+   (emit 'asl) ;; *2
+   (emit 'asl) ;; *4
+   (emit 'tay)
+   (emit 'pla)
+   (emit 'sta (format "$~x,y" (+ field #x200)))))
+
+(define (process-get-sprite context-sprite-id context-field)
+  (let ((field (syntax->datum context-field)))
+   (process-argument context-sprite-id)
+   (emit 'asl) ;; *2
+   (emit 'asl) ;; *4
+   (emit 'tay)
+   (emit 'lda (format "$~x,y" (+ field #x200)))))
+
+(define (process-sprites-apply-to-field! context-sprite-id context-num-sprites
+                                         context-attr-bits field instr)
+  (let ((label (generate-label "sprites_apply")))
+     (process-argument context-attr-bits)
+     (emit 'pha)
+     (process-argument context-num-sprites)
+     (emit 'pha)
+     (process-argument context-sprite-id)
+     (emit 'asl) ;; *2
+     (emit 'asl) ;; *4
+     (emit 'clc)
+     (emit 'adc (as-arg field)) ;; field
+     (emit 'tay) ;; put offset in y
+     (emit 'pla) ;; pull count out
+     (emit 'tax) ;; put sprite count in x
+     (emit 'pla) ;; value
+     (emit 'sta "_tmp")
+     (emit-label label)
+     (emit 'lda "$200,y") ;; load previous
+     (cond
+      [(eq? instr 'adc) (emit 'clc)]
+      [(eq? instr 'sbc) (emit 'sec)])
+     (emit instr "_tmp")
+     (emit 'sta "$200,y")
+     (emit 'iny) ;; skip
+     (emit 'iny) ;; to
+     (emit 'iny) ;; the next
+     (emit 'iny) ;; sprite
+     (emit 'dex)
+     (emit 'bne label)))
+
+(define (process-underscore-rnd)
+  (let ((label (generate-label "rnd"))
+        (okay (generate-label "okay")))
+     (emit 'lda (as-arg rnd-reg))
+     (emit 'bne okay)
+     (emit 'lda "#$c7")
+     (emit-label okay)
+     (emit 'asl)
+     (emit 'bcc label)
+     (emit 'eor "#$1d")
+     (emit-label label)
+     (emit 'sta (as-arg rnd-reg))))
+
+(define (process-set-sprites-2x2-x! context-sprite-num context-xpos)
+  (begin
+   (process-argument context-sprite-num)
+   (emit 'tay) ;; put offset in y
+   (process-argument context-xpos #:skip-context #t)
+   (emit 'sta "$203,y")
+   (emit 'sta "$20b,y")
+   (emit 'clc)
+   (emit 'adc "#8")
+   (emit 'sta "$207,y")
+   (emit 'sta "$20f,y")))
+
+(define (process-set-sprites-2x2-y! context-sprite-num context-ypos)
+  (begin
+   (process-argument context-sprite-num)
+   (emit 'tay) ;; put offset in y
+   (process-argument context-ypos #:skip-context #t)
+   (emit 'sta "$200,y")
+   (emit 'sta "$204,y")
+   (emit 'clc)
+   (emit 'adc "#8")
+   (emit 'sta "$208,y")
+   (emit 'sta "$20c,y")))
+
+(define (process-animate-sprites-2x2! context-sprite-num context-tile)
+  (begin
+   (process-argument context-sprite-num)
+   (emit 'asl) ;; *2
+   (emit 'asl) ;; *4
+   (emit 'tay) ;; put offset in y
+   (process-argument context-tile #:skip-context #t)
+   (emit 'sta "$201,y") ;; sprite 1
+   (emit 'adc "#$01")
+   (emit 'sta "$205,y") ;; sprite 2
+   (emit 'adc "#$0f")
+   (emit 'sta "$209,y") ;; sprite 3
+   (emit 'adc "#$01")
+   (emit 'sta "$20d,y"))) ;; sprite 4
+
+(define (process-mul context-left context-right)
+  (let ((start-label (generate-label "mul_start"))
+        (loop-label (generate-label "mul_loop"))
+        (inc-label (generate-label "mul_inc"))
+        (done-label (generate-label "mul_done")))
+    (emit-context)
+    (process-argument context-right #:skip-context #t)
+    (emit 'bne start-label)
+    (emit 'lda "#0")
+    (emit 'jmp done-label)
+    (emit-label start-label)
+    (emit 'sta "_count")
+    (process-argument context-left #:skip-context #t)
+    (emit 'sta "_tmp")
+    (emit 'ldx "#8")
+    (emit 'lda "#0")
+    (emit-label loop-label)
+    (emit 'asl "a")
+    (emit 'asl "_count")
+    (emit 'bcc inc-label)
+    (emit 'clc)
+    (emit 'adc "_tmp")
+    (emit-label inc-label)
+    (emit 'dex)
+    (emit 'bne loop-label)
+    (emit-label done-label)))
+
+;; add two 8 bit numbers to a 16 bit one
+(define (process-add16 context-place context-high context-low)
+  (let ((place (syntax->datum context-place)))
+   (process-argument context-high)
+   (emit 'pha)
+   (process-argument context-low #:skip-context #t)
+   (emit 'sta "_tmp")
+   (emit 'clc)
+   (emit 'lda (normalize-name place))
+   (emit 'adc "_tmp")
+   (emit 'sta (normalize-name place))
+   (emit 'pla)
+   (emit 'sta "_tmp")
+   (emit 'lda (format "~a+1" (normalize-name place)))
+   (emit 'adc "_tmp")
+   (emit 'sta (format "~a+1" (normalize-name place)))))
+
+;; subtract two 8 bit numbers to a 16 bit one
+(define (process-sub16 context-place context-high context-low)
+  (let ((place (syntax->datum context-place)))
+   (process-argument context-high)
+   (emit 'pha)
+   (process-argument context-low #:skip-context #t)
+   (emit 'sta "_tmp")
+   (emit 'sec)
+   (emit 'lda (normalize-name place))
+   (emit 'sbc "_tmp")
+   (emit 'sta (normalize-name place))
+   (emit 'pla)
+   (emit 'sta "_tmp")
+   (emit 'lda (format "~a+1" (normalize-name place)))
+   (emit 'sbc "_tmp")
+   (emit 'sta (format "~a+1" (normalize-name place)))))
+
+;----------------------------------------------------------------
+
+(define (m-expand-cond-to-if x)
+  (define (_ l)
     (cond
-     ((null? l) (display "cant find variable ")(display name)(newline) #f)
-     ((equal? name (car l)) (string-append "$" (byte->string c)))
-     (else (_ (cdr l) (+ c 1)))))
-  (_ variables 0))
+      ((null? l) 0)
+      ((eq? (macro-expand (caar l)) 'else) (cons 'do
+                                                 (macro-expand (cdr (car l)))))
+      (else (list 'if (macro-expand (caar l))
+                  (cons 'do (macro-expand (cdr (car l))))
+                  (_ (cdr l))))))
+  (_ (cdr x)))
 
-;;----------------------------------------------------------------
-;; constants lookup
-(define constants '())
+(define (m-expand-when-to-if x)
+  (list 'if (cadr x) (append (list 'do) (cddr x)) 0))
 
-(define (make-constant! name value)
-  (when (not (string? value))
-	(display "ERROR: constant ")(display name)(display " is not a string: ")
-	(display value)(newline))
-  (set! constants (cons (list name value) constants)))
+;; (get-sprite-vflip sprite-num)
+(define (m-expand-get-sprite-vflip x)
+  (list '>> (list 'get-sprite-attr (cadr x)) 7))
 
-(define (constant-lookup name)
-  (let ((t (assoc name constants)))
-    (if t (cadr t) #f)))
+(define (m-expand-get-sprite-hflip x)
+  (list 'and (list '>> (list 'get-sprite-attr (cadr x)) 6) #x01))
 
-;;------------------------------------------------------------------
-;; store function args here - this is not a proper call stack
-;; (considered far too bloaty!), so these get clobbered with function
-;; calls within function calls - beware...
+(define (m-expand-set-sprite-vflip! x)
+  (list 'set-sprite-attr! (list-ref x 1) (list '<< (list-ref x 2) 6)))
 
-(define fnargs-start #x1)
+(define (m-expand-set-sprite-hflip! x)
+  (list 'set-sprite-attr! (list-ref x 1) (list '<< (list-ref x 2) 7)))
 
-(define (fnarg index)
-  (string-append (number->string (+ fnargs-start index))))
+(define (m-expand-set-sprite! x f)
+  (list 'set-sprite! (list-ref x 1) (list-ref x 2) f))
 
-(define fnarg-mapping '())
+(define (m-expand-get-sprite x f)
+  (list 'get-sprite (list-ref x 1) f))
 
-(define (set-fnarg-mapping! args)
-  (set! fnarg-mapping
-	(foldl
-	 (lambda (arg r)
-	   ;; map the argument name to the address
-	   (cons (list arg (fnarg (length r))) r))
-	 '()
-	 args)))
+;; basically diy-macro from the main tinyscheme stuff
+(define (macro-expand s)
+  (cond
+   ((null? s) s)
+   ((list? s)
+    (map
+     (lambda (i)
+       (if (and (list? i) (not (null? i)))
+           ;; dispatch to macro processors
+           (cond
+            ((eq? (car i) 'cond) (m-expand-cond-to-if i))
+            ((eq? (car i) 'when) (m-expand-when-to-if i))
+            ((eq? (car i) 'get-sprite-vflip) (m-expand-get-sprite-vflip i))
+            ((eq? (car i) 'get-sprite-hflip) (m-expand-get-sprite-hflip i))
+            ((eq? (car i) 'set-sprite-vflip!) (m-expand-set-sprite-vflip! i))
+            ((eq? (car i) 'set-sprite-hflip!) (m-expand-set-sprite-hflip! i))
+            ((eq? (car i) 'get-sprite-y) (m-expand-get-sprite i 0))
+            ((eq? (car i) 'get-sprite-id) (m-expand-get-sprite i 1))
+            ((eq? (car i) 'get-sprite-attr) (m-expand-get-sprite i 2))
+            ((eq? (car i) 'get-sprite-x) (m-expand-get-sprite i 3))
+            ((eq? (car i) 'set-sprite-y!) (m-expand-set-sprite! i 0))
+            ((eq? (car i) 'set-sprite-id!) (m-expand-set-sprite! i 1))
+            ((eq? (car i) 'set-sprite-attr!) (m-expand-set-sprite! i 2))
+            ((eq? (car i) 'set-sprite-x!) (m-expand-set-sprite! i 3))
+            (else (macro-expand i)))
+           (macro-expand i)))
+     s))
+   (else s)))
 
-(define (clear-fnarg-mapping!)
-  (set! fnarg-mapping '()))
-
-(define (fnarg-lookup name)
-  (let ((t (assoc name fnarg-mapping)))
-    (if t (cadr t) #f)))
-
-;; -----------------------
-
-(define (is-fnarg? name)
-  (let ((t (assoc name fnarg-mapping)))
-    (if t #t #f)))
-
-(define (emit-load-fnarg name)
-  (append
-   (emit "ldy" (string-append "#" (fnarg-lookup name)))
-   (emit "lda" (string-append "(" stack-frame-l "),y"))))
-  
-;;----------------------------------------------------------------
-
-;; lookup a symbol everywhere, in order...
-(define (lookup name)
-  ;; check registers first
-  (let ((reg (reg-table-lookup name)))
-    (if reg reg
-        ;; then constants
-        (let ((const (constant-lookup name)))
-          (if const const
-	      ;; finally variables
-	      (variable-lookup name))))))
-
-;;----------------------------------------------------------------
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; Utilities
 
 (define (dash->underscore s)
   (foldl
@@ -193,919 +554,960 @@
    ""
    (string->list s)))
 
-;;---------------------------------------------------------------
-
-(define (immediate-value x)
-  (if (number? x)
-      (string-append "#" (number->string x))
-      (let ((lu (lookup x)))
-        (if lu lu (symbol->string x)))))
-
-;; is this an immediate value
-(define (immediate? x)
-  (or (number? x) (symbol? x)))
-
-;; is this a primitive call?
-(define (primcall? x)
-  (and (list? x) (not (null? x)) (symbol? (car x))))
-
-;--------------------------------------------------------------
-;; code generation
-;;
-;; general rules:
-;; * don't use registers across emit-expr as they can be clobbered
-;; * use the stack (pha/pla) to store data in this case
-;; * currently using internal "working-reg" as a 4th register on zero page
-;;   for arithmetic stuff
-;; * don't use shorthand branch labels ("-") across emit-expr either
-;; * use (generate-label) in this case to use a unique one
-;; * working register and returns all stored in a
-;; * x/y are used for local optimisation
-;; * results of the relevant subexpression should be left in a register as
-;;   implicit return (e.g. loops, if, when etc)
-
-(define (emit . args)
-  (list
-   (foldl
-    (lambda (arg r)
-      (if (equal? r "")
-          (string-append r arg)
-          (string-append r " " arg)))
-    ""
-    args)))
-
-;; append a bunch of expressions
-(define (emit-expr-list l)
-  (cond
-    ((null? l) '())
-    (else
-     (append
-      (emit-expr (car l))
-      (emit-expr-list (cdr l))))))
-
-(define (emit-asm x)
-  (let ((r
-         (foldl
-          (lambda (str r)
-            (if (equal? r "")
-                str
-                (string-append r "\n" str)))
-          ""
-          (cdr x))))
-    (list r)))
-
-(define (emit-label label)
-  (emit (string-append label ":")))
-
-(define (emit-load-variable x)
-  (if (is-fnarg? x)
-      (emit-load-fnarg x)
-      (emit "lda" (immediate-value x))))
-
-(define (emit-load-immediate x)
-  (cond
-    ((number? x) (emit "lda" (string-append "#" (number->string x))))
-    ((symbol? x) (emit-load-variable x))))
-
-(define (emit-defvar x)
-  (make-variable! (cadr x))
-  (append
-   (emit-expr (caddr x))
-   (emit "sta" (immediate-value (cadr x)))))
-
-;; arguments are mapped to arg-n...
-(define (emit-defun x)
-  (set-fnarg-mapping! (cdr (cadr x)))
-  (let ((r (append
-            (emit (string-append
-                   (dash->underscore
-                    (symbol->string (car (cadr x)))) ":"))
-            (emit-expr-list (cddr x))
-            (emit "rts"))))
-    (clear-fnarg-mapping!) 
-    r)) 
-      
-
-(define (emit-defint x)
-  (append
-   (emit (string-append
-          (dash->underscore
-           (symbol->string (car (cadr x)))) ":"))
-   (emit-expr-list (cddr x))
-   (emit "rti")))
-
-(define (emit-fncall x)
-  (append
-   (emit "lda" stack-frame-l) ;; store previous stack location
-   (emit "pha")
-   ;; push the arguments on the stack
-   (foldl
-    (lambda (arg r)
-      (append 
-       r
-       (emit-expr arg)
-       (emit "pha")))
-    '()
-    (reverse (cdr x))) ;; in reverse order
-   (emit "tsx") ;; sture current top as stack frame 
-   (emit "stx" stack-frame-l) ;; to find arguments later
-   ;; call the function
-   (emit "jsr" (dash->underscore (symbol->string (car x))))
-   (emit "sta" working-reg) ;; temp store return value
-   ;; remove arguments from the stack
-   (foldl
-    (lambda (arg r)
-      (append r (emit "pla")))
-    '()
-    (cdr x))
-   (emit "pla")
-   (emit "sta" stack-frame-l) ;; reinstate previous stack frame
-   (emit "lda" working-reg) ;; load return value
-   ))
-
-(define (emit-set! x)
-  (if (is-fnarg? (cadr x))
-      (append
-       (emit-expr (caddr x))
-       (emit "ldy" (string-append "#" (fnarg-lookup (cadr x))))
-       (emit "sta" (string-append "(" stack-frame-l "),y")))
-      (append
-       (emit-expr (caddr x))
-       (emit "sta" (immediate-value (cadr x))))))
-
-;; takes an address literal
-(define (emit-set16! x)
-  (if (is-fnarg? (cadr x))
-      (begin
-	(display "ERROR: trying to set fn arg to 16bit value...")
-	(newline))
-      (append
-       (emit "lda" (string-append "#<" (symbol->string (caddr x))))
-       (emit "sta" (immediate-value (cadr x)))
-       (emit "ldx" "#1")
-       (emit "lda" (string-append "#>" (symbol->string (caddr x))))
-       (emit "sta" (immediate-value (cadr x)) ",x"))))
-       
-(define (emit-write! x)
-  (append
-   (emit-expr (list-ref x 3))
-   (emit "ldy" (immediate-value (list-ref x 2)))
-   (emit "sta" (immediate-value (list-ref x 1)) ",y")))
-
-(define (emit-poke! x)
-  ;; address offset is optional
-  (if (eq? (length x) 4)
-      (append
-       (emit-expr (list-ref x 3)) ;; value
-       (emit "pha")
-       (emit-expr (list-ref x 2)) ;; address offset
-       (emit "tay")
-       (emit "pla")
-       (emit "sta" (immediate-value (list-ref x 1)) ",y"))
-      (append
-       (emit-expr (list-ref x 2)) ;; value
-       (emit "sta" (immediate-value (list-ref x 1))))))
-
-(define (emit-peek x)
-  ;; address offset is optional
-  (if (eq? (length x) 3)
-      (append
-       (emit-expr (list-ref x 2)) ;; address offset
-       (emit "tay")
-       (emit "lda" (immediate-value (list-ref x 1)) ",y"))
-      (append
-       (emit "lda" (immediate-value (list-ref x 1))))))
-
-(define (emit-peek16 x)
-  ;; address offset is optional
-  (if (eq? (length x) 3)
-      (append
-       (emit-expr (list-ref x 2)) ;; address offset
-       (emit "tay")
-       (emit "lda" (string-append "(" (immediate-value (list-ref x 1)) ")") ",y"))
-      (append
-       (emit "ldy" "#0")
-       (emit "lda" (string-append "(" (immediate-value (list-ref x 1)) ")") ",y"))))
-
-
-;; sets blocks of 256 bytes
-;; (set-page variable/value expr)
-(define (emit-memset x)
-  (append
-   (emit-expr (caddr x))
-   (emit "ldx" "#$00")
-   (emit "- sta" (immediate-value (cadr x)) ",x")
-   (emit "inx")
-   (emit "bne -")))
-
-; (memset base-symbol high-offset low-offset length value)
-(define (emit-ppu-memset x)
-  (append
-   (emit-expr (list-ref x 2)) ;; dest offset high
-   (emit "clc")
-   (emit "adc" (car (immediate-value (list-ref x 1))))
-   (emit "sta" (reg-table-lookup 'reg-ppu-addr))
-   (emit-expr (list-ref x 3)) ;; dest offset low
-   (emit "clc")
-   (emit "adc" (cadr (immediate-value (list-ref x 1))))
-   (emit "sta" (reg-table-lookup 'reg-ppu-addr))
-   (emit-expr (list-ref x 5)) ;; value
-   (emit "pha")
-   (emit-expr (list-ref x 4)) ;; length
-   (emit "tax")
-   (emit "pla")
-   (emit "- sta" (reg-table-lookup 'reg-ppu-data))
-   (emit "dex")
-   (emit "bne -")
-   ;; reset ppu addr
-   (emit "lda" "#$00")
-   (emit "sta" (reg-table-lookup 'reg-ppu-addr))
-   (emit "lda" "#$00")
-   (emit "sta" (reg-table-lookup 'reg-ppu-addr))))
-
-
-; (memcpy base-symbol high-offset low-offset prg-end prg-base prg-start)
-(define (emit-ppu-memcpy x)
-  (append
-   (emit-expr (list-ref x 2)) ;; dest offset high
-   (emit "clc")
-   (emit "adc" (car (immediate-value (list-ref x 1))))
-   (emit "sta" (reg-table-lookup 'reg-ppu-addr))
-   (emit-expr (list-ref x 3)) ;; dest offset low
-   (emit "clc")
-   (emit "adc" (cadr (immediate-value (list-ref x 1))))
-   (emit "sta" (reg-table-lookup 'reg-ppu-addr))
-   (emit "ldx" (immediate-value (list-ref x 6))) ;; start addr
-   (emit "- lda" (immediate-value (list-ref x 5)) ",x") ;; base addr
-   (emit "sta" (reg-table-lookup 'reg-ppu-data))
-   (emit "inx")
-   (emit "cpx" (immediate-value (list-ref x 4))) ;; end addr
-   (emit "bne -")
-   ;; reset ppu addr
-   (emit "lda" "#$00")
-   (emit "sta" (reg-table-lookup 'reg-ppu-addr))
-   (emit "lda" "#$00")
-   (emit "sta" (reg-table-lookup 'reg-ppu-addr))))
-
-; (memcpy base-symbol high-offset low-offset prg-end prg-base-h prg-base-l)
-(define (emit-ppu-memcpy16 x)
-  (display (immediate-value (list-ref x 5)))(newline)
-  (append
-   (emit-expr (list-ref x 2)) ;; dest offset high
-   (emit "clc")
-   (emit "adc" (car (immediate-value (list-ref x 1))))
-   (emit "sta" (reg-table-lookup 'reg-ppu-addr))
-   (emit-expr (list-ref x 3)) ;; dest offset low
-   (emit "clc")
-   (emit "adc" (cadr (immediate-value (list-ref x 1))))
-   (emit "sta" (reg-table-lookup 'reg-ppu-addr))
-   (emit "ldy #0")
-   (emit "- lda" (string-append "(" (immediate-value (list-ref x 5)) ")") ",y") ;; base addr
-   (emit "sta" (reg-table-lookup 'reg-ppu-data))
-   (emit "iny")
-   (emit "cpy" (immediate-value (list-ref x 4))) ;; end addr
-   (emit "bne -")
-   ;; reset ppu addr
-   (emit "lda" "#$00")
-   (emit "sta" (reg-table-lookup 'reg-ppu-addr))
-   (emit "lda" "#$00")
-   (emit "sta" (reg-table-lookup 'reg-ppu-addr))))
-
-
-;; optimised version of poke for sprites
-(define (emit-set-sprite! n x)
-  ;; address offset is optional
-  (append
-   (emit-expr (list-ref x 2)) ;; value
-   (emit "pha")
-   (emit-expr (list-ref x 1)) ;; sprite num offset
-   (emit "asl") ;; *2
-   (emit "asl") ;; *4
-   (emit "clc")
-   (emit "adc" (immediate-value n)) ;; byte offset
-   (emit "tay")
-   (emit "pla")
-   (emit "sta" "$200,y")))
-
-;; optimised version of peek for sprites
-(define (emit-get-sprite n x)
-  ;; address offset is optional
-  (append
-   (emit-expr (list-ref x 1)) ;; sprite num offset
-   (emit "asl") ;; *2
-   (emit "asl") ;; *4
-   (emit "clc")
-   (emit "adc" (immediate-value n)) ;; byte offset
-   (emit "tay")
-   (emit "lda" "$200,y")))
-
-;; optimised version of poke for sprites
-(define (emit-zzz-sprites! n zzz x)
-  (let ((label (generate-label "sprite_range")))
-    (append
-     (emit-expr (list-ref x 3)) ;; value
-     (emit "pha")
-     (emit-expr (list-ref x 2)) ;; sprite count
-     (emit "pha")
-     (emit-expr (list-ref x 1)) ;; sprite num offset
-     (emit "asl") ;; *2
-     (emit "asl") ;; *4
-     (emit "clc")
-     (emit "adc" (immediate-value n)) ;; byte offset
-     (emit "tay") ;; put offset in y
-     (emit "pla") ;; pull count out
-     (emit "tax") ;; put sprite count in x
-     (emit "pla") ;; value
-     (emit "sta" working-reg)
-     (emit-label label)
-     (emit "lda" "$200,y") ;; load previous
-     (cond
-      ((equal? zzz "adc") (emit "clc")) ;; clear carry
-      ((equal? zzz "sbc") (emit "sec")) ;; set carry
-      (else '()))
-     (emit zzz working-reg)
-     (emit "sta" "$200,y")
-     (emit "iny") ;; skip
-     (emit "iny") ;; to
-     (emit "iny") ;; the next
-     (emit "iny") ;; sprite
-     (emit "dex")
-     (emit "bne" label))))
-
-;; optimised version of poke for sprites
-(define (emit-set-sprites-x-2x2! x)
-  (append
-   (emit-expr (list-ref x 2)) ;; value
-   (emit "pha")
-   (emit-expr (list-ref x 1)) ;; sprite addr
-   (emit "tay") ;; put offset in y
-   (emit "pla") ;; value
-   (emit "sta" "$203,y")
-   (emit "sta" "$20b,y")
-   (emit "clc")
-   (emit "adc" "#8") 
-   (emit "sta" "$207,y")
-   (emit "sta" "$20f,y")))
-
-(define (emit-set-sprites-y-2x2! x)
-  (append
-   (emit-expr (list-ref x 2)) ;; value
-   (emit "pha")
-   (emit-expr (list-ref x 1)) ;; sprite addr
-   (emit "tay") ;; put offset in y
-   (emit "pla") ;; value
-   (emit "sta" "$200,y")
-   (emit "sta" "$204,y")
-   (emit "clc")
-   (emit "adc" "#8") 
-   (emit "sta" "$208,y")
-   (emit "sta" "$20c,y")))
-
-;; optimised version of poke for sprites
-(define (emit-animate-sprites-2x2! x)
-  (append
-   (emit-expr (list-ref x 2)) ;; value
-   (emit "pha")
-   (emit-expr (list-ref x 1)) ;; sprite num offset
-   (emit "asl") ;; *2
-   (emit "asl") ;; *4
-   (emit "tay") ;; put offset in y
-   (emit "iny") ;; id byte offset
-   (emit "pla") ;; value
-   (emit "sta" "$200,y") ;; sprite 1
-   ;;(emit "clc")
-   (emit "adc" "#$01")
-   (emit "sta" "$204,y") ;; sprite 2
-   (emit "adc" "#$0f")
-   (emit "sta" "$208,y") ;; sprite 3
-   (emit "adc" "#$01")
-   (emit "sta" "$20c,y"))) ;; sprite 4
-
-;; ;; (sprite-check-collide-1x1v1x1 a b)
-;; (define (emit-sprite-check-collide x)
-;;   (append
-;;    (emit-expr (list-ref x 2)) ;; sprite b
-;;    (emit "pha")
-;;    (emit-expr (list-ref x 1)) ;; sprite a num offset
-;;    (emit "asl") ;; *2
-;;    (emit "asl") ;; *4
-;;    (emit "tax") ;; put offset in x
-;;    (emit "pla") ;; load sprite b offset
-;;    (emit "asl") ;; *2
-;;    (emit "asl") ;; *4
-;;    (emit "tay") ;; put offset in y
-;;    ;; check x
-;;    (emit "lda" "$203,x") ;; sprite 1 x coord
-;;    (emit "sta" working-reg)
-;;    (emit "lda" "$203,y") ;; sprite 2 x coord
-
-
-;; (loop var from to expr)
-;; todo: fix branch limit
-(define (emit-loop x)
-  (let ((label-start (generate-label "loop_start"))
-	(label-end (generate-label "loop_end")))
-    (append
-     (emit-expr (list-ref x 2))
-     (emit "sta" (immediate-value (list-ref x 1)))
-     (emit-label label-start)
-     (emit-expr-list (cddddr x))
-     (emit "sta" working-reg) ;; store return in case we need it
-     (emit "inc" (immediate-value (list-ref x 1)))
-     (emit-expr (list-ref x 3))
-     (emit "cmp" (immediate-value (list-ref x 1)))
-     (emit "bcs" label-start)
-     (emit "lda" working-reg)))) ;; retrieve return
-
-;; (if pred then else)
-(define (emit-if x)
-  (let ((false-label (generate-label "if_false"))
-	(true-label (generate-label "if_true"))
-        (end-label (generate-label "if_end")))
-    (append
-     (emit-expr (list-ref x 1))
-     (emit "cmp" "#0")
-     (emit "bne" true-label)
-     (emit "jmp" false-label)
-     (emit-label true-label)
-     (emit-expr (list-ref x 2)) ;; true block
-     (emit "jmp" end-label)
-     (emit-label false-label)
-     (emit-expr (list-ref x 3)) ;; false block
-     (emit-label end-label))))
-
-;; (when pred then)
-(define (emit-when x)
-  (let ((end-label (generate-label "when_end"))
-	(do-label (generate-label "when_do")))
-    (append
-     (emit-expr (list-ref x 1))
-     (emit "cmp" "#0")
-     (emit "bne" do-label)
-     (emit "jmp" end-label)
-     (emit-label do-label)
-     (emit-expr-list (cddr x)) ;; true block
-     (emit-label end-label))))
-
-;; (while pred then)
-(define (emit-while x)
-  (let ((loop-label (generate-label "while_loop"))
-	(end-label (generate-label "while_loop_end"))
-	(next-label (generate-label "while_loop_next"))
-	(pred-label (generate-label "while_loop_pred")))
-    (append
-     (emit "jmp" pred-label) ;; check first
-     (emit-label loop-label)
-     (emit-expr-list (cddr x)) ;; loop block
-     (emit-label pred-label)
-     (emit-expr (list-ref x 1)) ;; predicate
-     (emit "bne" next-label)
-     (emit "jmp" end-label)
-     (emit-label next-label)
-     (emit "jmp" loop-label)
-     (emit-label end-label))))
-
-;; predicate stuff, I think these are stupidly long
-
-(define (emit-eq? x)
-  (let ((true-label (generate-label "eq_true"))
-        (end-label (generate-label "eq_end")))
-    (append
-     (emit-expr (list-ref x 1))
-     (emit "pha")
-     (emit-expr (list-ref x 2))
-     (emit "sta" working-reg)
-     (emit "pla")
-     (emit "cmp" working-reg)
-     (emit "beq" true-label)
-     (emit "lda" "#0")
-     (emit "jmp" end-label)
-     (emit-label true-label)
-     (emit "lda" "#1")
-     (emit-label end-label))))
-
-;; correct, but hella slow
-;; instr depends on signed or unsigned version
-(define (emit-< x instr)
-  (let ((true-label (generate-label "gt_true"))
-        (end-label (generate-label "gt_end")))
-    (append
-     (emit-expr (list-ref x 1))
-     (emit "pha")
-     (emit-expr (list-ref x 2))
-     (emit "sta" working-reg)
-     (emit "pla")
-     (emit "cmp" working-reg)
-     (emit instr true-label) 
-     (emit "lda" "#0")
-     (emit "jmp" end-label)
-     (emit-label true-label)
-     (emit "lda" "#1")
-     (emit-label end-label))))
-
-;; correct, but hella slow
-(define (emit-<= x instr)
-  (let ((true-label (generate-label "gt_true"))
-        (end-label (generate-label "gt_end")))
-    (append
-     (emit-expr (list-ref x 1))
-     (emit "pha")
-     (emit-expr (list-ref x 2))
-     (emit "sta" working-reg)
-     (emit "pla")
-     (emit "sbc" working-reg)
-     (emit instr true-label) ;; branch on minus
-     (emit "lda" "#0")
-     (emit "jmp" end-label)
-     (emit-label true-label)
-     (emit "lda" "#1")
-     (emit-label end-label))))
-
-(define (emit-> x instr)
-  (let ((true-label (generate-label "lt_true"))
-        (end-label (generate-label "lt_end")))
-    (append
-     (emit-expr (list-ref x 1))
-     (emit "pha")
-     (emit-expr (list-ref x 2))
-     (emit "sta" working-reg)
-     (emit "pla")
-     (emit "sbc" working-reg)
-     (emit instr true-label) ;; branch on plus
-     (emit "lda" "#0")
-     (emit "jmp" end-label)
-     (emit-label true-label)
-     (emit "lda" "#1")
-     (emit-label end-label))))
-
-(define (emit-not x)
-  (let ((one-label (generate-label "not_one"))
-        (end-label (generate-label "not_end")))
-    (append
-     (emit-expr (list-ref x 1))
-     (emit "beq" one-label) ;; branch on plus
-     (emit "lda" "#0")
-     (emit "jmp" end-label)
-     (emit-label one-label)
-     (emit "lda" "#1")
-     (emit-label end-label))))
-
-(define (emit-left-shift x)
-  (append
-   (emit-expr (list-ref x 1))
-   (map append
-        (build-list
-         (list-ref x 2)
-         (lambda (i) "asl")))))
-
-(define (emit-right-shift x)
-  (append
-   (emit-expr (list-ref x 1))
-   (map append
-        (build-list
-         (list-ref x 2)
-         (lambda (i) "lsr")))))
-
-(define (emit-sub x)
-  (append
-   (emit-expr (cadr x))
-   (emit "pha")
-   (emit-expr (caddr x))
-   (emit "sta" working-reg)
-   (emit "pla")
-   (emit "sec")
-   (emit "sbc" working-reg)))
-
-(define (emit-add x)
-  (append
-   (emit-expr (cadr x))
-   (emit "pha")
-   (emit-expr (caddr x))
-   (emit "sta" working-reg)
-   (emit "pla")
-   (emit "clc")
-   (emit "adc" working-reg)))
-
-(define (emit-mul x)
-  (let ((label (generate-label "mul")))
-    (append
-     (emit-expr (cadr x))
-     (emit "pha")
-     (emit-expr (caddr x))
-     (emit "sta" working-reg)
-     (emit "dec" working-reg)
-     (emit "pla")
-     (emit "tax")
-     (emit-label label)
-     (emit "clc")
-     (emit "adc" working-reg)
-     (emit "dex")
-     (emit "bne" label))))
-
-;; add two 8 bit numbers to a 16 bit one
-(define (emit-add16 x)
-  (append
-   (emit-expr (list-ref x 2)) ; high 8 bit num
-   (emit "pha")
-   (emit-expr (list-ref x 3)) ; low 8 bit num
-   (emit "sta" working-reg)
-   (emit "clc")
-   (emit "lda" (string-append "(" (immediate-value (list-ref x 1)) ")") )
-   (emit "adc" working-reg)
-   (emit "sta" (string-append "(" (immediate-value (list-ref x 1)) ")"))
-   (emit "pla")
-   (emit "sta" working-reg)
-   (emit "lda" (string-append "(" (immediate-value (list-ref x 1)) "+1)"))
-   (emit "adc" working-reg)
-   (emit "sta" (string-append "(" (immediate-value (list-ref x 1)) "+1)"))))
-
-;; subtract two 8 bit numbers to a 16 bit one
-(define (emit-sub16 x)
-  (append
-   (emit-expr (list-ref x 2)) ; high 8 bit num
-   (emit "pha")
-   (emit-expr (list-ref x 3)) ; low 8 bit num
-   (emit "sta" working-reg)
-   (emit "sec")
-   (emit "lda" (string-append "(" (immediate-value (list-ref x 1)) ")") )
-   (emit "sbc" working-reg)
-   (emit "sta" (string-append "(" (immediate-value (list-ref x 1)) ")"))
-   (emit "pla")
-   (emit "sta" working-reg)
-   (emit "lda" (string-append "(" (immediate-value (list-ref x 1)) "+1)"))
-   (emit "sbc" working-reg)
-   (emit "sta" (string-append "(" (immediate-value (list-ref x 1)) "+1)"))))
- 
-
-;; (define (emit-mod x)
-;; Mod:
-;; 		LDA $00  ; memory addr A
-;; 		SEC
-;; Modulus:	SBC $01  ; memory addr B
-;; 		BCS Modulus
-;; 		ADC $01
- 
-;; 		;division, rounds up, returns in reg A
-;; Division:
-;; 		LDA $00
-;; 		LDX #0
-;; 		SEC
-;; Divide:		INX
-;; 		SBC $01
-;; 		BCS Divide
-;; 		TXA      ;get result into accumulator
-
-(define (emit-rnd x)
-  (let ((label (generate-label "rnd")))
-    (append
-     (emit "lda" rnd-reg)
-     (emit "asl")
-     (emit "bcc" label)
-     (emit "eor" "#$1d")
-     (emit-label label)
-     (emit "sta" rnd-reg))))
-
-(define (unary-procedure proc x)
-  (append
-   (emit-expr (cadr x))
-   (emit proc)))
-
-(define (binary-procedure proc x)
-  (append
-   (emit-expr (cadr x))
-   (emit "pha")
-   (emit-expr (caddr x))
-   (emit "sta" working-reg)
-   (emit "pla")
-   (emit proc working-reg)))
-
-(define (emit-procedure x)
-  (cond
-   ((eq? (car x) 'asm) (emit-asm x))
-   ((eq? (car x) 'byte) (list (string-append ".byte " (cadr x) "\n")))
-   ((eq? (car x) 'text) (list (string-append ".byte \"" (cadr x) "\"\n")))
-   ((eq? (car x) 'defvar) (emit-defvar x))
-   ((eq? (car x) 'defun) (emit-defun x))
-   ((eq? (car x) 'defint) (emit-defint x))
-   ((eq? (car x) 'defconst) (make-constant! (cadr x) (caddr x)) '())
-   ((eq? (car x) 'set!) (emit-set! x))
-   ((eq? (car x) 'set16!) (emit-set16! x))
-   ;;        ((eq? (car x) 'let) (emit-let x))
-   ((eq? (car x) 'if) (emit-if x))
-   ((eq? (car x) 'when) (emit-when x))
-   ((eq? (car x) 'while) (emit-while x))
-   ((eq? (car x) 'loop) (emit-loop x))
-   ((eq? (car x) 'do) (emit-expr-list (cdr x)))
-   ((eq? (car x) 'eq?) (emit-eq? x))
-   ((eq? (car x) '<) (emit-< x "bcc"))
-   ((eq? (car x) '<=) (emit-<= x "bcc"))
-   ((eq? (car x) '>) (emit-> x "bcs"))
-   ((eq? (car x) '<s) (emit-< x "bmi"))
-   ((eq? (car x) '<=s) (emit-<= x "bmi"))
-   ((eq? (car x) '>s) (emit-> x "bpl"))
-   ((eq? (car x) 'not) (emit-not x))
-   ((eq? (car x) '+) (emit-add x))
-   ((eq? (car x) '-) (emit-sub x))
-   ((eq? (car x) '*) (emit-mul x))
-   ((eq? (car x) 'and) (binary-procedure "and" x))
-   ((eq? (car x) 'or) (binary-procedure "ora" x))
-   ((eq? (car x) 'xor) (binary-procedure "eor" x))
-   ((eq? (car x) 'inc) (emit "inc" (immediate-value (cadr x))))
-   ((eq? (car x) 'dec) (emit "dec" (immediate-value (cadr x))))
-   ((eq? (car x) '<<) (emit-left-shift x))
-   ((eq? (car x) '>>) (emit-right-shift x))
-   ((eq? (car x) 'high) (emit "lda" (string-append "#>" (symbol->string (cadr x)))))
-   ((eq? (car x) 'low) (emit "lda" (string-append "#<" (symbol->string (cadr x)))))
-   ((eq? (car x) '+16!) (emit-add16 x))
-   ((eq? (car x) '-16!) (emit-sub16 x))
-   ((eq? (car x) '_rnd) (emit-rnd x))
-   ((eq? (car x) 'wait-vblank)
-    (append (emit "- lda $2002")
-            (emit "bpl -")))
-   ((eq? (car x) 'org) (emit ".org" (immediate-value (cadr x))))
-   ((eq? (car x) 'poke!) (emit-poke! x))
-   ((eq? (car x) 'peek) (emit-peek x))
-   ((eq? (car x) 'peek16) (emit-peek16 x))
-   ((eq? (car x) 'memset) (emit-memset x))
-   ((eq? (car x) 'ppu-memset) (emit-ppu-memset x))
-   ((eq? (car x) 'ppu-memcpy) (emit-ppu-memcpy x))
-   ((eq? (car x) 'ppu-memcpy16) (emit-ppu-memcpy16 x))
-   ((eq? (car x) 'set-sprite-y!) (emit-set-sprite! 0 x))
-   ((eq? (car x) 'set-sprite-id!) (emit-set-sprite! 1 x))
-   ((eq? (car x) 'set-sprite-attr!) (emit-set-sprite! 2 x))
-   ((eq? (car x) 'set-sprite-x!) (emit-set-sprite! 3 x))
-   ((eq? (car x) 'get-sprite-y) (emit-get-sprite 0 x))
-   ((eq? (car x) 'get-sprite-id) (emit-get-sprite 1 x))
-   ((eq? (car x) 'get-sprite-attr) (emit-get-sprite 2 x))
-   ((eq? (car x) 'get-sprite-x) (emit-get-sprite 3 x))
-   ((eq? (car x) 'set-sprites-2x2-x!) (emit-set-sprites-x-2x2! x))
-   ((eq? (car x) 'set-sprites-2x2-y!) (emit-set-sprites-y-2x2! x))
-   ((eq? (car x) 'add-sprites-x!) (emit-zzz-sprites! 3 "adc" x))
-   ((eq? (car x) 'add-sprites-y!) (emit-zzz-sprites! 0 "adc" x))
-   ((eq? (car x) 'sub-sprites-x!) (emit-zzz-sprites! 3 "sbc" x))
-   ((eq? (car x) 'sub-sprites-y!) (emit-zzz-sprites! 0 "sbc" x))
-   ((eq? (car x) 'or-sprites-attr!) (emit-zzz-sprites! 2 "eor" x))
-
-   ((eq? (car x) 'animate-sprites-2x2!) (emit-animate-sprites-2x2! x))
-   ((eq? (car x) 'init-system)
-    (append
-     ;; disable interrupts while we set stuff up
-     (emit "sei")
-     ;; make sure we're not using decimal mode
-     (emit "cld")     
-     ;; wait for 2 vblanks
-     (emit "- lda $2002")
-     (emit "bpl -")
-     (emit "- lda $2002")
-     (emit "bpl -")
-     ;; clear out all ram
-     (emit "lda #$00")
-     (emit "ldx #$00")
-     (emit "- sta $000,x")
-     (emit "sta $100,x")
-     (emit "sta $200,x")
-     (emit "sta $300,x")
-     (emit "sta $400,x")
-     (emit "sta $500,x")
-     (emit "sta $600,x")
-     (emit "sta $700,x")
-     (emit "inx")
-     (emit "bne -")
-     ;; reset the stack pointer.
-     (emit "ldx #$ff")
-     (emit "txs")
-     ;; setup stack frame address high byte
-     (emit "lda #1")
-     (emit "sta" stack-frame-h)
-     (emit "lda #123")
-     (emit "sta" rnd-reg)))
-
-   (else
-    (emit-fncall x)
-    )))
-
-
-(define debug #f)
-
-(define histogram '())
-
-(define (add-histogram name count hist)
-  (cond
-   ((null? hist) (list (list name count)))
-   ((eq? (car (car hist)) name)
-    (cons (list name (+ (cadr (car hist)) count)) (cdr hist)))
-   (else
-    (cons (car hist) (add-histogram name count (cdr hist))))))
-
-(define (histogram-print histogram)
-  (for-each
-   (lambda (h)
-     (display (car h))(display ": ")(display (cadr h))(newline))
-   histogram))
-
-(define (emit-expr x)
-  (cond
-   ((immediate? x)
-    (emit-load-immediate x))
-   ((primcall? x)
-    (let ((r (emit-procedure x)))
-     ;; (display x)(newline)
-      (set! histogram (add-histogram (car x) (length r) histogram))
-      (append
-       ;;(emit ";; starting " (symbol->string (car x)))
-       r
-       ;;(emit ";; ending " (symbol->string (car x)))
-       )))
-   (else
-    (display "don't understand ")(display x)(newline) '())))
-
-;----------------------------------------------------------------
-
-(define (preprocess-cond-to-if x)
-  (define (_ l)
+(define (assert val fn)
+  (when (not (fn val))
+    (error (format "assert failed: ~a ~a" val fn))))
+
+(define (find-keyword keyword elems)
+  (if (or (empty? elems) (empty? (cdr elems)))
+      #f
+      (if (eq? keyword (car elems))
+          (cadr elems)
+          (find-keyword keyword (cddr elems)))))
+
+(define (->string x)
+  (call-with-output-string
+   (lambda (out)
+     (display x out))))
+
+(define (left-pad text pad len)
+  (if (>= (string-length text) len)
+      text
+      (string-append (make-string (- len (string-length text)) pad) text)))
+
+(define (normalize-name name)
+  (dash->underscore (symbol->string name)))
+
+(define (atom? obj)
+  (and (not (null? obj))
+       (not (pair? obj))))
+
+(define (list->byte-string ls)
+  (string-join (map (lambda (x)
+                      (string-append "$" (left-pad (format "~x" x) #\0 2))) ls)
+               ","))
+
+(define (string-last text)
+  (substring text (- (string-length text) 1)))
+
+(define (register? text)
+  (when (symbol? text)
+        (set! text (symbol->string text)))
+  (or (string=? text "a") (string=? text "x") (string=? text "y")))
+
+(define (immediate? obj)
+  (or (number? obj)
+      (and (symbol? obj)
+           (let ((lookup (sym-label-lookup obj)))
+             (and lookup (eq? (sym-label-kind lookup) 'const))))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; Source file context information for debugging / compiler metadata
+
+(define *co2-source-context* (make-parameter #f))
+
+(define (co2-source-context)
+  (let* ((form (vector-ref (*co2-source-context*) 0))
+         (fname (syntax-source form))
+         (line-num (syntax-line form))
+         (source (->string (syntax->datum form)))
+         (len (min 40 (string-length source))))
+    (format ";~a:~a ~a" fname line-num (substring source 0 len))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; Built-in functions
+
+(define (built-in-nes-header num-prg num-chr mapper mirroring)
+  (let ((third-byte (+ (* mapper #x10) (if (eq? mirroring 'vertical) 1 0))))
+    (emit-context)
+    (emit ".byte \"NES\",$1a")
+    (emit (format ".byte $~x" (or num-prg 1)))
+    (emit (format ".byte $~x" (or num-chr 0)))
+    (emit (format ".byte $~x" third-byte))
+    (emit (format ".byte ~a"
+                  (string-join (build-list 9 (lambda (x) "$0")) ",")))
+    (emit "")
+    (when (not *user-specified-org*)
+      (emit ".org $c000")
+      (emit ""))))
+
+(define (built-in-init-system)
+  ;; disable interrupts while we set stuff up
+  (emit 'sei)
+  ;; make sure we're not using decimal mode
+  (emit 'cld)
+  ;; wait for 2 vblanks
+  (emit "-" 'lda "$2002")
+  (emit 'bpl "-")
+  (emit "-" 'lda "$2002")
+  (emit 'bpl "-")
+  ;; clear out all ram
+  (emit 'ldx "#$00")
+  (emit "-" 'lda "#$00")
+  (emit 'sta "$000,x")
+  (emit 'sta "$100,x")
+  (emit 'sta "$300,x")
+  (emit 'sta "$400,x")
+  (emit 'sta "$500,x")
+  (emit 'sta "$600,x")
+  (emit 'sta "$700,x")
+  (emit 'lda "#$ff")
+  (emit 'sta "$200,x")
+  (emit 'inx)
+  (emit 'bne "-")
+  ;; reset the stack pointer.
+  (emit 'ldx "#$ff")
+  (emit 'txs))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; Keep track of function calls to build a call tree. Used to determine
+; memory addresses for local vars and function arguments.
+
+(define func-nodes (make-hash))
+
+(struct func-node (name params calls [memory #:mutable]))
+
+(define (make-func-node! name params calls)
+  (hash-set! func-nodes name (func-node name params calls #f)))
+
+(define *invocations* (make-parameter #f))
+
+(define *entry-points* '())
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; Main processor.
+
+(define (merge-const instr accum arg)
+  (assert instr (lambda (n) (or (eq? n 'or) (eq? n 'ora))))
+  (if (not accum)
+      (as-arg arg)
+      (format "~a|~a" accum (as-arg arg))))
+
+(define (process-defvar name [value 0])
+  (let* ((def (normalize-name name))
+         (sym-label (make-variable! name #:global #t))
+         (addr (sym-label-address sym-label)))
+    (emit-blank)
+    (emit-context)
+    (emit (format "~a = $~a" def (left-pad (number->string addr 16) #\0 2)))
+    (when (not (= value 0))
+          (emit 'lda (format "#$~x" value))
+          (emit 'sta def))))
+
+(define (process-defaddr name value)
+  (let* ((def (normalize-name name))
+         (sym-label (make-address! name value))
+         (value (sym-label-address sym-label)))
+    (emit-blank)
+    (emit-context)
+    (emit (format "~a = $~a" def (left-pad (number->string value 16) #\0 2)))))
+
+(define (process-defconst name value)
+  (let* ((def (normalize-name name))
+         (sym-label (make-const! name value))
+         (value (sym-label-address sym-label)))
+    (emit-blank)
+    (emit-context)
+    (emit (format "~a = $~a" def (left-pad (number->string value 16) #\0 2)))))
+
+(define (process-deflabel context-name)
+  (let* ((name (syntax->datum context-name))
+         (def (normalize-name name)))
+    (emit-blank)
+    (emit-context)
+    (emit (format "~a:" def))))
+
+(define (process-proc type context-decl body)
+  (assert type symbol?)
+  (assert context-decl syntax?)
+  (assert body list?)
+  (let* ((decl (syntax->datum context-decl))
+         (name (car decl))
+         (args (cdr decl)))
+    ; Add vector entry points.
+    (when (eq? type 'vector)
+          (set! *entry-points* (cons name *entry-points*)))
+    (parameterize ([*invocations* (make-gvector)])
+      (emit-blank)
+      (emit-context)
+      (emit-label (normalize-name name))
+      ; Push scope for local variables.
+      (sym-label-push-scope)
+      ; Fastcall parameters
+      (for ([sym args] [i (in-naturals)])
+           (let ((label (format "_~a__~a" (normalize-name name)
+                                (normalize-name sym))))
+             (make-variable! sym #:label label)
+             (cond
+              ([= i 0] (emit 'sta (as-arg sym)))
+              ([= i 1] (emit 'stx (as-arg sym)))
+              ([= i 2] (emit 'sty (as-arg sym))))))
+      ; Additional parameters
+      (when (> (length args) 3)
+            (emit 'tsx)
+            (let ((params (cdddr args)))
+              (for ([p params] [i (in-naturals)])
+                   ; TODO: Get parameter from the stack, store in local frame.
+                   (emit 'lda (format "$~x,x" (+ #x103 i)))
+                   (emit 'sta (as-arg p)))))
+      ; Process body.
+      (for ([stmt body])
+           (process-form stmt))
+      ; Pop scope.
+      (sym-label-pop-scope)
+      ; Return from function.
+      (cond
+       [(eq? type 'sub) (emit 'rts)]
+       [(eq? type 'vector) (emit 'rti)])
+      ; Store inner function calls for building call tree.
+      (let ((calls (gvector->list (*invocations*))))
+        (make-func-node! name args calls)))))
+
+(define (process-set-bang target expr)
+  (assert target syntax?)
+  (assert expr syntax?)
+  (let ((place (syntax->datum target)))
+    (process-argument expr)
+    ; TODO: Assert that place is a valid lvalue for set!
+    (emit 'sta (as-arg place))))
+
+(define (process-instruction-expression instr args)
+  (assert instr symbol?)
+  (assert args list?)
+  (let ((first (datum-ref args 0))
+        (second (datum-ref args 1))
+        (const #f))
     (cond
-      ((null? l) 0)
-      ((eq? (pre-process (caar l)) 'else) (cons 'do (pre-process (cdr (car l)))))
-      (else (list 'if (pre-process (caar l)) (cons 'do (pre-process (cdr (car l))))
-                  (_ (cdr l))))))
-  (_ (cdr x)))
+     ; Single argument to instruction just outputs the instruction.
+     ([= (length args) 1]
+      (begin
+        (emit-context)
+        (assert first atom?)
+        (emit instr (as-arg first))))
+     ; Single argument with an index register.
+     ([and (= (length args) 2) (index-register? second)]
+      (begin
+        (emit-context)
+        (assert first atom?)
+        (emit instr (format "~a,~a" (as-arg first) (->register second)))))
+     ; Two arguments, evaluate any expressions, load the first arg into A,
+     ; and output the instruction using the second arg as the operand.
+     ([= (length args) 2]
+      (begin
+        (let* ((lhs (process-argument (car args)))
+               (rhs (process-argument (cadr args) #:preserve '(a) #:as 'rhs
+                                      #:skip-context #t)))
+          (emit instr (as-arg rhs)))))
+     ; More than two arguments. Load first, generate code for others, folding
+     ; constants along the way.
+     ([> (length args) 2]
+      (begin
+        (process-argument (car args))
+        (for ([elem (cdr args)])
+             (if (immediate? (syntax->datum elem))
+                 ; Fold constant
+                 (set! const (merge-const instr const (syntax->datum elem)))
+                 ; Flush constant
+                 (begin
+                   (when const
+                         (emit instr const)
+                         (set! const #f))
+                   (let ((val (process-argument elem #:preserve '(a) #:as 'rhs
+                                                #:skip-context #t)))
+                     (emit instr val)))))
+        ; Flush any remaining constants.
+        (when const
+              (emit instr const)
+              (set! const #f))))
+        ;(emit instr (format "~a|~a" (as-arg second) (as-arg third)))))
+     (else (error (format "ERROR expression: ~a ~a" instr args))))))
 
-;; (get-sprite-vflip sprite-num)
-(define (preprocess-get-sprite-vflip x)
-  (list '>> (list 'get-sprite-attr (cadr x)) 7))
+(define (process-instruction-accumulator instr context-arg)
+  (assert instr symbol?)
+  (assert context-arg syntax?)
+  (let ((did-context #f))
+    (when (not (list? (syntax->datum context-arg)))
+          (set! did-context #t)
+          (emit-context))
+    (let ((value (process-argument context-arg #:skip-context #t #:as 'rhs)))
+      (when (not did-context)
+            (emit-context))
+      (emit instr value))))
 
-(define (preprocess-get-sprite-hflip x)
-  (list 'and (list '>> (list 'get-sprite-attr (cadr x)) 6) #x01))
+(define (index-register? arg)
+  (and (list? arg) (eq? (car arg) 'quote)
+       (or (eq? (cadr arg) 'x) (eq? (cadr arg) 'y))))
 
-(define (preprocess-set-sprite-vflip! x)
-  (list 'set-sprite-attr! (list-ref x 1) (list '<< (list-ref x 2) 6)))
+(define (->register arg)
+  (symbol->string (cadr arg)))
 
-(define (preprocess-set-sprite-hflip! x)
-  (list 'set-sprite-attr! (list-ref x 1) (list '<< (list-ref x 2) 7)))
+(define (datum-ref list index)
+  (if (>= index (length list))
+      #f
+      (syntax->datum (list-ref list index))))
 
-;; basically diy-macro from the main tinyscheme stuff
-(define (pre-process s)
+(define (lref list index)
+  (if (>= index (length list))
+      #f
+      (list-ref list index)))
+
+(define (as-arg arg)
   (cond
-    ((null? s) s)
-    ((list? s)
-     (map
-      (lambda (i)
-        (if (and (list? i) (not (null? i)))
-            ;; dispatch to macro processors
-            (cond
-             ((eq? (car i) 'cond) (preprocess-cond-to-if i))
-             ((eq? (car i) 'get-sprite-vflip) (preprocess-get-sprite-vflip i))
-             ((eq? (car i) 'get-sprite-hflip) (preprocess-get-sprite-hflip i))
-             ((eq? (car i) 'set-sprite-vflip!) (preprocess-set-sprite-vflip! i))
-             ((eq? (car i) 'set-sprite-hflip!) (preprocess-set-sprite-hflip! i))
-             (else (pre-process i)))
-            (pre-process i)))
-      s))
-    (else s)))
+   ([string? arg] arg)
+   ([symbol? arg] (let ((lookup (sym-label-lookup arg)))
+                    (if (not lookup)
+                        ; TODO: Throw an error, use syntax object
+                        (begin (emit (format ";Not found: ~a" arg))
+                               (format "\"not found ~a\"" arg))
+                        (if (eq? (sym-label-kind lookup) 'const)
+                            (format "#~a" (sym-label-name lookup))
+                            (sym-label-name lookup)))))
+   ([number? arg] (format "#$~x" arg))
+   (else (error (format "ERROR as-arg: ~a" arg)))))
 
-(define (compile-program x)
-  (set! variables '())
-  (set! constants '())
-  (let ((done (emit-expr (pre-process x))))
-    (display "size: ")(display (length done))(newline)
-    (histogram-print (sort histogram (lambda (a b) (> (cadr a) (cadr b)))))
-    done))
+;Generate code to get a single value into the desired return value, which
+; defaults to the accumulator. Preserve registers to the stack if needed.
+; Output context if loading an atomic value, unless context should be skipped.
+(define (process-argument context-arg #:preserve [preserve #f] #:as [as #f]
+                          #:skip-context [skip-context #f])
+  (let ((ret "a")
+        (arg (syntax->datum context-arg)))
+    (if (list? arg)
+        ; Evaluate the expression, preserving registers if needed.
+        (parameterize ([*co2-source-context* (vector context-arg #t)])
+          (when preserve
+                (process-stack 'push preserve #:skip-context #t))
+          (process-form context-arg)
+          (when preserve
+                (set! ret "_tmp")
+                (emit 'sta ret)
+                (process-stack 'pull preserve #:skip-context #t)))
+        ; Load an atomic value.
+        (let ((val (as-arg arg)))
+          (when (and (not skip-context) (vector-ref (*co2-source-context*) 1))
+                (emit-context)
+                (vector-set! (*co2-source-context*) 1 #f))
+          (cond
+           [(not as) (emit 'lda val)]
+           [(eq? as 'rhs) (set! ret val)]
+           [else (begin (emit as val)
+                        (set! ret (string-last (symbol->string as))))])))
+    (when (and (not skip-context) (vector-ref (*co2-source-context*) 1))
+          (emit-context)
+          (vector-set! (*co2-source-context*) 1 #f))
+    (when (and (not (eq? as 'rhs)) (not (register? ret)))
+          (emit 'lda ret))
+    ret))
 
-(define (output fn x)
-  (let ((f (open-output-file fn #:exists 'replace)))
-    (for-each
-     (lambda (line)
-       (display line f)(newline f))
-     (compile-program x))
-    (close-output-port f)
-    ;;(histogram-print histogram)
-    ))
+(define (process-instruction-standalone instr operand)
+  ;TODO: Rhs being an expression is an error
+  (assert instr symbol?)
+  (assert operand syntax?)
+  (let ((value (syntax->datum operand)))
+    (emit-context)
+    (cond
+     ([symbol? value] (emit instr (normalize-name value)))
+     (else (error (format "ERROR standalone: ~a" value))))))
 
-(define (assert fn x)
-  (when (not x)
-    (display "assert failed: ")(display fn)(newline)))
+(define (process-instruction-branch instr target)
+  (assert instr symbol?)
+  (assert target syntax?)
+  (let ((value (syntax->datum target)))
+    (assert value symbol?)
+    (emit-context)
+    (emit instr (cadr (assoc value (lexical-scope))))))
 
-(define (dbg x)
-  (display x)(newline) x)
+(define (process-instruction-implied instr)
+  (assert instr symbol?)
+  (emit-context)
+  (emit instr))
 
-(define (test)
-  (assert "emit" (equal? (emit "1" "2" "3") (list "1 2 3")))
-  (assert "reg-table-lookup 1" (equal? (reg-table-lookup 'reg-apu-pulse1-control) "$4000"))
-  (assert "reg-table-lookup 2" (not (reg-table-lookup 'nonsense)))
-  (assert "emit-load-variable 1"
-          (equal? (emit-load-variable 'reg-apu-pulse1-control) (list "lda $4000")))
-  (make-variable! 'poodle)
-  (assert "emit-load-variable 2"
-          (equal? (emit-load-variable 'poodle) (list "lda $00")))
-  (assert "emit-load-immediate 1"
-          (equal? (emit-load-immediate 'reg-oam-dma) (list "lda $4014")))
-  ;;(assert "emit-load-immediate 2"
-  ;;        (equal? (emit-load-immediate 'poodle) (list "lda $00")))
-  ;;(assert "emit-defvar" (equal? (emit-defvar '(defvar poodle2 30)) '("lda #30" "sta $01")))
-  )
+; TODO: Combine with sym-label-defs.
+(define lexical-scope (make-parameter '()))
 
-(test)
+(define (process-block context-label body)
+  (assert context-label syntax?)
+  (assert body list?)
+  (let* ((label (syntax->datum context-label))
+         (gen-label (generate-label (symbol->string label))))
+    (emit-label gen-label)
+    (parameterize ([lexical-scope (cons (list label gen-label)
+                                        (lexical-scope))])
+      (for ([stmt body])
+           (process-form stmt)))))
 
-(let ((f (open-input-file (command-line #:args (input) input))))
-  (output "out.asm" (read f))
-  (close-input-port f))
+(define (process-loop-down context-reg context-start body)
+  (assert context-reg syntax?)
+  (assert context-start syntax?)
+  (assert body list?)
+  (emit-context)
+  (let ((reg (syntax->datum context-reg))
+        (start (syntax->datum context-start))
+        (initial-loop-value #f))
+    (cond
+     ([= start 0] (error "Cannot start loop at 0"))
+     ([< start #x100] (set! initial-loop-value start))
+     ([= start #x100] (set! initial-loop-value 0))
+     (else (error "Initial loop value invalid")))
+    (emit (format "  ld~a #~a" reg initial-loop-value))
+    (let ((loop-label (generate-label "loop_down_from")))
+      (emit-label loop-label)
+      ; TODO: Disallow `reg` changes within `body`
+      (for ([stmt body])
+           (process-form stmt))
+      (emit-context)
+      (emit (format "  de~a" reg))
+      (emit 'bne loop-label))))
+
+(define (process-loop-up context-iter context-start context-end body
+                         #:inclusive [inclusive #f])
+  (assert context-iter syntax?)
+  (assert context-start syntax?)
+  (assert context-end syntax?)
+  (assert body list?)
+  (emit-context)
+  (let* ((iter (syntax->datum context-iter))
+         (start (syntax->datum context-start))
+         (end (syntax->datum context-end))
+         (initial-loop-value start)
+         ; TODO: Value reserved by implemention. Ensure `body` doesn't modify it
+         ; This breaks nested loops.
+         (sentinal-value "_count")
+         (loop-label (generate-label "loop_up_to")))
+    ; Store the sentinal value into memory.
+    (if (and (list? end) (eq? (car end) 'length))
+        (emit 'lda (format "#~a_~a"
+                           (normalize-name (cadr end))
+                           (normalize-name (car end))))
+        (emit 'lda (as-arg end)))
+    (emit 'sta sentinal-value)
+    ; Setup iteration value.
+    (if (register? iter)
+        (emit (format "  ld~a #~a" iter initial-loop-value))
+        (begin (emit 'lda (as-arg initial-loop-value))
+               (emit 'sta (as-arg iter))))
+    (emit-label loop-label)
+    ; TODO: Disallow `reg` changes within `body`
+    (for ([stmt body])
+         (process-form stmt))
+    (emit-context)
+    ; Increment and compare to sentinal value.
+    (if inclusive
+         (if (register? iter)
+             (begin (emit (format "  t~aa" iter))
+                    (emit (format "  in~a" iter))
+                    (emit (format "  cmp ~a" iter sentinal-value)))
+             (begin (emit 'lda (as-arg iter))
+                    (emit 'inc (as-arg iter))
+                    (emit 'cmp (as-arg sentinal-value))))
+         (if (register? iter)
+             (begin (emit (format "  in~a" iter))
+                    (emit (format "  cp~a ~a" iter sentinal-value)))
+             (begin (emit 'inc (as-arg iter))
+                    (emit 'lda (as-arg iter))
+                    (emit 'cmp (as-arg sentinal-value)))))
+    ; Loop back to start.
+    (emit 'bne loop-label)))
+
+(define (process-let context-bindings body)
+  ; TODO: This c(a|d)*r calls are awful.
+  (let* ((bindings (syntax->datum context-bindings))
+         (label (caar bindings))
+         (value (cadr (cadar bindings))))
+    (make-data! label value)
+    (for ([stmt body])
+         (process-form stmt))))
+
+(define (process-if context-condition context-truth context-false)
+  (let ((truth-label (generate-label "truth_case"))
+        (false-label (generate-label "false_case"))
+        (if-done-label (generate-label "if_done")))
+    (emit-context)
+    (emit "; condition begin")
+    ; Check the condition of the `if`.
+    (process-argument context-condition #:skip-context #t)
+    ; TODO: Optimize to the negative case `beq`, but only if the branch is
+    ; within range (< 128 bytes away).
+    (emit 'bne truth-label)
+    (emit 'jmp false-label)
+    ; Truth case of the `if`.
+    (emit-label truth-label)
+    (process-argument context-truth #:skip-context #t)
+    (emit 'jmp if-done-label)
+    ; False case of the `if`.
+    (emit-label false-label)
+    (process-argument context-false #:skip-context #t)
+    (emit-label if-done-label)
+    (emit "; condition done")))
+
+(define (process-while context-condition body)
+  (let ((start-label (generate-label "while_start"))
+        (body-label (generate-label "while_body"))
+        (done-label (generate-label "while_done")))
+    (emit-context)
+    (emit "; while begin")
+    ; Check the condition of the `while`.
+    (emit-label start-label)
+    (process-argument context-condition #:skip-context #t)
+    (emit 'bne body-label)
+    (emit 'jmp done-label)
+    ; Truth case of the `while`.
+    (emit-label body-label)
+    (for ([stmt body])
+         (process-form stmt))
+    (emit 'jmp start-label)
+    (emit-label done-label)
+    (emit "; while done")))
+
+(define (process-math operator context-left context-right)
+  (assert operator symbol?)
+  (assert context-left syntax?)
+  (assert context-right syntax?)
+  (let* ((lhs (process-argument context-left))
+         (rhs (process-argument context-right #:preserve '(a) #:as 'rhs
+                                #:skip-context #t))
+         (right (syntax->datum context-right)))
+    (case operator
+      [(+) (begin (emit 'clc)
+                  (emit 'adc (as-arg rhs)))]
+      [(-) (begin (emit 'sec)
+                  (emit 'sbc (as-arg rhs)))]
+      [(eq?) (let ((is-label (generate-label "is_eq"))
+                   (done-label (generate-label "done_eq")))
+               (emit 'cmp (as-arg rhs))
+               (emit 'beq is-label)
+               ; not equal
+               (emit 'lda "#0")
+               (emit 'jmp done-label)
+               ; is equal
+               (emit-label is-label)
+               (emit 'lda "#1")
+               (emit-label done-label))]
+      [(>) (let ((not-label (generate-label "not_gt"))
+                 (is-label (generate-label "is_gt"))
+                 (done-label (generate-label "done_gt")))
+             (emit 'cmp (as-arg rhs))
+             (emit 'beq not-label)
+             (emit 'bcs is-label)
+             ; not gt
+             (emit-label not-label)
+             (emit 'lda "#0")
+             (emit 'jmp done-label)
+             ; is gt
+             (emit-label is-label)
+             (emit 'lda "#1")
+             (emit-label done-label))]
+      [(<) (let ((is-label (generate-label "is_lt"))
+                 (done-label (generate-label "done_lt")))
+             (emit 'cmp (as-arg rhs))
+             (emit 'bcc is-label)
+             ; not lt
+             (emit 'lda "#0")
+             (emit 'jmp done-label)
+             ; is lt
+             (emit-label is-label)
+             (emit 'lda "#1")
+             (emit-label done-label))]
+      [(>>) (begin (assert right number?)
+                   (for ([i (in-range right)])
+                        (emit 'lsr "a")))]
+      [(<<) (begin (assert right number?)
+                   (for ([i (in-range right)])
+                        (emit 'asl "a")))])))
+
+(define (process-not operator context-arg)
+  (assert operator symbol?)
+  (assert context-arg syntax?)
+  (let ((is-label (generate-label "not"))
+        (done-label (generate-label "not")))
+    (process-argument context-arg)
+    (emit 'beq is-label)
+    ; not zero
+    (emit 'lda "#0")
+    (emit 'jmp done-label)
+    ; is zero
+    (emit-label is-label)
+    (emit 'lda "#1")
+    (emit-label done-label)))
+
+(define (process-peek context-address context-index)
+  (let ((address (syntax->datum context-address))
+        (index (if context-index (syntax->datum context-index) #f)))
+    (if (not index)
+        (emit 'lda (as-arg address))
+        (begin
+          (when (string=? (process-argument context-index #:as 'ldx) "a")
+                (emit 'tax))
+          (emit 'lda (format "~a,x" (as-arg address)))))))
+
+(define (process-poke! context-address context-arg0 context-arg1)
+  (if context-arg1
+      (let* ((address (syntax->datum context-address))
+             (context-index context-arg0)
+             (context-value context-arg1)
+             (arg #f))
+        (when (string=? (process-argument context-index #:as 'ldx) "a")
+              (emit 'tax))
+        (process-argument context-value #:preserve '(x))
+        (emit 'sta (format "~a,x" (as-arg address))))
+      (let* ((address (syntax->datum context-address))
+             (context-value context-arg0))
+        (process-argument context-value)
+        (emit 'sta (as-arg address)))))
+
+(define (process-address-specifier specifier context-address)
+  (let ((address (syntax->datum context-address)))
+    (if (eq? specifier 'low)
+        (emit 'lda (format "#<~a" (normalize-name address)))
+        (emit 'lda (format "#>~a" (normalize-name address))))))
+
+(define (process-stack action registers #:skip-context [skip-context #f])
+  (assert action symbol?)
+  (assert registers list?)
+  (when (not skip-context)
+        (emit-context))
+  (cond
+   [(eq? action 'push) (begin (when (member 'a registers)
+                                    (emit 'pha))
+                              (when (member 'x registers)
+                                    (emit 'txa)
+                                    (emit 'pha))
+                              (when (member 'y registers)
+                                    (emit 'tya)
+                                    (emit 'pha)))]
+   [(eq? action 'pull) (begin (when (member 'y registers)
+                                    (emit 'pla)
+                                    (emit 'tay))
+                              (when (member 'x registers)
+                                    (emit 'pla)
+                                    (emit 'tax))
+                              (when (member 'a registers)
+                                    (emit 'pla)))]))
+
+(define (process-raw symbol args)
+  (let ((value (syntax->datum (car args))))
+    (cond
+     [(eq? symbol 'asm) (for ([elem args]) (emit (syntax->datum elem)))]
+     [(eq? symbol 'org) (emit (format ".org $~x" value))]
+     [(eq? symbol 'byte) (emit (format ".byte ~a" value))]
+     [(eq? symbol 'text) (emit (format ".byte \"~a\"" value))])))
+
+(define (process-jump-subroutine fname params)
+  (let* ((pop-count 0))
+    (emit-context)
+    (when (> (length params) 3)
+          (for ([elem (reverse (cdddr params))])
+               (set! pop-count (+ 1 pop-count))
+               (process-argument elem #:skip-context #t)
+               (emit 'pha)))
+    (for ([elem params] [i (in-naturals)])
+         (cond
+          ([= i 0]
+           (process-argument elem #:skip-context #t))
+          ([= i 1]
+           (emit 'ldx (process-argument elem #:preserve '(a) #:as 'rhs
+                                        #:skip-context #t)))
+          ([= i 2]
+           (emit 'ldy (process-argument elem #:preserve '(a x) #:as 'rhs
+                                        #:skip-context #t)))))
+    (emit 'jsr (normalize-name fname))
+    (for ([i (in-range pop-count)])
+         (emit 'pla))
+    (gvector-add! (*invocations*) fname)))
+
+(define (process-invocation context-original symbol rest)
+  (cond
+   [(not symbol) (process-argument context-original)]
+   [(function? symbol) (process-jump-subroutine symbol rest)]
+   [(macro? symbol) (let* ((forms (list (syntax->datum context-original)))
+                           (expanded (car (macro-expand forms)))
+                           (wrapped (datum->syntax context-original
+                                                   expanded
+                                                   context-original)))
+                      (process-form wrapped))]))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; Syntax tree walker
+
+(define (process-keys args allowed-keywords)
+  (for/list ([k allowed-keywords])
+    (find-keyword k (map syntax->datum args))))
+
+(define (unwrap-args args num-required num-optional)
+  ; TODO: Implement num-required and num-optional
+  (map syntax-e args))
+
+(define (process-form form)
+  (assert form syntax?)
+  (let* ((inner (syntax-e form))
+         (first (if (list? inner) (car inner) #f))
+         (rest (if (list? inner) (cdr inner) #f))
+         (symbol (if first (syntax->datum first) #f)))
+    (parameterize ([*co2-source-context* (vector form #t)])
+      (if (or (not symbol) (function? symbol) (macro? symbol))
+          (process-invocation form symbol rest)
+          (case symbol
+            ; Main expression walker.
+            [(nes-header) (apply built-in-nes-header
+                                 (process-keys rest '(#:num-prg #:num-chr
+                                                      #:mapper #:mirroring)))]
+            [(init-system) (built-in-init-system)]
+            [(defconst) (apply process-defconst (unwrap-args rest 2 0))]
+            [(defaddr) (apply process-defaddr (unwrap-args rest 2 0))]
+            [(defvar) (apply process-defvar (unwrap-args rest 1 1))]
+            [(defsub) (process-proc 'sub (car rest) (cdr rest))]
+            [(defvector) (process-proc 'vector (car rest) (cdr rest))]
+            [(deflabel) (process-deflabel (car rest))]
+            [(push pull) (process-stack symbol (unwrap-args rest 0 3))]
+            [(set!) (process-set-bang (car rest) (cadr rest))]
+            [(block) (process-block (car rest) (cdr rest))]
+            [(loop-down-from) (process-loop-down (car rest) (cadr rest)
+                                                 (cddr rest))]
+            [(loop-up-to) (process-loop-up (car rest) (cadr rest)
+                                           (caddr rest) (cdddr rest))]
+            [(loop) (process-loop-up (car rest) (cadr rest)
+                                     (caddr rest) (cdddr rest)
+                                     #:inclusive #t)]
+            [(let) (process-let (car rest) (cdr rest))]
+            [(if) (process-if (car rest) (cadr rest) (caddr rest))]
+            [(while) (process-while (car rest) (cdr rest))]
+            [(do) (for ([elem rest])
+                       (process-form elem))]
+            [(peek) (process-peek (lref rest 0) (lref rest 1))]
+            [(poke!) (process-poke! (lref rest 0) (lref rest 1) (lref rest 2))]
+            [(ppu-memset) (process-ppu-memset
+                           (lref rest 0) (lref rest 1) (lref rest 2)
+                           (lref rest 3) (lref rest 4))]
+            [(ppu-memcpy) (process-ppu-memcpy
+                           (lref rest 0) (lref rest 1) (lref rest 2)
+                           (lref rest 3) (lref rest 4) (lref rest 5))]
+            [(ppu-memcpy16) (process-ppu-memcpy16
+                             (lref rest 0) (lref rest 1) (lref rest 2)
+                             (lref rest 3) (lref rest 4))]
+            [(set-sprite!) (process-set-sprite! (lref rest 0) (lref rest 1)
+                                                (lref rest 2))]
+            [(get-sprite) (process-get-sprite (lref rest 0) (lref rest 1))]
+            [(high low) (process-address-specifier symbol (lref rest 0))]
+            [(memset) (process-memset (lref rest 0) (lref rest 1))]
+            [(peek16) (process-peek16 (lref rest 0) (lref rest 1))]
+            [(set16!) (process-set16! (lref rest 0) (lref rest 1))]
+            [(animate-sprites-2x2!)
+             (process-animate-sprites-2x2! (lref rest 0) (lref rest 1))]
+            [(set-sprites-2x2-y!)
+             (process-set-sprites-2x2-y! (lref rest 0) (lref rest 1))]
+            [(set-sprites-2x2-x!)
+             (process-set-sprites-2x2-x! (lref rest 0) (lref rest 1))]
+            [(or-sprites-attr!)
+             (process-sprites-apply-to-field! (lref rest 0) (lref rest 1)
+                                              (lref rest 2) 2 'eor)]
+            [(add-sprites-y!)
+             (process-sprites-apply-to-field! (lref rest 0) (lref rest 1)
+                                              (lref rest 2) 0 'adc)]
+            [(add-sprites-x!)
+             (process-sprites-apply-to-field! (lref rest 0) (lref rest 1)
+                                              (lref rest 2) 3 'adc)]
+            [(sub-sprites-y!)
+             (process-sprites-apply-to-field! (lref rest 0) (lref rest 1)
+                                              (lref rest 2) 0 'sbc)]
+            [(sub-sprites-x!)
+             (process-sprites-apply-to-field! (lref rest 0) (lref rest 1)
+                                              (lref rest 2) 3 'sbc)]
+            [(_rnd) (process-underscore-rnd)]
+            [(adc and cmp cpx cpy eor lda ora sta)
+             (process-instruction-expression symbol rest)]
+            [(or) (process-instruction-expression 'ora rest)]
+            [(xor) (process-instruction-expression 'eor rest)]
+            [(asl lsr rol ror)
+             (process-instruction-accumulator symbol (car rest))]
+            [(bit dec inc)
+             (process-instruction-standalone symbol (car rest))]
+            [(beq bne jmp)
+             (process-instruction-branch symbol (car rest))]
+            [(clc)
+             (process-instruction-implied symbol)]
+            [(asm byte text org) (process-raw symbol rest)]
+            [(+ - eq? > < >> <<)
+             (process-math symbol (lref rest 0) (lref rest 1))]
+            [(*)
+             (process-mul (lref rest 0) (lref rest 1))]
+            [(+16!)
+             (process-add16 (lref rest 0) (lref rest 1) (lref rest 2))]
+            [(-16!)
+             (process-sub16 (lref rest 0) (lref rest 1) (lref rest 2))]
+            [(not) (process-not symbol (car rest))]
+            [else (printf ";Unknown: ~a ~a\n" symbol rest)
+                  (emit (format ";Unknown: ~a ~a" symbol rest))])))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(define *user-specified-org* #f)
+
+(define (analyze-proc context-decl body)
+  (assert context-decl syntax?)
+  (assert body list?)
+  (let* ((decl (syntax->datum context-decl))
+         (name (car decl))
+         (args (cdr decl)))
+    ; TODO: Add number of parameters to table, to check when called.
+    (make-function! name)))
+
+(define (analyze-label context-name)
+  (assert context-name syntax?)
+  (let* ((name (syntax->datum context-name)))
+    (make-address! name 0)))
+
+(define (analyze-org)
+  (set! *user-specified-org* #t))
+
+(define (analyze-form form)
+  (assert form syntax?)
+  (let* ((inner (syntax-e form))
+         (first (if (list? inner) (car inner) #f))
+         (rest (if (list? inner) (cdr inner) #f))
+         (symbol (if first (syntax->datum first) #f)))
+    (parameterize ([*co2-source-context* (vector form #t)])
+      (if (or (not symbol) (function? symbol) (macro? symbol))
+          #f
+          (case symbol
+            ; Main expression walker.
+            [(defsub) (analyze-proc (car rest) (cdr rest))]
+            [(defvector) (analyze-proc (car rest) (cdr rest))]
+            [(deflabel) (analyze-label (car rest))]
+            [(org) (analyze-org)]
+            [(do) (for ([elem rest])
+                       (analyze-form elem))])))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(define (resolve-func-node-memory func-nodes n)
+  (let* ((f (hash-ref func-nodes n))
+         (name (func-node-name f))
+         (params (func-node-params f))
+         (calls (func-node-calls f))
+         (memory (func-node-memory f)))
+    (if (number? memory)
+        memory ; return early
+        (begin (let ((total 0)
+                     (curr 0))
+                 (for ([c calls])
+                   (set! curr (resolve-func-node-memory func-nodes c))
+                   (when (> curr total)
+                     (set! total curr)))
+                 (set! total (+ total (length params)))
+                 (set-func-node-memory! f total)
+                 total)))))
+
+(define (traverse-func-nodes)
+  (let ((names (hash-keys func-nodes)))
+    (for ([n names])
+      (resolve-func-node-memory func-nodes n))))
+
+(define (process-func-arg-memory-addresses)
+  (emit "") (emit "")
+  (let ((names (hash-keys func-nodes)))
+    (for ([n names])
+         (let* ((f (hash-ref func-nodes n))
+                (name (func-node-name f))
+                (params (func-node-params f))
+                (calls (func-node-calls f))
+                (memory (func-node-memory f))
+                (k (- memory (length params))))
+           (for ([p params] [i (in-naturals)])
+                (emit (format "_~a__~a = $~x" (normalize-name name)
+                              (normalize-name p) (+ k i #x40))))))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; Entry point
+
+; source symbol, assembly label, address / const
+
+(define (define-built-ins)
+  ;; Memory-mapped addresses
+  (for ([elem reg-table])
+       (let ((symbol (car elem))
+             (value (cadr elem)))
+         (make-address! symbol value)))
+  ;; PPU flags
+  (for ([elem ppu-flags])
+       (let ((symbol (car elem))
+             (value (cadr elem)))
+         (make-const! symbol value)))
+  ;; Reserved zeropage variables for internal use
+  (for ([elem reserved-zero-page])
+       (let ((symbol (car elem))
+             (value (cadr elem)))
+         (make-address! symbol value))))
+
+(define (output-prefix)
+  ;; Memory-mapped addresses
+  (for ([elem reg-table])
+       (let ((symbol (car elem))
+             (value (cadr elem)))
+         (emit (format "~a = $~x" (normalize-name symbol) value))))
+  ;; PPU flags
+  (for ([elem ppu-flags])
+       (let ((symbol (car elem))
+             (value (cadr elem)))
+         (emit (format "~a = $~x" (normalize-name symbol) value))))
+  ;; Reserved zeropage variables for internal use
+  (for ([elem reserved-zero-page])
+       (let ((symbol (car elem))
+             (value (cadr elem)))
+         (emit (format "~a = $~x" (normalize-name symbol) value))))
+  (emit ""))
+
+(define (output-suffix)
+  (emit "") (emit "")
+  (let ((data (get-data-segment)))
+    (for/list ([elem data])
+      (let ((label (car elem))
+            (value (cadr elem)))
+        (emit (format "~a:" label))
+        (emit (format "  .byte ~a" (list->byte-string value)))
+        (emit (format "~a_length = ~a" label (length value)))
+        (emit ""))))
+  (when (not *user-specified-org*)
+    (emit ".pad $fffa")
+    ; Output the vectors, entry points defined by hardware.
+    (let ((build '()))
+      (for ([entry '(irq reset nmi)])
+           (if (member entry *entry-points*)
+               (set! build (cons (symbol->string entry) build))
+               (set! build (cons "0" build))))
+      (emit (string-append ".word " (string-join build ","))))))
+
+(define (analyze-func-defs fname)
+  (let ((f (open-input-file fname)))
+    (define (loop)
+      (let ((top-level-form (read-syntax fname f)))
+        (when (not (eof-object? top-level-form))
+              (analyze-form top-level-form)
+              (loop))))
+    (loop)
+    (close-input-port f)))
+
+(define (output-assembly fname)
+  (let ((f (open-input-file fname)))
+    (port-count-lines! f)
+    (define-built-ins)
+    (output-prefix)
+    (define (loop)
+      (let ((top-level-form (read-syntax fname f)))
+        (when (not (eof-object? top-level-form))
+              (process-form top-level-form)
+              (loop))))
+    (loop)
+    (output-suffix)
+    (close-input-port f)))
+
+(define (process-co2 fname out-filename)
+  (analyze-func-defs fname)
+  (output-assembly fname))
+
+(let* ((fname (command-line #:args (input) input)))
+  (process-co2 fname "out.asm")
+  (traverse-func-nodes)
+  (process-func-arg-memory-addresses)
+  (for ([line *result*])
+       (printf "~a\n" line)))
+
