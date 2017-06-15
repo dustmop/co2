@@ -51,8 +51,6 @@
    (defvar gframe 0)
 
    (asm
-    ;; restart interrupts again
-    "cli"
     ;; go into in infite loop - vblank interrupt takes over
     "loop: jmp loop"))
 
