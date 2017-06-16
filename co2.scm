@@ -31,14 +31,13 @@
   (set! lst-file (string-replace asm-file ".asm" ".lst"))
   (set! nl-file (string-replace out-file ".nes" ".nes.0.nl"))
   ; Compile
-  (printf "*** start ~a => ~a\n" in-file asm-file)
+  (printf "co2: compile ~a => ~a\n" in-file asm-file)
   (compile-co2 in-file asm-file)
-  (printf "*** compiled ~a => ~a\n" in-file asm-file)
   ; Assemble
-  (printf "*** next ~a => ~a\n" asm-file out-file)
+  (printf "co2: assemble ~a => ~a\n" asm-file out-file)
   (assemble asm-file out-file)
-  (printf "*** assembled ~a => ~a\n" asm-file out-file)
   ; Generate nl file
+  (printf "co2: gen-nl ~a => ~a\n" lst-file nl-file)
   (generate-nl lst-file nl-file)
-  (printf "*** done\n")
-  )
+  (printf "co2 done\n"))
+

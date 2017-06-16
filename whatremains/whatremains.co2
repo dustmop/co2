@@ -30,6 +30,8 @@
  (defconst command-rom-data 4)
  ;; palette change [palette-id]
  (defconst command-palette-change 5)
+ ;; bank switch
+ (defconst command-bank-switch 6)
 
  (defconst screen-blank-delay 30)
 
@@ -328,6 +330,11 @@
          ((eq? o indoor-palette-id) (ppu-memcpy ppu-palette 0 0 #x20 indoor-palette 0))
          ((eq? o future-palette-id) (ppu-memcpy ppu-palette 0 0 #x10 future-palette 0))
          (else (ppu-memcpy ppu-palette 0 0 #x20 black-palette 0))))
+
+      ;; bank switch command
+      (when (eq? (peek display-list display-list-index) command-bank-switch)
+        (set! o (peek display-list start))
+        (mmc1-chrbank0 o))
 
       (set! display-list-index (- display-list-index n)))))
 
@@ -772,8 +779,9 @@
    (set! gdraw-phase 0))
 
  (defsub (any-key)
-   (or (or (pressed joypad-a)
-           (pressed joypad-b))
+   (or (pressed joypad-a)
+       (pressed joypad-b)
+       (pressed joypad-start)
        (pressed joypad-select)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -784,9 +792,10 @@
  ;; title
 
  (defsub (update-screen bank palette nam-l nam-h)
-   (mmc1-chrbank0 bank)
    (display-list-add-byte palette)
    (display-list-end-packet command-palette-change 0 0 1)
+   (display-list-add-byte bank)
+   (display-list-end-packet command-bank-switch 0 0 1)
    (draw-screen nam-l nam-h)
    (display-list-add-byte black-palette-id)
    (display-list-end-packet command-palette-change 0 0 1)
@@ -972,10 +981,7 @@
        (display-list-end-packet command-palette-change 0 0 1)))
 
      (when (not (eq? gtext-box text-box-activated))
-       (update-sprites-eighties))
-
-     (when (pressed joypad-start)
-       (switch-game-mode title-mode)))
+       (update-sprites-eighties)))
 
    (update-textbox2))
 
