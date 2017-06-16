@@ -1513,7 +1513,7 @@
 
  ;; bounding box data
  (deflabel collision-bboxes0)
- (byte "15") ;; number of boxes
+ (byte "16") ;; number of boxes
  (byte "0, 0, 255, 32")
  (byte "0, 0, 16, 238")
  (byte "96, 0, 128, 64")
@@ -1529,6 +1529,9 @@
  (byte "199, 96, 240, 177")
  (byte "191, 128, 255, 176")
  (byte "238, 112, 255, 134")
+ ; bottom
+ (byte "$00,$d0,$ff,$f0")
+
 
  ;; dmc samples
 ;; (asm "       .org $c000")
@@ -1536,9 +1539,33 @@
  (asm ".incbin \"whatremains/music/whatremains.dmc\"")
 
  (deflabel collision-bboxes1)
- (byte "2") ;; number of boxes
- (byte "0, 0, 23, 82")
- (byte "0, 0, 33, 64")
+ (byte "16") ;; number of boxes
+; top edge
+ (byte "0, 0, 255, 32")
+; top-left zigs
+(byte "0,0,$ff,$20")
+(byte "0,0,$30,$30")
+(byte "0,0,$20,$40")
+(byte "0,0,$10,$50")
+; top part that juts out
+(byte "$90,$20,$b0,$30")
+; middle partments
+(byte "$40,$40,$a0,$50")
+(byte "$40,$50,$50,$80")
+(byte "$70,$50,$a0,$90")
+(byte "$60,$80,$90,$b0")
+(byte "$40,$90,$60,$c0")
+; left side
+(byte "$00,$60,$10,$b0")
+; more
+(byte "$b0,$50,$c0,$c0")
+; right
+(byte "$f0,$00,$ff,$ff")
+(byte "$e0,$40,$ff,$80")
+ ; bottom
+ (byte "$00,$d0,$ff,$f0")
+
+
 
  (deflabel collision-bboxes-aerobic)
  (byte "0")
