@@ -14,8 +14,10 @@
   ".byte $00,$00,$00,$00,$00,$00,$00,$00")
 
  ;; our memory layout
- (defconst sprite-shadow  "$200") ;; where the sprite control data is
- (defconst poke-test "$300")
+ (defconst sprite-shadow  #x200) ;; where the sprite control data is
+ (defconst poke-test #x300)
+ (defconst ppu-name-table-0 #x2000)
+ (defconst ppu-palette #x3f00)
 
  ;; code start
  (org #xc000)
@@ -27,50 +29,51 @@
 
  (defvar assertpos 0)
 
- (defun (assert v)
+ (defsub (assert v)
    (if (eq? v 1)
        (ppu-memset ppu-name-table-0 0 assertpos 1 1)
        (ppu-memset ppu-name-table-0 0 assertpos 1 2))
    (inc assertpos))
  
-(defun (test-simple) 1)
-(defun (test2-argret a) a)
-(defun (test3-multifn a)
+(defsub (test-simple) 1)
+(defsub (test2-argret a) a)
+(defsub (test3-multifn a)
   (test3-b #xcd)
   a)
-(defun (test3-b b) 99)
-(defun (test4-secondarg a b) b)
-(defun (test5-multifn2 a b)
+(defsub (test3-b b) 99)
+(defsub (test4-secondarg a b) b)
+(defsub (test5-multifn2 a b)
   (test5-b 10 20 a)
   b)
-(defun (test5-b a b c) 0)
-(defun (test6-assignarg a)
+(defsub (test5-b a b c) 0)
+(defsub (test6-assignarg a)
   (set! a 1) 
   a)
 
-(defun (test7-multiarg a b c d e f g)
+(defsub (test7-multiarg a b c d e f g)
   (+ a (+ b (+ c (+ d (+ e (+ f g)))))))
 
-(defun (test8-recur count num)
-  (if (eq? count 0) num
-    (test8-recur (+ count 1) (- num 1))))
+; TODO: Recursion not supported.
+;(defsub (test8-recur count num)
+;  (if (eq? count 0) num
+;    (test8-recur (+ count 1) (- num 1))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; interrupts
 
- (defun (load-palette)
+ (defsub (load-palette)
    ;; copy 32 bytes of bg and sprite palette
    (ppu-memcpy ppu-palette 0 0 #x20 palette 0))
 
- (defint (reset)  
+ (defvector (reset)  
    ;; disable interrupts while we set stuff up
    (init-system)
 
    ;; disable all graphics.
-   (set! reg-ppu-ctl 0)
-   (set! reg-ppu-mask 0)
-   (set! reg-ppu-scroll 0)
-   (set! reg-ppu-scroll 0)
+   (set! REG-PPU-CTRL 0)
+   (set! REG-PPU-MASK 0)
+   (set! REG-PPU-SCROLL 0)
+   (set! REG-PPU-SCROLL 0)
    ;; send stuff to the ppu here...
    (load-palette)
 
@@ -129,7 +132,7 @@
    (assert (test5-multifn2 0 1))
    (assert (test6-assignarg 0))
    (assert (eq? (test7-multiarg 1 2 3 4 5 6 7) 28))
-   (assert (eq? (test8-recur 0 10) 10))
+   ;(assert (eq? (test8-recur 0 10) 10))
 
    ;; loops
    (set! n 0)
@@ -194,8 +197,8 @@
 
    ;; set basic ppu registers.  load background from $0000,
    ;; sprites from $1000, and the name table from $2000.
-   (set! reg-ppu-ctl #b10001000)
-   (set! reg-ppu-mask #b00011110)
+   (set! REG-PPU-CTRL #b10001000)
+   (set! REG-PPU-MASK #b00011110)
 
    (asm
     ;; restart interrupts again
@@ -205,33 +208,31 @@
 
 
  ;; main loop is here
- (defint (vblank))
- (defint (irq))
+ (defvector (nmi))
  
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; data follows
-;; interrupt vectors (addresses for functions)
- (asm ".word vblank, reset, irq")
+
   ;; stuff still to tidy up follows...
 
- (asm "palette:")
+ (deflabel palette)
  (byte "$0d,$00,$00,$00,$00,$02,$03,$04,$01,$02,$03,$0c,$0c,$1c,$2c,$3c")
  (byte "$0d,$18,$28,$38,$0c,$1c,$2c,$3c,$03,$13,$23,$33,$09,$19,$29,$39")
 
- (asm "bg:")
+ (deflabel bg)
   ;; attribute table
  (byte "$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00")
  (byte "$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00")
  (byte "$00,$00,$00,$00,$00,$00,$00,$00,$f0,$f0,$f0,$f0,$f0,$f0,$f0,$f0")
  (byte "$ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$0f,$0f,$0f,$0f,$0f,$0f,$0f,$0f")
- (asm ".pad $fffa")
 
+ (asm ".pad $fffa")
 ;; interrupt vectors (addresses for functions)
- (asm ".word vblank, reset, irq")
+ (asm ".word nmi, reset, 0")
 
  ;; finally all the chr data
- (asm 
-  ".incbin \"unit-tests/binary/test.chr\"")
+ (asm
+  ".incbin \"integration-test/binary/test.chr\"")
  
 
  )

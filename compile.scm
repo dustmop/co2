@@ -176,6 +176,12 @@
 
 (define *result* (make-gvector))
 
+(define (clear-result)
+  (set! *result* (make-gvector)))
+
+(define (fetch-result)
+  (gvector->list *result*))
+
 (define (emit . args)
   (let ((build ""))
     ; Optional label.
@@ -196,7 +202,8 @@
   (gvector-add! *result* ""))
 
 (define (emit-context)
-  (gvector-add! *result* (co2-source-context)))
+  (let ((c (co2-source-context)))
+    (when c (gvector-add! *result* c))))
 
 (define (emit-label label)
   (gvector-add! *result* (format "~a:" label)))
@@ -612,7 +619,9 @@
          (line-num (syntax-line form))
          (source (->string (syntax->datum form)))
          (len (min 40 (string-length source))))
-    (format ";~a:~a ~a" fname line-num (substring source 0 len))))
+    (if fname
+        (format ";~a:~a ~a" fname line-num (substring source 0 len))
+        #f)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Built-in functions
@@ -841,6 +850,11 @@
 (define (->register arg)
   (symbol->string (cadr arg)))
 
+(define (->unsigned num)
+  (if (>= num 0)
+      num
+      (+ #x100 num)))
+
 (define (datum-ref list index)
   (if (>= index (length list))
       #f
@@ -862,7 +876,7 @@
                         (if (eq? (sym-label-kind lookup) 'const)
                             (format "#~a" (sym-label-name lookup))
                             (sym-label-name lookup)))))
-   ([number? arg] (format "#$~x" arg))
+   ([number? arg] (format "#$~x" (->unsigned arg)))
    (else (error (format "ERROR as-arg: ~a" arg)))))
 
 ;Generate code to get a single value into the desired return value, which
@@ -1108,6 +1122,55 @@
              (emit-label is-label)
              (emit 'lda "#1")
              (emit-label done-label))]
+      [(>s) (let ((not-label (generate-label "not_gt"))
+                  (is-label (generate-label "is_gt"))
+                  (done-label (generate-label "done_gt")))
+              (emit 'cmp (as-arg rhs))
+              (emit 'beq not-label)
+              (emit 'bpl is-label)
+              ; not gt
+              (emit-label not-label)
+              (emit 'lda "#0")
+              (emit 'jmp done-label)
+              ; is gt
+              (emit-label is-label)
+              (emit 'lda "#1")
+              (emit-label done-label))]
+      [(<s) (let ((is-label (generate-label "is_lt"))
+                  (done-label (generate-label "done_lt")))
+              (emit 'cmp (as-arg rhs))
+              (emit 'bmi is-label)
+              ; not lt
+              (emit 'lda "#0")
+              (emit 'jmp done-label)
+              ; is lt
+              (emit-label is-label)
+              (emit 'lda "#1")
+              (emit-label done-label))]
+      [(<=) (let ((is-label (generate-label "is_lt"))
+                  (done-label (generate-label "done_lt")))
+              (emit 'cmp (as-arg rhs))
+              (emit 'beq is-label)
+              (emit 'bcc is-label)
+              ; not lt
+              (emit 'lda "#0")
+              (emit 'jmp done-label)
+              ; is lt
+              (emit-label is-label)
+              (emit 'lda "#1")
+              (emit-label done-label))]
+      [(<=s) (let ((is-label (generate-label "is_lt"))
+                   (done-label (generate-label "done_lt")))
+               (emit 'cmp (as-arg rhs))
+               (emit 'beq is-label)
+               (emit 'bmi is-label)
+               ; not lt
+               (emit 'lda "#0")
+               (emit 'jmp done-label)
+               ; is lt
+               (emit-label is-label)
+               (emit 'lda "#1")
+               (emit-label done-label))]
       [(>>) (begin (assert right number?)
                    (for ([i (in-range right)])
                         (emit 'lsr "a")))]
@@ -1211,8 +1274,12 @@
            (emit 'ldy (process-argument elem #:preserve '(a x) #:as 'rhs
                                         #:skip-context #t)))))
     (emit 'jsr (normalize-name fname))
+    (when (> pop-count 0)
+          (emit 'sta "_tmp"))
     (for ([i (in-range pop-count)])
          (emit 'pla))
+    (when (> pop-count 0)
+          (emit 'lda "_tmp"))
     (gvector-add! (*invocations*) fname)))
 
 (define (process-invocation context-original symbol rest)
@@ -1326,7 +1393,7 @@
             [(clc)
              (process-instruction-implied symbol)]
             [(asm byte text org) (process-raw symbol rest)]
-            [(+ - eq? > < >> <<)
+            [(+ - eq? > < >> << <s <= >s <=s)
              (process-math symbol (lref rest 0) (lref rest 1))]
             [(*)
              (process-mul (lref rest 0) (lref rest 1))]
@@ -1512,3 +1579,6 @@
     (close-output-port f)))
 
 (provide compile-co2)
+(provide process-form)
+(provide clear-result)
+(provide fetch-result)
