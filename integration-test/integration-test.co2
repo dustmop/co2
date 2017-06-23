@@ -69,6 +69,8 @@
    ;; disable interrupts while we set stuff up
    (init-system)
 
+   (set! assertpos 32)
+
    ;; disable all graphics.
    (set! REG-PPU-CTRL 0)
    (set! REG-PPU-MASK 0)
@@ -216,8 +218,8 @@
   ;; stuff still to tidy up follows...
 
  (deflabel palette)
- (byte "$0d,$00,$00,$00,$00,$02,$03,$04,$01,$02,$03,$0c,$0c,$1c,$2c,$3c")
- (byte "$0d,$18,$28,$38,$0c,$1c,$2c,$3c,$03,$13,$23,$33,$09,$19,$29,$39")
+ (byte "$0f,$1c,$16,$00,$0f,$02,$03,$04,$0f,$02,$03,$0c,$0f,$1c,$2c,$3c")
+ (byte "$0f,$18,$28,$38,$0f,$1c,$2c,$3c,$0f,$13,$23,$33,$0f,$19,$29,$39")
 
  (deflabel bg)
   ;; attribute table
