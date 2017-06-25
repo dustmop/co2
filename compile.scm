@@ -1380,7 +1380,7 @@
              (process-sprites-apply-to-field! (lref rest 0) (lref rest 1)
                                               (lref rest 2) 3 'sbc)]
             [(_rnd) (process-underscore-rnd)]
-            [(adc and cmp cpx cpy eor lda ora sta)
+            [(adc and cmp cpx cpy eor lda ldx ldy ora sta stx sty)
              (process-instruction-expression symbol rest)]
             [(or) (process-instruction-expression 'ora rest)]
             [(xor) (process-instruction-expression 'eor rest)]
@@ -1390,7 +1390,7 @@
              (process-instruction-standalone symbol (car rest))]
             [(beq bne jmp)
              (process-instruction-branch symbol (car rest))]
-            [(clc)
+            [(clc cld cli clv dex dey inx iny nop)
              (process-instruction-implied symbol)]
             [(asm byte text org) (process-raw symbol rest)]
             [(+ - eq? > < >> << <s <= >s <=s)
