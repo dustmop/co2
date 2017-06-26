@@ -52,9 +52,8 @@
                 "  ldy #0"
                 "_loop_up_to_0001:"
                 "  lda #$1"
-                "  tya"
                 "  iny"
-                "  cmp _loop"
+                "  cpy _loop"
                 "  bne _loop_up_to_0001"))
 
 (check-equal? (compile-code '(loop n 0 8 (lda 1)))
@@ -64,7 +63,7 @@
                 "  sta n"
                 "_loop_up_to_0001:"
                 "  lda #$1"
-                "  lda n"
                 "  inc n"
+                "  lda n"
                 "  cmp _loop"
                 "  bne _loop_up_to_0001"))

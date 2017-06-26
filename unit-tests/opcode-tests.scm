@@ -3,7 +3,6 @@
 (require rackunit "../compile.scm")
 
 (define (compile-code code)
-  (printf "Testing ~a\n" code)
   (clear-result)
   (process-form (datum->syntax #f code))
   (fetch-result))
