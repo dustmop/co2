@@ -73,6 +73,9 @@
 
 (define label-id 0)
 
+(define (clear-label-id)
+  (set! label-id 0))
+
 (define (generate-label name)
   (set! label-id (+ label-id 1))
   (string-append "_" name "_" (left-pad (number->string label-id 16) #\0 4)))
@@ -955,7 +958,7 @@
   (assert context-start syntax?)
   (assert body list?)
   (emit-context)
-  (let ((reg (syntax->datum context-reg))
+  (let ((iter (syntax->datum context-reg))
         (start (syntax->datum context-start))
         (initial-loop-value #f))
     (cond
@@ -963,14 +966,20 @@
      ([< start #x100] (set! initial-loop-value start))
      ([= start #x100] (set! initial-loop-value 0))
      (else (error "Initial loop value invalid")))
-    (emit (format "  ld~a #~a" reg initial-loop-value))
+    (if (register? iter)
+        (emit (format "  ld~a #~a" iter initial-loop-value))
+        (begin
+          (emit 'lda (format "#~a" initial-loop-value))
+          (emit 'sta (as-arg iter))))
     (let ((loop-label (generate-label "loop_down_from")))
       (emit-label loop-label)
       ; TODO: Disallow `reg` changes within `body`
       (for ([stmt body])
            (process-form stmt))
       (emit-context)
-      (emit (format "  de~a" reg))
+      (if (register? iter)
+          (emit (format "  de~a" iter))
+          (emit 'dec (as-arg iter)))
       (emit 'bne loop-label))))
 
 (define (process-loop-up context-iter context-start context-end body
@@ -1010,7 +1019,7 @@
          (if (register? iter)
              (begin (emit (format "  t~aa" iter))
                     (emit (format "  in~a" iter))
-                    (emit (format "  cmp ~a" iter sentinal-value)))
+                    (emit (format "  cmp ~a" sentinal-value)))
              (begin (emit 'lda (as-arg iter))
                     (emit 'inc (as-arg iter))
                     (emit 'cmp (as-arg sentinal-value))))
@@ -1582,6 +1591,7 @@
 (provide compile-co2)
 (provide process-form)
 (provide clear-result)
+(provide clear-label-id)
 (provide fetch-result)
 (provide make-variable!)
 (provide make-function!)
