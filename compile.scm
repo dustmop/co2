@@ -1340,11 +1340,8 @@
             [(block) (process-block (car rest) (cdr rest))]
             [(loop-down-from) (process-loop-down (car rest) (cadr rest)
                                                  (cddr rest))]
-            [(loop-up-to) (process-loop-up (car rest) (cadr rest)
-                                           (caddr rest) (cdddr rest))]
-            [(loop) (process-loop-up (car rest) (cadr rest)
-                                     (caddr rest) (cdddr rest)
-                                     #:inclusive #t)]
+            [(loop-up-to loop) (process-loop-up (car rest) (cadr rest)
+                                                (caddr rest) (cdddr rest))]
             [(let) (process-let (car rest) (cdr rest))]
             [(if) (process-if (car rest) (cadr rest) (caddr rest))]
             [(while) (process-while (car rest) (cdr rest))]

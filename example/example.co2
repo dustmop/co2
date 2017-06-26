@@ -63,7 +63,7 @@
    ;; (memset writes 256 bytes in one go)
    (memset sprite-data 0)
    (defvar n 0)
-   (loop n 0 63
+   (loop n 0 64
          ;; set up 16 sprites
          (set-sprite-x! n (* n 10)) ;; x pos
          (set-sprite-y! n (* n 10)) ;; y pos
@@ -92,8 +92,7 @@
          (poke! pad-data n (and (peek REG-JOYPAD-0) #x1))))
 
  (defsub (pressed key)
-   (loop n 0 key
-         (peek pad-data n)))
+   (peek pad-data key))
 
  (defvar sx 0)
  (defvar sy 0)
