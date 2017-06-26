@@ -1280,7 +1280,8 @@
          (emit 'pla))
     (when (> pop-count 0)
           (emit 'lda "_tmp"))
-    (gvector-add! (*invocations*) fname)))
+    (when (*invocations*)
+          (gvector-add! (*invocations*) fname))))
 
 (define (process-invocation context-original symbol rest)
   (cond
@@ -1582,3 +1583,5 @@
 (provide process-form)
 (provide clear-result)
 (provide fetch-result)
+(provide make-variable!)
+(provide make-function!)
