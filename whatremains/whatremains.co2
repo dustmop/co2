@@ -384,7 +384,7 @@
    (set! i 1) ;; char
    (set! j 0) ;; count
    (while (not (eq? i 0))
-     (set! i (peek16 text-addr j))
+     (set! i (load-pointer text-addr j))
      (display-list-add-byte i)
      (inc j))
    (display-list-end-packet command-tile-data h (+ l text-pos) j)
@@ -398,7 +398,7 @@
      (when (display-list-is-empty) (set! text-time 0)))
     (else
      (inc text-time)
-     (set! i (peek16 text-addr text-pos))
+     (set! i (load-pointer text-addr text-pos))
      (when (or (> text-time 3) (eq? i 32)) ;; space
        ;; zero terminating strings
        (when (not (eq? i 0))
@@ -413,7 +413,7 @@
        (set! text-time 0)))))
 
  (defsub (text-finished)
-   (set! i (peek16 text-addr text-pos))
+   (set! i (load-pointer text-addr text-pos))
    (if (eq? i 0) 1 0))
 
  (defsub (reset-text)
@@ -806,7 +806,7 @@
    (cond
     ((eq? gdraw-phase 1)
      (set! debounce 1)
-     (set16! text-addr null_text)
+     (set-pointer! text-addr null_text)
      (set! title-screen 0)
      (set! title-text-line 0)
      (set! gscroll-x 0)
@@ -832,14 +832,14 @@
    (cond
     ((and (eq? title-screen 0) (eq? gframe 127))
      (reset-text)
-     (set16! text-addr titles_1)
+     (set-pointer! text-addr titles_1)
      (set! title-screen 1))
     ((and (eq? title-screen 1) (eq? gframe 255))
      (reset-text)
      (display-list-add-byte 96)
      (display-list-add-byte 32)
      (display-list-end-packet command-tile-value 1 100 2)
-     (set16! text-addr titles_2)
+     (set-pointer! text-addr titles_2)
      (set! gframe 0)
      (set! title-screen 2))
     ((and (eq? title-screen 2) (eq? gframe 255))
@@ -847,7 +847,7 @@
      (display-list-add-byte 96)
      (display-list-add-byte 32)
      (display-list-end-packet command-tile-value 1 100 2)
-     (set16! text-addr titles_3)
+     (set-pointer! text-addr titles_3)
      (set! title-screen 3))
     ((and (eq? title-screen 3) (eq? gframe 255))
      (display-list-add-byte 96)
@@ -873,19 +873,19 @@
         "lda #1
          jsr FamiToneMusicPlay")
        (update-screen 2 title1-palette-id (low title1_nam) (high title1_nam))
-       (set16! text-addr intro_1_1)
+       (set-pointer! text-addr intro_1_1)
        (set! title-screen 6))
 
       ((eq? title-screen 6)
        (cond
         ((eq? title-text-line 0)
          (draw-screen (low title1_nam) (high title1_nam))
-         (set16! text-addr intro_1_2)
+         (set-pointer! text-addr intro_1_2)
          (set! title-text-line 1)
          (reset-text))
         ((eq? title-text-line 1)
          (update-screen 4 title2-palette-id (low title2_nam) (high title2_nam))
-         (set16! text-addr intro_2_1)
+         (set-pointer! text-addr intro_2_1)
          (reset-text)
          (set! title-text-line 0)
          (set! title-screen 7))))
@@ -894,12 +894,12 @@
        (cond
         ((eq? title-text-line 0)
          (draw-screen (low title2_nam) (high title2_nam))
-         (set16! text-addr intro_2_2)
+         (set-pointer! text-addr intro_2_2)
          (set! title-text-line 1)
          (reset-text))
         ((eq? title-text-line 1)
          (update-screen 6 title3-palette-id (low title3_nam) (high title3_nam))
-         (set16! text-addr intro_3_1)
+         (set-pointer! text-addr intro_3_1)
          (reset-text)
          (set! title-text-line 0)
          (set! title-screen 8))))
@@ -908,17 +908,17 @@
        (cond
         ((eq? title-text-line 0)
          (draw-screen (low title3_nam) (high title3_nam))
-         (set16! text-addr intro_3_2)
+         (set-pointer! text-addr intro_3_2)
          (set! title-text-line 1)
          (reset-text))
         ((eq? title-text-line 1)
          (draw-screen (low title3_nam) (high title3_nam))
-         (set16! text-addr intro_3_3)
+         (set-pointer! text-addr intro_3_3)
          (set! title-text-line 2)
          (reset-text))
         ((eq? title-text-line 2)
          (draw-screen (low title3_nam) (high title3_nam))
-         (set16! text-addr intro_3_4)
+         (set-pointer! text-addr intro_3_4)
          (set! title-text-line 3)
          (reset-text))
         ((eq? title-text-line 3)
@@ -1089,8 +1089,8 @@
    (when (sprite-collide-sprite
           0 (peek entity-data (+ npc1-entity entity-id)))
      (if (eq? (and ggame-state 3) 3)
-         (set16! text-addr friendsays2)
-         (set16! text-addr friendsays))
+         (set-pointer! text-addr friendsays2)
+         (set-pointer! text-addr friendsays))
      (show-textbox))
 
    ;; exits, after redrawing?
@@ -1204,7 +1204,7 @@
      (animate-npc dancer5-sprite-pattern-id npc5-entity)
      (when (sprite-collide-sprite
             0 (peek entity-data (+ npc1-entity entity-id)))
-       (set16! text-addr teachersays) ;; what to say
+       (set-pointer! text-addr teachersays) ;; what to say
        (show-textbox))
 
      (when (or (sprite-collide-sprite
@@ -1217,7 +1217,7 @@
                 0 (peek entity-data (+ npc5-entity entity-id)))
                (sprite-collide-sprite
                 0 (peek entity-data (+ npc6-entity entity-id))))
-       (set16! text-addr dancersays) ;; what to say
+       (set-pointer! text-addr dancersays) ;; what to say
        (show-textbox)))
     ((eq? ggame-mode tobacco-mode)
      (animate-npc smoker1-sprite-pattern-id npc1-entity)
@@ -1227,11 +1227,11 @@
 
      (when (sprite-collide-sprite
             0 (peek entity-data (+ npc1-entity entity-id)))
-       (set16! text-addr smoker2says) ;; what to say
+       (set-pointer! text-addr smoker2says) ;; what to say
        (show-textbox))
      (when (sprite-collide-sprite
             0 (peek entity-data (+ npc2-entity entity-id)))
-       (set16! text-addr smoker1says) ;; what to say
+       (set-pointer! text-addr smoker1says) ;; what to say
        (show-textbox)))
     ((eq? ggame-mode michael-mode)
      (animate-npc michael-sprite-pattern-id npc1-entity)
@@ -1239,7 +1239,7 @@
      (when (sprite-collide-sprite
             0 (peek entity-data (+ npc1-entity entity-id)))
        (set! ggame-state (or ggame-state 4))
-       (set16! text-addr michaelsaysfirst) ;; what to say
+       (set-pointer! text-addr michaelsaysfirst) ;; what to say
        (show-textbox))))
 
    ;; exits
@@ -1327,7 +1327,7 @@
        "lda #3
         jsr FamiToneMusicPlay")
       (set! debounce 1)
-      (set16! text-addr null_text)
+      (set-pointer! text-addr null_text)
       (set! title-screen 0)
       (set! title-text-line 0)
       (set! password-pos 10)
@@ -1356,7 +1356,7 @@
       (cond
        ((eq? title-screen 0)
         (clear-future)
-        (set16! text-addr future_1) ;; can you do something for me
+        (set-pointer! text-addr future_1) ;; can you do something for me
         (set! title-screen 1)
         (reset-text))
 
@@ -1371,7 +1371,7 @@
             (switch-game-mode michael-mode))
            (else
             (clear-future)
-            (set16! text-addr future_2)
+            (set-pointer! text-addr future_2)
             (set! title-text-line 1)
             (reset-text)
             (set! password-pos 12))))

@@ -19,3 +19,18 @@
                                                     "  sta n"
                                                     "  sta m"))
 
+(check-equal? (compile-code '(set-pointer! ptr addr))
+              '("  lda #<addr"
+                "  sta ptr"
+                "  lda #>addr"
+                "  sta ptr+1"))
+
+(check-equal? (compile-code '(load-pointer ptr))
+              '("  ldy #0"
+                "  lda (ptr),y"))
+
+(check-equal? (compile-code '(load-pointer ptr 2))
+              '("  lda #$2"
+                "  tay"
+                "  lda (ptr),y"))
+

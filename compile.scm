@@ -213,8 +213,7 @@
 
 ;;----------------------------------------------------------------
 
-(define (process-set16! context-place context-value)
-  ; TODO: Rename to set-pointer!
+(define (process-set-pointer! context-place context-value)
   (emit-context)
   (let ((place (syntax->datum context-place))
         (value (syntax->datum context-value)))
@@ -223,8 +222,7 @@
    (emit 'lda (format "#>~a" (normalize-name value)))
    (emit 'sta (format "~a+1" (normalize-name place)))))
 
-(define (process-peek16 context-pointer context-index)
-  ; TODO: Rename to load-pointer
+(define (process-load-pointer context-pointer context-index)
   (emit-context)
   (let ((pointer (syntax->datum context-pointer)))
     (if context-index
@@ -1363,8 +1361,8 @@
             [(get-sprite) (process-get-sprite (lref rest 0) (lref rest 1))]
             [(high low) (process-address-specifier symbol (lref rest 0))]
             [(memset) (process-memset (lref rest 0) (lref rest 1))]
-            [(peek16) (process-peek16 (lref rest 0) (lref rest 1))]
-            [(set16!) (process-set16! (lref rest 0) (lref rest 1))]
+            [(load-pointer) (process-load-pointer (lref rest 0) (lref rest 1))]
+            [(set-pointer!) (process-set-pointer! (lref rest 0) (lref rest 1))]
             [(animate-sprites-2x2!)
              (process-animate-sprites-2x2! (lref rest 0) (lref rest 1))]
             [(set-sprites-2x2-y!)

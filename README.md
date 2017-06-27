@@ -294,30 +294,30 @@ decrement a variable by one - maps to a single instruction
 
 some stuff to simplify 16bit operations - very unpolished
 
-### (set16! variable value)
+### (set-pointer! variable value)
 
-a special two byte assignment from 16bit address label
+create a pointer a 16bit address label
 
     ;; must be contiguous
     (defvar addr-l 0)
     (defvar addr-h 0)
 
-    (set16! addr-l mydata)
+    (set-pointer! addr-l mydata)
 
     ...
 
     (asm "mydata:")
     (bytes "0,1,2,3,4,5")
 
-### (peek16 addr-l offset)
+### (load-pointer addr-l offset)
 
-returns memory at address specified by two bytes
+returns memory at address specified by a pointer
 
     (defvar addr-l 0)
     (defvar addr-h 0)
-    (set16! addr-l mydata)
+    (set-pointer! addr-l mydata)
 
-    (peek16 addr-l 4) ;; returns 4
+    (load-pointer addr-l 4) ;; returns 4
 
     ...
 
