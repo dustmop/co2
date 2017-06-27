@@ -237,8 +237,8 @@
 (define (process-memset context-address context-value)
   (let ((address (syntax->datum context-address)))
    (process-argument context-value)
-   (emit 'ldx "#$00")
-   (emit "-" 'sta (format "~a,x" (normalize-name address)))
+   (emit 'ldy "#$00")
+   (emit "-" 'sta (format "~a,y" (normalize-name address)))
    (emit 'inx)
    (emit 'bne "-")))
 
@@ -284,11 +284,11 @@
    (emit 'clc)
    (emit 'adc (format "#<~a" (normalize-name ppu-base)))
    (emit 'sta "REG_PPU_ADDR")
-   (emit 'ldx (as-arg start-index))
-   (emit "-" 'lda (format "~a,x" (as-arg prg-base)))
+   (emit 'ldy (as-arg start-index))
+   (emit "-" 'lda (format "~a,y" (as-arg prg-base)))
    (emit 'sta "REG_PPU_DATA")
-   (emit 'inx)
-   (emit 'cpx (as-arg end-index))
+   (emit 'iny)
+   (emit 'cpy (as-arg end-index))
    (emit 'bne "-")
    ;; reset ppu addr
    (emit 'lda "#$00")
@@ -330,17 +330,17 @@
    (process-argument context-sprite-id)
    (emit 'asl) ;; *2
    (emit 'asl) ;; *4
-   (emit 'tay)
+   (emit 'tax)
    (emit 'pla)
-   (emit 'sta (format "$~x,y" (+ field #x200)))))
+   (emit 'sta (format "$~x,x" (+ field #x200)))))
 
 (define (process-get-sprite context-sprite-id context-field)
   (let ((field (syntax->datum context-field)))
    (process-argument context-sprite-id)
    (emit 'asl) ;; *2
    (emit 'asl) ;; *4
-   (emit 'tay)
-   (emit 'lda (format "$~x,y" (+ field #x200)))))
+   (emit 'tax)
+   (emit 'lda (format "$~x,x" (+ field #x200)))))
 
 (define (process-sprites-apply-to-field! context-sprite-id context-num-sprites
                                          context-attr-bits field instr)
@@ -354,23 +354,23 @@
      (emit 'asl) ;; *4
      (emit 'clc)
      (emit 'adc (as-arg field)) ;; field
-     (emit 'tay) ;; put offset in y
+     (emit 'tax) ;; put offset in x
      (emit 'pla) ;; pull count out
-     (emit 'tax) ;; put sprite count in x
+     (emit 'tay) ;; put sprite count in y
      (emit 'pla) ;; value
      (emit 'sta "_tmp")
      (emit-label label)
-     (emit 'lda "$200,y") ;; load previous
+     (emit 'lda "$200,x") ;; load previous
      (cond
       [(eq? instr 'adc) (emit 'clc)]
       [(eq? instr 'sbc) (emit 'sec)])
      (emit instr "_tmp")
-     (emit 'sta "$200,y")
-     (emit 'iny) ;; skip
-     (emit 'iny) ;; to
-     (emit 'iny) ;; the next
-     (emit 'iny) ;; sprite
-     (emit 'dex)
+     (emit 'sta "$200,x")
+     (emit 'inx) ;; skip
+     (emit 'inx) ;; to
+     (emit 'inx) ;; the next
+     (emit 'inx) ;; sprite
+     (emit 'dey)
      (emit 'bne label)))
 
 (define (process-underscore-rnd)
@@ -389,41 +389,41 @@
 (define (process-set-sprites-2x2-x! context-sprite-num context-xpos)
   (begin
    (process-argument context-sprite-num)
-   (emit 'tay) ;; put offset in y
+   (emit 'tax) ;; put offset in x
    (process-argument context-xpos #:skip-context #t)
-   (emit 'sta "$203,y")
-   (emit 'sta "$20b,y")
+   (emit 'sta "$203,x")
+   (emit 'sta "$20b,x")
    (emit 'clc)
    (emit 'adc "#8")
-   (emit 'sta "$207,y")
-   (emit 'sta "$20f,y")))
+   (emit 'sta "$207,x")
+   (emit 'sta "$20f,x")))
 
 (define (process-set-sprites-2x2-y! context-sprite-num context-ypos)
   (begin
    (process-argument context-sprite-num)
-   (emit 'tay) ;; put offset in y
+   (emit 'tax) ;; put offset in x
    (process-argument context-ypos #:skip-context #t)
-   (emit 'sta "$200,y")
-   (emit 'sta "$204,y")
+   (emit 'sta "$200,x")
+   (emit 'sta "$204,x")
    (emit 'clc)
    (emit 'adc "#8")
-   (emit 'sta "$208,y")
-   (emit 'sta "$20c,y")))
+   (emit 'sta "$208,x")
+   (emit 'sta "$20c,x")))
 
 (define (process-animate-sprites-2x2! context-sprite-num context-tile)
   (begin
    (process-argument context-sprite-num)
    (emit 'asl) ;; *2
    (emit 'asl) ;; *4
-   (emit 'tay) ;; put offset in y
+   (emit 'tax) ;; put offset in x
    (process-argument context-tile #:skip-context #t)
-   (emit 'sta "$201,y") ;; sprite 1
+   (emit 'sta "$201,x") ;; sprite 1
    (emit 'adc "#$01")
-   (emit 'sta "$205,y") ;; sprite 2
+   (emit 'sta "$205,x") ;; sprite 2
    (emit 'adc "#$0f")
-   (emit 'sta "$209,y") ;; sprite 3
+   (emit 'sta "$209,x") ;; sprite 3
    (emit 'adc "#$01")
-   (emit 'sta "$20d,y"))) ;; sprite 4
+   (emit 'sta "$20d,x"))) ;; sprite 4
 
 (define (process-mul context-left context-right)
   (let ((start-label (generate-label "mul_start"))
@@ -439,7 +439,7 @@
     (emit 'sta "_count")
     (process-argument context-left #:skip-context #t)
     (emit 'sta "_tmp")
-    (emit 'ldx "#8")
+    (emit 'ldy "#8")
     (emit 'lda "#0")
     (emit-label loop-label)
     (emit 'asl "a")
@@ -448,7 +448,7 @@
     (emit 'clc)
     (emit 'adc "_tmp")
     (emit-label inc-label)
-    (emit 'dex)
+    (emit 'dey)
     (emit 'bne loop-label)
     (emit-label done-label)))
 
@@ -757,7 +757,6 @@
             (emit 'tsx)
             (let ((params (cdddr args)))
               (for ([p params] [i (in-naturals)])
-                   ; TODO: Get parameter from the stack, store in local frame.
                    (emit 'lda (format "$~x,x" (+ #x103 i)))
                    (emit 'sta (as-arg p)))))
       ; Process body.
@@ -1206,9 +1205,9 @@
     (if (not index)
         (emit 'lda (as-arg address))
         (begin
-          (when (string=? (process-argument context-index #:as 'ldx) "a")
-                (emit 'tax))
-          (emit 'lda (format "~a,x" (as-arg address)))))))
+          (when (string=? (process-argument context-index #:as 'ldy) "a")
+                (emit 'tay))
+          (emit 'lda (format "~a,y" (as-arg address)))))))
 
 (define (process-poke! context-address context-arg0 context-arg1)
   (if context-arg1
@@ -1216,10 +1215,10 @@
              (context-index context-arg0)
              (context-value context-arg1)
              (arg #f))
-        (when (string=? (process-argument context-index #:as 'ldx) "a")
-              (emit 'tax))
-        (process-argument context-value #:preserve '(x))
-        (emit 'sta (format "~a,x" (as-arg address))))
+        (when (string=? (process-argument context-index #:as 'ldy) "a")
+              (emit 'tay))
+        (process-argument context-value #:preserve '(y))
+        (emit 'sta (format "~a,y" (as-arg address))))
       (let* ((address (syntax->datum context-address))
              (context-value context-arg0))
         (process-argument context-value)
@@ -1590,3 +1589,4 @@
 (provide fetch-result)
 (provide make-variable!)
 (provide make-function!)
+(provide make-address!)

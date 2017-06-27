@@ -28,7 +28,7 @@
                                         "  sta _count"
                                         "  lda #$3"
                                         "  sta _tmp"
-                                        "  ldx #8"
+                                        "  ldy #8"
                                         "  lda #0"
                                         "_mul_loop_0002:"
                                         "  asl a"
@@ -37,6 +37,6 @@
                                         "  clc"
                                         "  adc _tmp"
                                         "_mul_inc_0003:"
-                                        "  dex"
+                                        "  dey"
                                         "  bne _mul_loop_0002"
                                         "_mul_done_0004:"))
