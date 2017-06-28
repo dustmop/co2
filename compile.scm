@@ -395,45 +395,6 @@
      (emit-label label)
      (emit 'sta (as-arg rnd-reg))))
 
-(define (process-set-sprites-2x2-x! context-sprite-num context-xpos)
-  (begin
-   (process-argument context-sprite-num)
-   (emit 'tax) ;; put offset in x
-   (process-argument context-xpos #:skip-context #t)
-   (emit 'sta "$203,x")
-   (emit 'sta "$20b,x")
-   (emit 'clc)
-   (emit 'adc "#8")
-   (emit 'sta "$207,x")
-   (emit 'sta "$20f,x")))
-
-(define (process-set-sprites-2x2-y! context-sprite-num context-ypos)
-  (begin
-   (process-argument context-sprite-num)
-   (emit 'tax) ;; put offset in x
-   (process-argument context-ypos #:skip-context #t)
-   (emit 'sta "$200,x")
-   (emit 'sta "$204,x")
-   (emit 'clc)
-   (emit 'adc "#8")
-   (emit 'sta "$208,x")
-   (emit 'sta "$20c,x")))
-
-(define (process-animate-sprites-2x2! context-sprite-num context-tile)
-  (begin
-   (process-argument context-sprite-num)
-   (emit 'asl) ;; *2
-   (emit 'asl) ;; *4
-   (emit 'tax) ;; put offset in x
-   (process-argument context-tile #:skip-context #t)
-   (emit 'sta "$201,x") ;; sprite 1
-   (emit 'adc "#$01")
-   (emit 'sta "$205,x") ;; sprite 2
-   (emit 'adc "#$0f")
-   (emit 'sta "$209,x") ;; sprite 3
-   (emit 'adc "#$01")
-   (emit 'sta "$20d,x"))) ;; sprite 4
-
 (define (process-mul context-left context-right)
   (let ((start-label (generate-label "mul_start"))
         (loop-label (generate-label "mul_loop"))
@@ -562,15 +523,6 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Utilities
 
-(define (dash->underscore s)
-  (foldl
-   (lambda (c r)
-     (if (eq? c #\-)
-         (string-append r "_")
-         (string-append r (string c))))
-   ""
-   (string->list s)))
-
 (define (assert val fn)
   (when (not (fn val))
     (error (format "assert failed: ~a ~a" val fn))))
@@ -593,7 +545,7 @@
       (string-append (make-string (- len (string-length text)) pad) text)))
 
 (define (normalize-name name)
-  (dash->underscore (symbol->string name)))
+  (string-replace (string-replace (symbol->string name) "-" "_") "!" "_ex_"))
 
 (define (atom? obj)
   (and (not (null? obj))
@@ -841,14 +793,11 @@
 (define (process-instruction-accumulator instr context-arg)
   (assert instr symbol?)
   (assert context-arg syntax?)
-  (let ((did-context #f))
-    (when (not (list? (syntax->datum context-arg)))
-          (set! did-context #t)
-          (emit-context))
-    (let ((value (process-argument context-arg #:skip-context #t #:as 'rhs)))
-      (when (not did-context)
-            (emit-context))
-      (emit instr value))))
+  (let ((arg (syntax->datum context-arg)))
+    (if (eq? arg 'a)
+        (emit instr "a")
+        (let ((value (process-argument context-arg #:as 'rhs)))
+          (emit instr value)))))
 
 (define (index-register? arg)
   (or (eq? arg 'x) (eq? arg 'y)))
@@ -1369,12 +1318,6 @@
             [(memset) (process-memset (lref rest 0) (lref rest 1))]
             [(load-pointer) (process-load-pointer (lref rest 0) (lref rest 1))]
             [(set-pointer!) (process-set-pointer! (lref rest 0) (lref rest 1))]
-            [(animate-sprites-2x2!)
-             (process-animate-sprites-2x2! (lref rest 0) (lref rest 1))]
-            [(set-sprites-2x2-y!)
-             (process-set-sprites-2x2-y! (lref rest 0) (lref rest 1))]
-            [(set-sprites-2x2-x!)
-             (process-set-sprites-2x2-x! (lref rest 0) (lref rest 1))]
             [(or-sprites-attr!)
              (process-sprites-apply-to-field! (lref rest 0) (lref rest 1)
                                               (lref rest 2) 2 'eor)]
@@ -1401,7 +1344,7 @@
              (process-instruction-standalone symbol (car rest))]
             [(beq bne jmp)
              (process-instruction-branch symbol (car rest))]
-            [(clc cld cli clv dex dey inx iny nop)
+            [(clc cld cli clv dex dey inx iny nop tax tay txa tya)
              (process-instruction-implied symbol)]
             [(asm byte text org) (process-raw symbol rest)]
             [(+ - eq? > < >> << <s <= >s <=s)

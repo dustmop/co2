@@ -7,6 +7,8 @@
   (process-form (datum->syntax #f code))
   (fetch-result))
 
+(check-equal? (compile-code '(asl a)) '("  asl a"))
+
 (check-equal? (compile-code '(and 1)) '("  and #$1"))
 
 (check-equal? (compile-code '(clc)) '("  clc"))
@@ -48,3 +50,14 @@
 (check-equal? (compile-code '(stx "n")) '("  stx n"))
 
 (check-equal? (compile-code '(sty "n")) '("  sty n"))
+
+(check-equal? (compile-code '(tax)) '("  tax"))
+
+(check-equal? (compile-code '(tay)) '("  tay"))
+
+(check-equal? (compile-code '(txa)) '("  txa"))
+
+(check-equal? (compile-code '(tya)) '("  tya"))
+
+
+
