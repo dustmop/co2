@@ -40,7 +40,7 @@
               '("  lda #$ff"
                 "  ldy #$00"
                 "-  sta sprites,y"
-                "  inx"
+                "  iny"
                 "  bne -"))
 
 (check-equal? (compile-code '(ppu-memcpy ppu-palette 0 0 #x20 data 0))

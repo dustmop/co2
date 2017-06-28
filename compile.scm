@@ -248,7 +248,7 @@
    (process-argument context-value)
    (emit 'ldy "#$00")
    (emit "-" 'sta (format "~a,y" (normalize-name address)))
-   (emit 'inx)
+   (emit 'iny)
    (emit 'bne "-")))
 
 (define (process-ppu-memset context-ppu-base context-dest-high
