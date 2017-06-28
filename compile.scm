@@ -80,6 +80,15 @@
   (set! label-id (+ label-id 1))
   (string-append "_" name "_" (left-pad (number->string label-id 16) #\0 4)))
 
+;;----------------------------------------------------------------
+
+(define (literal-address? obj)
+  (and (list? obj)
+       (eq? (car obj) 'addr)))
+
+(define (literal-address-number obj)
+  (cadr obj))
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Symbol / label definitions. Stores vars, consts, addresses, data.
 
@@ -791,13 +800,11 @@
      ([= (length args) 1]
       (begin
         (emit-context)
-        (assert first atom?)
         (emit instr (as-arg first))))
      ; Single argument with an index register.
      ([and (= (length args) 2) (index-register? second)]
       (begin
         (emit-context)
-        (assert first atom?)
         (emit instr (format "~a,~a" (as-arg first) (->register second)))))
      ; Two arguments, evaluate any expressions, load the first arg into A,
      ; and output the instruction using the second arg as the operand.
@@ -844,11 +851,10 @@
       (emit instr value))))
 
 (define (index-register? arg)
-  (and (list? arg) (eq? (car arg) 'quote)
-       (or (eq? (cadr arg) 'x) (eq? (cadr arg) 'y))))
+  (or (eq? arg 'x) (eq? arg 'y)))
 
 (define (->register arg)
-  (symbol->string (cadr arg)))
+  (symbol->string arg))
 
 (define (->unsigned num)
   (if (>= num 0)
@@ -877,6 +883,7 @@
                             (format "#~a" (sym-label-name lookup))
                             (sym-label-name lookup)))))
    ([number? arg] (format "#$~x" (->unsigned arg)))
+   ([literal-address? arg] (format "$~x" (literal-address-number arg)))
    (else (error (format "ERROR as-arg: ~a" arg)))))
 
 ;Generate code to get a single value into the desired return value, which
