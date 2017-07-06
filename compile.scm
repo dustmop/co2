@@ -220,6 +220,28 @@
 (define (emit-label label)
   (gvector-add! *result* (format "~a:" label)))
 
+(define *errors* (make-gvector))
+
+(define (clear-errors)
+  (set! *errors* (make-gvector)))
+
+(define (add-error msg value)
+  (let ((c (co2-source-err-context)))
+    (gvector-add! *errors* (format "ERROR @ ~a: ~a `~a`" c msg value))))
+
+(define (has-errors?)
+  (> (gvector-count *errors*) 0))
+
+(define (display-errors)
+  (for ([e *errors*])
+       (printf "~a\n" e)))
+
+(define (first-error)
+  (if (has-errors?)
+      (gvector-ref *errors* 0)
+      #f))
+
+
 ;;----------------------------------------------------------------
 
 (define (process-set-pointer! context-place context-value)
@@ -585,6 +607,14 @@
         (format ";~a:~a ~a" fname line-num (substring source 0 len))
         #f)))
 
+(define (co2-source-err-context)
+  (let* ((form (vector-ref (*co2-source-context*) 0))
+         (fname (syntax-source form))
+         (line-num (syntax-line form)))
+    (if fname
+        (format "~a:~a" fname line-num)
+        #f)))
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Built-in functions
 
@@ -825,9 +855,8 @@
    ([string? arg] arg)
    ([symbol? arg] (let ((lookup (sym-label-lookup arg)))
                     (if (not lookup)
-                        ; TODO: Throw an error, use syntax object
-                        (begin (emit (format ";Not found: ~a" arg))
-                               (format "\"not found ~a\"" arg))
+                        (begin (add-error "Variable not found" arg)
+                               (format ";Not found: ~a" arg))
                         (if (eq? (sym-label-kind lookup) 'const)
                             (format "#~a" (sym-label-name lookup))
                             (sym-label-name lookup)))))
@@ -1356,8 +1385,8 @@
             [(-16!)
              (process-sub16 (lref rest 0) (lref rest 1) (lref rest 2))]
             [(not) (process-not symbol (car rest))]
-            [else (printf ";Unknown: ~a ~a\n" symbol rest)
-                  (emit (format ";Unknown: ~a ~a" symbol rest))])))))
+            [else (add-error "Not defined" symbol)
+                  (format ";Unknown: ~a ~a" symbol rest)])))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -1530,7 +1559,11 @@
     (for ([line *result*])
          (write-string line f)
          (newline f))
-    (close-output-port f)))
+    (close-output-port f))
+  (when (has-errors?)
+        (display-errors)
+        (exit 1)))
+
 
 (provide compile-co2)
 (provide process-form)
@@ -1540,3 +1573,5 @@
 (provide make-variable!)
 (provide make-function!)
 (provide make-address!)
+(provide first-error)
+(provide clear-errors)
