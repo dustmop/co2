@@ -1567,6 +1567,7 @@
 
 (provide compile-co2)
 (provide process-form)
+(provide analyze-form)
 (provide clear-result)
 (provide clear-label-id)
 (provide fetch-result)
@@ -1575,3 +1576,5 @@
 (provide make-address!)
 (provide first-error)
 (provide clear-errors)
+(provide traverse-func-nodes)
+(provide generate-func-arg-memory-addresses)
