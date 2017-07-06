@@ -63,6 +63,56 @@
                 "  lda #$00"
                 "  sta REG_PPU_ADDR"))
 
+(check-equal? (compile-code '(ppu-load #x2000 data #x800))
+              '("  bit REG_PPU_STATUS"
+                "  lda #>#$2000"
+                "  sta REG_PPU_ADDR"
+                "  lda #<#$2000"
+                "  sta REG_PPU_ADDR"
+                "  lda #<data"
+                "  sta _pointer+0"
+                "  lda #>data"
+                "  sta _pointer+1"
+                "  ldy #0"
+                "  ldx #>#$800"
+                "  jsr _ppu_load_by_pointer"))
+
+(check-equal? (compile-code '(ppu-load #x3f00 data #x20))
+              '("  bit REG_PPU_STATUS"
+                "  lda #>#$3f00"
+                "  sta REG_PPU_ADDR"
+                "  lda #<#$3f00"
+                "  sta REG_PPU_ADDR"
+                "  lda #<data+32"
+                "  sta _pointer+0"
+                "  lda #>data-1"
+                "  sta _pointer+1"
+                "  ldy #224"
+                "  ldx #1"
+                "  jsr _ppu_load_by_pointer"))
+
+(check-equal? (compile-code '(ppu-load #x2000 0 #x800))
+              '("  bit REG_PPU_STATUS"
+                "  lda #>#$2000"
+                "  sta REG_PPU_ADDR"
+                "  lda #<#$2000"
+                "  sta REG_PPU_ADDR"
+                "  lda #$0"
+                "  ldy #0"
+                "  ldx #>#$800"
+                "  jsr _ppu_load_by_val"))
+
+(check-equal? (compile-code '(ppu-load #x3f00 #x0f #x20))
+              '("  bit REG_PPU_STATUS"
+                "  lda #>#$3f00"
+                "  sta REG_PPU_ADDR"
+                "  lda #<#$3f00"
+                "  sta REG_PPU_ADDR"
+                "  lda #$f"
+                "  ldy #224"
+                "  ldx #1"
+                "  jsr _ppu_load_by_val"))
+
 (check-equal? (compile-code '(peek data #x10))
               '("  ldy #$10"
                 "  lda data,y"))

@@ -11,6 +11,8 @@
 
 (check-equal? (compile-code '(and 1)) '("  and #$1"))
 
+; TODO: Test branch opcodes, like beq, bne, bpl, jmp
+
 (check-equal? (compile-code '(clc)) '("  clc"))
 
 (check-equal? (compile-code '(cld)) '("  cld"))

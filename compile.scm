@@ -66,7 +66,9 @@
     (frame-num                   #x02)
     (-count                      #x03)
     (-tmp                        #x04)
-    (-loop                       #x05)))
+    (-loop                       #x05)
+    (-pointer                    #x06)
+    (-pointer-1                  #x06)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Label generation
@@ -272,6 +274,43 @@
    (emit "-" 'sta (format "~a,y" (normalize-name address)))
    (emit 'iny)
    (emit 'bne "-")))
+
+(define (process-ppu-load context-ppu-addr context-address context-num)
+  (let ((ppu-addr (syntax->datum context-ppu-addr))
+        (address (syntax->datum context-address))
+        (num (syntax->datum context-num)))
+    (emit 'bit "REG_PPU_STATUS")
+    (emit 'lda (format "#>~a" (as-arg ppu-addr)))
+    (emit 'sta "REG_PPU_ADDR")
+    (emit 'lda (format "#<~a" (as-arg ppu-addr)))
+    (emit 'sta "REG_PPU_ADDR")
+    (cond
+     [(and (number? address) (< num #x100))
+      (begin (emit 'lda (as-arg address))
+             (emit 'ldy (format "#~a" (- #x100 num)))
+             (emit 'ldx "#1")
+             (emit 'jsr "_ppu_load_by_val"))]
+     [(number? address)
+      (begin (emit 'lda (as-arg address))
+             (emit 'ldy "#0")
+             (emit 'ldx (format "#>~a" (as-arg num)))
+             (emit 'jsr "_ppu_load_by_val"))]
+     [(< num #x100)
+      (begin (emit 'lda (format "#<~a+~a" (as-arg address) num))
+             (emit 'sta "_pointer+0")
+             (emit 'lda (format "#>~a-1" (as-arg address)))
+             (emit 'sta "_pointer+1")
+             (emit 'ldy (format "#~a" (- #x100 num)))
+             (emit 'ldx "#1")
+             (emit 'jsr "_ppu_load_by_pointer"))]
+     [else
+      (begin (emit 'lda (format "#<~a" (as-arg address)))
+             (emit 'sta "_pointer+0")
+             (emit 'lda (format "#>~a" (as-arg address)))
+             (emit 'sta "_pointer+1")
+             (emit 'ldy "#0")
+             (emit 'ldx (format "#>~a" (as-arg num)))
+             (emit 'jsr "_ppu_load_by_pointer"))])))
 
 (define (process-ppu-memset context-ppu-base context-dest-high
                             context-dest-low context-length context-value)
@@ -935,6 +974,15 @@
       (for ([stmt body])
            (process-form stmt)))))
 
+(define (process-include-binary context-label context-path)
+  (let* ((label (syntax->datum context-label))
+         (name (normalize-name label))
+         (path (syntax->datum context-path)))
+    (emit-blank)
+    (emit-context)
+    (emit (format "~a:" name))
+    (emit (format ".incbin \"~a\"" path))))
+
 (define (process-loop-down context-reg context-start body)
   (assert context-reg syntax?)
   (assert context-start syntax?)
@@ -1320,6 +1368,8 @@
             [(push pull) (process-stack symbol (unwrap-args rest 0 3))]
             [(set!) (process-set-bang (car rest) (cadr rest))]
             [(block) (process-block (car rest) (cdr rest))]
+            [(include-binary) (process-include-binary (lref rest 0)
+                                                      (lref rest 1))]
             [(loop-down-from) (process-loop-down (car rest) (cadr rest)
                                                  (cddr rest))]
             [(loop-up-to loop) (process-loop-up (car rest) (cadr rest)
@@ -1331,6 +1381,8 @@
                        (process-form elem))]
             [(peek) (process-peek (lref rest 0) (lref rest 1))]
             [(poke!) (process-poke! (lref rest 0) (lref rest 1) (lref rest 2))]
+            [(ppu-load) (process-ppu-load (lref rest 0) (lref rest 1)
+                                          (lref rest 2))]
             [(ppu-memset) (process-ppu-memset
                            (lref rest 0) (lref rest 1) (lref rest 2)
                            (lref rest 3) (lref rest 4))]
@@ -1371,7 +1423,7 @@
              (process-instruction-accumulator symbol (car rest))]
             [(bit dec inc)
              (process-instruction-standalone symbol (car rest))]
-            [(beq bne jmp)
+            [(beq bne bpl jmp)
              (process-instruction-branch symbol (car rest))]
             [(clc cld cli clv dex dey inx iny nop tax tay txa tya)
              (process-instruction-implied symbol)]
@@ -1423,6 +1475,7 @@
             [(defsub) (analyze-proc (car rest) (cdr rest))]
             [(defvector) (analyze-proc (car rest) (cdr rest))]
             [(deflabel) (analyze-label (car rest))]
+            [(include-binary) (analyze-label (car rest))]
             [(org) (analyze-org)]
             [(do) (for ([elem rest])
                        (analyze-form elem))])))))
@@ -1508,6 +1561,26 @@
 
 (define (generate-suffix)
   (emit "") (emit "")
+  ;; Pre-defined
+  (emit "_ppu_load_by_pointer:")
+  (emit 'lda "(_pointer),y")
+  (emit 'sta "REG_PPU_DATA")
+  (emit 'iny)
+  (emit 'bne "_ppu_load_by_pointer")
+  (emit 'inc "_pointer+1")
+  (emit 'dex)
+  (emit 'bne "_ppu_load_by_pointer")
+  (emit 'rts)
+  (emit "")
+  (emit "_ppu_load_by_val:")
+  (emit 'sta "REG_PPU_DATA")
+  (emit 'iny)
+  (emit 'bne "_ppu_load_by_val")
+  (emit 'dex)
+  (emit 'bne "_ppu_load_by_val")
+  (emit 'rts)
+  (emit "")
+  ;; Data segment
   (let ((data (get-data-segment)))
     (for/list ([elem data])
       (let ((label (car elem))
