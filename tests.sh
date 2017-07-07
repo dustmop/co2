@@ -1,4 +1,5 @@
 racket unit-tests/addressing-tests.scm
+racket unit-tests/block-tests.scm
 racket unit-tests/error-tests.scm
 racket unit-tests/function-tests.scm
 racket unit-tests/loop-tests.scm
