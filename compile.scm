@@ -124,6 +124,11 @@
     (hash-set! (car sym-label-defs) sym (sym-label sym name addr 'addr))
     (hash-ref (car sym-label-defs) sym)))
 
+(define (make-label! sym lbl)
+  (let ((name (format "~a" sym)))
+    (hash-set! (car sym-label-defs) sym (sym-label sym name lbl 'label))
+    (hash-ref (car sym-label-defs) sym)))
+
 (define (make-const! sym value)
   (let ((name (normalize-name sym)))
     (hash-set! (car sym-label-defs) sym (sym-label sym name value 'const))
@@ -950,29 +955,37 @@
 (define (process-instruction-branch instr target)
   (assert instr symbol?)
   (assert target syntax?)
-  (let ((value (syntax->datum target)))
-    (assert value symbol?)
+  (let* ((value (syntax->datum target))
+         (lookup (sym-label-lookup value)))
+    (when (not (and lookup (eq? (sym-label-kind lookup) 'label)))
+          (error (format "Invalid target ~a" value)))
     (emit-context)
-    (emit instr (cadr (assoc value (lexical-scope))))))
+    (emit instr (format "~a" (sym-label-address lookup)))))
 
 (define (process-instruction-implied instr)
   (assert instr symbol?)
   (emit-context)
   (emit instr))
 
-; TODO: Combine with sym-label-defs.
-(define lexical-scope (make-parameter '()))
-
 (define (process-block context-label body)
   (assert context-label syntax?)
   (assert body list?)
   (let* ((label (syntax->datum context-label))
-         (gen-label (generate-label (symbol->string label))))
-    (emit-label gen-label)
-    (parameterize [(lexical-scope (cons (list label gen-label)
-                                        (lexical-scope)))]
-      (for [(stmt body)]
-           (process-form stmt)))))
+         (start-label (generate-label (symbol->string label)))
+         (break-label (generate-label (symbol->string label))))
+    ; Label for the start of the block.
+    (emit-label start-label)
+    ; Push scope for local label.
+    (sym-label-push-scope)
+    (make-label! label start-label)
+    (make-label! '#:break break-label)
+    ; Process body.
+    (for [(stmt body)]
+         (process-form stmt))
+    ; Pop scope.
+    (sym-label-pop-scope)
+    ; Label that #:break goes to.
+    (emit-label break-label)))
 
 (define (process-include-binary context-label context-path)
   (let* ((label (syntax->datum context-label))

@@ -15,7 +15,8 @@
                                     (bne SomeLabel)))
               '("_SomeLabel_0001:"
                 "  dec n"
-                "  bne _SomeLabel_0001"))
+                "  bne _SomeLabel_0001"
+                "_SomeLabel_0002:"))
 
 (check-equal? (compile-code '(block SomeLabel
                                     (dec n)
@@ -26,11 +27,35 @@
                 "  dec n"
                 "  bne _SomeLabel_0001"
                 "  dec m"
-                "  bne _SomeLabel_0001"))
+                "  bne _SomeLabel_0001"
+                "_SomeLabel_0002:"))
 
 (check-equal? (compile-code '(block SomeLabel
                                     (inc n)
                                     (jmp SomeLabel)))
               '("_SomeLabel_0001:"
                 "  inc n"
-                "  jmp _SomeLabel_0001"))
+                "  jmp _SomeLabel_0001"
+                "_SomeLabel_0002:"))
+
+(check-equal? (compile-code '(block SomeLabel
+                                    (lda n)
+                                    (beq #:break)
+                                    (inc n)))
+              '("_SomeLabel_0001:"
+                "  lda n"
+                "  beq _SomeLabel_0002"
+                "  inc n"
+                "_SomeLabel_0002:"))
+
+(check-equal? (compile-code '(block SomeLabel
+                                    (lda n)
+                                    (beq #:break)
+                                    (inc n)
+                                    (bne SomeLabel)))
+              '("_SomeLabel_0001:"
+                "  lda n"
+                "  beq _SomeLabel_0002"
+                "  inc n"
+                "  bne _SomeLabel_0001"
+                "_SomeLabel_0002:"))
