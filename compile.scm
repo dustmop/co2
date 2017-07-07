@@ -235,7 +235,7 @@
   (> (gvector-count *errors*) 0))
 
 (define (display-errors)
-  (for ([e *errors*])
+  (for [(e *errors*)]
        (printf "~a\n" e)))
 
 (define (first-error)
@@ -525,9 +525,9 @@
       ((null? l) 0)
       ((eq? (macro-expand (caar l)) 'else) (cons 'do
                                                  (macro-expand (cdr (car l)))))
-      (else (list 'if (macro-expand (caar l))
+      [else (list 'if (macro-expand (caar l))
                   (cons 'do (macro-expand (cdr (car l))))
-                  (_ (cdr l))))))
+                  (_ (cdr l)))]))
   (_ (cdr x)))
 
 (define (m-expand-when-to-if x)
@@ -555,31 +555,31 @@
 ;; basically diy-macro from the main tinyscheme stuff
 (define (macro-expand s)
   (cond
-   ((null? s) s)
-   ((list? s)
+   [(null? s) s]
+   [(list? s)
     (map
      (lambda (i)
        (if (and (list? i) (not (null? i)))
            ;; dispatch to macro processors
            (cond
-            ((eq? (car i) 'cond) (m-expand-cond-to-if i))
-            ((eq? (car i) 'when) (m-expand-when-to-if i))
-            ((eq? (car i) 'get-sprite-vflip) (m-expand-get-sprite-vflip i))
-            ((eq? (car i) 'get-sprite-hflip) (m-expand-get-sprite-hflip i))
-            ((eq? (car i) 'set-sprite-vflip!) (m-expand-set-sprite-vflip! i))
-            ((eq? (car i) 'set-sprite-hflip!) (m-expand-set-sprite-hflip! i))
-            ((eq? (car i) 'get-sprite-y) (m-expand-get-sprite i 0))
-            ((eq? (car i) 'get-sprite-id) (m-expand-get-sprite i 1))
-            ((eq? (car i) 'get-sprite-attr) (m-expand-get-sprite i 2))
-            ((eq? (car i) 'get-sprite-x) (m-expand-get-sprite i 3))
-            ((eq? (car i) 'set-sprite-y!) (m-expand-set-sprite! i 0))
-            ((eq? (car i) 'set-sprite-id!) (m-expand-set-sprite! i 1))
-            ((eq? (car i) 'set-sprite-attr!) (m-expand-set-sprite! i 2))
-            ((eq? (car i) 'set-sprite-x!) (m-expand-set-sprite! i 3))
-            (else (macro-expand i)))
+            [(eq? (car i) 'cond) (m-expand-cond-to-if i)]
+            [(eq? (car i) 'when) (m-expand-when-to-if i)]
+            [(eq? (car i) 'get-sprite-vflip) (m-expand-get-sprite-vflip i)]
+            [(eq? (car i) 'get-sprite-hflip) (m-expand-get-sprite-hflip i)]
+            [(eq? (car i) 'set-sprite-vflip!) (m-expand-set-sprite-vflip! i)]
+            [(eq? (car i) 'set-sprite-hflip!) (m-expand-set-sprite-hflip! i)]
+            [(eq? (car i) 'get-sprite-y) (m-expand-get-sprite i 0)]
+            [(eq? (car i) 'get-sprite-id) (m-expand-get-sprite i 1)]
+            [(eq? (car i) 'get-sprite-attr) (m-expand-get-sprite i 2)]
+            [(eq? (car i) 'get-sprite-x) (m-expand-get-sprite i 3)]
+            [(eq? (car i) 'set-sprite-y!) (m-expand-set-sprite! i 0)]
+            [(eq? (car i) 'set-sprite-id!) (m-expand-set-sprite! i 1)]
+            [(eq? (car i) 'set-sprite-attr!) (m-expand-set-sprite! i 2)]
+            [(eq? (car i) 'set-sprite-x!) (m-expand-set-sprite! i 3)]
+            [else (macro-expand i)])
            (macro-expand i)))
-     s))
-   (else s)))
+     s)]
+   [else s]))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Utilities
@@ -767,30 +767,30 @@
     ; Add vector entry points.
     (when (eq? type 'vector)
           (set! *entry-points* (cons name *entry-points*)))
-    (parameterize ([*invocations* (make-gvector)])
+    (parameterize [(*invocations* (make-gvector))]
       (emit-blank)
       (emit-context)
       (emit-label (normalize-name name))
       ; Push scope for local variables.
       (sym-label-push-scope)
       ; Fastcall parameters
-      (for ([sym args] [i (in-naturals)])
+      (for [(sym args) (i (in-naturals))]
            (let ((label (format "_~a__~a" (normalize-name name)
                                 (normalize-name sym))))
              (make-variable! sym #:label label)
              (cond
-              ([= i 0] (emit 'sta (as-arg sym)))
-              ([= i 1] (emit 'stx (as-arg sym)))
-              ([= i 2] (emit 'sty (as-arg sym))))))
+              [(= i 0) (emit 'sta (as-arg sym))]
+              [(= i 1) (emit 'stx (as-arg sym))]
+              [(= i 2) (emit 'sty (as-arg sym))])))
       ; Additional parameters
       (when (> (length args) 3)
             (emit 'tsx)
             (let ((params (cdddr args)))
-              (for ([p params] [i (in-naturals)])
+              (for [(p params) (i (in-naturals))]
                    (emit 'lda (format "$~x,x" (+ #x103 i)))
                    (emit 'sta (as-arg p)))))
       ; Process body.
-      (for ([stmt body])
+      (for [(stmt body)]
            (process-form stmt))
       ; Pop scope.
       (sym-label-pop-scope)
@@ -818,29 +818,29 @@
         (const #f))
     (cond
      ; Single argument to instruction just outputs the instruction.
-     ([= (length args) 1]
+     [(= (length args) 1)
       (begin
         (emit-context)
-        (emit instr (as-arg first))))
+        (emit instr (as-arg first)))]
      ; Single argument with an index register.
-     ([and (= (length args) 2) (index-register? second)]
+     [(and (= (length args) 2) (index-register? second))
       (begin
         (emit-context)
-        (emit instr (format "~a,~a" (as-arg first) (->register second)))))
+        (emit instr (format "~a,~a" (as-arg first) (->register second))))]
      ; Two arguments, evaluate any expressions, load the first arg into A,
      ; and output the instruction using the second arg as the operand.
-     ([= (length args) 2]
+     [(= (length args) 2)
       (begin
         (let* ((lhs (process-argument (car args)))
                (rhs (process-argument (cadr args) #:preserve '(a) #:as 'rhs
                                       #:skip-context #t)))
-          (emit instr (as-arg rhs)))))
+          (emit instr (as-arg rhs))))]
      ; More than two arguments. Load first, generate code for others, folding
      ; constants along the way.
-     ([> (length args) 2]
+     [(> (length args) 2)
       (begin
         (process-argument (car args))
-        (for ([elem (cdr args)])
+        (for [(elem (cdr args))]
              (if (immediate? (syntax->datum elem))
                  ; Fold constant
                  (set! const (merge-const instr const (syntax->datum elem)))
@@ -855,9 +855,9 @@
         ; Flush any remaining constants.
         (when const
               (emit instr const)
-              (set! const #f))))
+              (set! const #f)))]
         ;(emit instr (format "~a|~a" (as-arg second) (as-arg third)))))
-     (else (error (format "ERROR expression: ~a ~a" instr args))))))
+     [else (error (format "ERROR expression: ~a ~a" instr args))])))
 
 (define (process-instruction-accumulator instr context-arg)
   (assert instr symbol?)
@@ -891,17 +891,17 @@
 
 (define (as-arg arg)
   (cond
-   ([string? arg] arg)
-   ([symbol? arg] (let ((lookup (sym-label-lookup arg)))
+   [(string? arg) arg]
+   [(symbol? arg) (let ((lookup (sym-label-lookup arg)))
                     (if (not lookup)
                         (begin (add-error "Variable not found" arg)
                                (format ";Not found: ~a" arg))
                         (if (eq? (sym-label-kind lookup) 'const)
                             (format "#~a" (sym-label-name lookup))
-                            (sym-label-name lookup)))))
-   ([number? arg] (format "#$~x" (->unsigned arg)))
-   ([literal-address? arg] (format "$~x" (literal-address-number arg)))
-   (else (error (format "ERROR as-arg: ~a" arg)))))
+                            (sym-label-name lookup))))]
+   [(number? arg) (format "#$~x" (->unsigned arg))]
+   [(literal-address? arg) (format "$~x" (literal-address-number arg))]
+   [else (error (format "ERROR as-arg: ~a" arg))]))
 
 ;Generate code to get a single value into the desired return value, which
 ; defaults to the accumulator. Preserve registers to the stack if needed.
@@ -912,7 +912,7 @@
         (arg (syntax->datum context-arg)))
     (if (list? arg)
         ; Evaluate the expression, preserving registers if needed.
-        (parameterize ([*co2-source-context* (vector context-arg #t)])
+        (parameterize [(*co2-source-context* (vector context-arg #t))]
           (when preserve
                 (process-stack 'push preserve #:skip-context #t))
           (process-form context-arg)
@@ -944,8 +944,8 @@
   (let ((value (syntax->datum operand)))
     (emit-context)
     (cond
-     ([symbol? value] (emit instr (normalize-name value)))
-     (else (error (format "ERROR standalone: ~a" value))))))
+     [(symbol? value) (emit instr (normalize-name value))]
+     [else (error (format "ERROR standalone: ~a" value))])))
 
 (define (process-instruction-branch instr target)
   (assert instr symbol?)
@@ -969,9 +969,9 @@
   (let* ((label (syntax->datum context-label))
          (gen-label (generate-label (symbol->string label))))
     (emit-label gen-label)
-    (parameterize ([lexical-scope (cons (list label gen-label)
-                                        (lexical-scope))])
-      (for ([stmt body])
+    (parameterize [(lexical-scope (cons (list label gen-label)
+                                        (lexical-scope)))]
+      (for [(stmt body)]
            (process-form stmt)))))
 
 (define (process-include-binary context-label context-path)
@@ -992,10 +992,10 @@
         (start (syntax->datum context-start))
         (initial-loop-value #f))
     (cond
-     ([= start 0] (error "Cannot start loop at 0"))
-     ([< start #x100] (set! initial-loop-value start))
-     ([= start #x100] (set! initial-loop-value 0))
-     (else (error "Initial loop value invalid")))
+     [(= start 0) (error "Cannot start loop at 0")]
+     [(< start #x100) (set! initial-loop-value start)]
+     [(= start #x100) (set! initial-loop-value 0)]
+     [else (error "Initial loop value invalid")])
     (if (register? iter)
         (emit (format "  ld~a #~a" iter initial-loop-value))
         (begin
@@ -1004,7 +1004,7 @@
     (let ((loop-label (generate-label "loop_down_from")))
       (emit-label loop-label)
       ; TODO: Disallow `reg` changes within `body`
-      (for ([stmt body])
+      (for [(stmt body)]
            (process-form stmt))
       (emit-context)
       (if (register? iter)
@@ -1041,7 +1041,7 @@
                (emit 'sta (as-arg iter))))
     (emit-label loop-label)
     ; TODO: Disallow `reg` changes within `body`
-    (for ([stmt body])
+    (for [(stmt body)]
          (process-form stmt))
     (emit-context)
     ; Increment and compare to sentinal value.
@@ -1068,7 +1068,7 @@
          (label (caar bindings))
          (value (cadr (cadar bindings))))
     (make-data! label value)
-    (for ([stmt body])
+    (for [(stmt body)]
          (process-form stmt))))
 
 (define (process-if context-condition context-truth context-false)
@@ -1106,7 +1106,7 @@
     (emit 'jmp done-label)
     ; Truth case of the `while`.
     (emit-label body-label)
-    (for ([stmt body])
+    (for [(stmt body)]
          (process-form stmt))
     (emit 'jmp start-label)
     (emit-label done-label)
@@ -1211,10 +1211,10 @@
                (emit 'lda "#1")
                (emit-label done-label))]
       [(>>) (begin (assert right number?)
-                   (for ([i (in-range right)])
+                   (for [(i (in-range right))]
                         (emit 'lsr "a")))]
       [(<<) (begin (assert right number?)
-                   (for ([i (in-range right)])
+                   (for [(i (in-range right))]
                         (emit 'asl "a")))])))
 
 (define (process-not operator context-arg)
@@ -1289,7 +1289,7 @@
 (define (process-raw symbol args)
   (let ((value (syntax->datum (car args))))
     (cond
-     [(eq? symbol 'asm) (for ([elem args]) (emit (syntax->datum elem)))]
+     [(eq? symbol 'asm) (for [(elem args)] (emit (syntax->datum elem)))]
      [(eq? symbol 'org) (emit (format ".org $~x" value))]
      [(eq? symbol 'byte) (emit (format ".byte ~a" value))]
      [(eq? symbol 'text) (emit (format ".byte \"~a\"" value))])))
@@ -1298,24 +1298,24 @@
   (let* ((pop-count 0))
     (emit-context)
     (when (> (length params) 3)
-          (for ([elem (reverse (cdddr params))])
+          (for [(elem (reverse (cdddr params)))]
                (set! pop-count (+ 1 pop-count))
                (process-argument elem #:skip-context #t)
                (emit 'pha)))
-    (for ([elem params] [i (in-naturals)])
+    (for [(elem params) (i (in-naturals))]
          (cond
-          ([= i 0]
-           (process-argument elem #:skip-context #t))
-          ([= i 1]
+          [(= i 0)
+           (process-argument elem #:skip-context #t)]
+          [(= i 1)
            (emit 'ldx (process-argument elem #:preserve '(a) #:as 'rhs
-                                        #:skip-context #t)))
-          ([= i 2]
+                                        #:skip-context #t))]
+          [(= i 2)
            (emit 'ldy (process-argument elem #:preserve '(a x) #:as 'rhs
-                                        #:skip-context #t)))))
+                                        #:skip-context #t))]))
     (emit 'jsr (normalize-name fname))
     (when (> pop-count 0)
           (emit 'sta "_tmp"))
-    (for ([i (in-range pop-count)])
+    (for [(i (in-range pop-count))]
          (emit 'pla))
     (when (> pop-count 0)
           (emit 'lda "_tmp"))
@@ -1337,7 +1337,7 @@
 ; Syntax tree walker
 
 (define (process-keys args allowed-keywords)
-  (for/list ([k allowed-keywords])
+  (for/list [(k allowed-keywords)]
     (find-keyword k (map syntax->datum args))))
 
 (define (unwrap-args args num-required num-optional)
@@ -1350,7 +1350,7 @@
          (first (if (list? inner) (car inner) #f))
          (rest (if (list? inner) (cdr inner) #f))
          (symbol (if first (syntax->datum first) #f)))
-    (parameterize ([*co2-source-context* (vector form #t)])
+    (parameterize [(*co2-source-context* (vector form #t))]
       (if (or (not symbol) (function? symbol) (macro? symbol))
           (process-invocation form symbol rest)
           (case symbol
@@ -1377,7 +1377,7 @@
             [(let) (process-let (car rest) (cdr rest))]
             [(if) (process-if (car rest) (cadr rest) (caddr rest))]
             [(while) (process-while (car rest) (cdr rest))]
-            [(do) (for ([elem rest])
+            [(do) (for [(elem rest)]
                        (process-form elem))]
             [(peek) (process-peek (lref rest 0) (lref rest 1))]
             [(poke!) (process-poke! (lref rest 0) (lref rest 1) (lref rest 2))]
@@ -1467,7 +1467,7 @@
          (first (if (list? inner) (car inner) #f))
          (rest (if (list? inner) (cdr inner) #f))
          (symbol (if first (syntax->datum first) #f)))
-    (parameterize ([*co2-source-context* (vector form #t)])
+    (parameterize [(*co2-source-context* (vector form #t))]
       (if (or (not symbol) (function? symbol) (macro? symbol))
           #f
           (case symbol
@@ -1477,7 +1477,7 @@
             [(deflabel) (analyze-label (car rest))]
             [(include-binary) (analyze-label (car rest))]
             [(org) (analyze-org)]
-            [(do) (for ([elem rest])
+            [(do) (for [(elem rest)]
                        (analyze-form elem))])))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -1492,7 +1492,7 @@
         memory ; return early
         (begin (let ((total 0)
                      (curr 0))
-                 (for ([c calls])
+                 (for [(c calls)]
                    (set! curr (resolve-func-node-memory func-nodes c))
                    (when (> curr total)
                      (set! total curr)))
@@ -1502,20 +1502,20 @@
 
 (define (traverse-func-nodes)
   (let ((names (hash-keys func-nodes)))
-    (for ([n names])
+    (for [(n names)]
       (resolve-func-node-memory func-nodes n))))
 
 (define (generate-func-arg-memory-addresses)
   (emit "") (emit "")
   (let ((names (hash-keys func-nodes)))
-    (for ([n names])
+    (for [(n names)]
          (let* ((f (hash-ref func-nodes n))
                 (name (func-node-name f))
                 (params (func-node-params f))
                 (calls (func-node-calls f))
                 (memory (func-node-memory f))
                 (k (- memory (length params))))
-           (for ([p params] [i (in-naturals)])
+           (for [(p params) (i (in-naturals))]
                 (emit (format "_~a__~a = $~x" (normalize-name name)
                               (normalize-name p) (+ k i #x40))))))))
 
@@ -1526,34 +1526,34 @@
 
 (define (define-built-ins)
   ;; Memory-mapped addresses
-  (for ([elem reg-table])
+  (for [(elem reg-table)]
        (let ((symbol (car elem))
              (value (cadr elem)))
          (make-address! symbol value)))
   ;; PPU flags
-  (for ([elem ppu-flags])
+  (for [(elem ppu-flags)]
        (let ((symbol (car elem))
              (value (cadr elem)))
          (make-const! symbol value)))
   ;; Reserved zeropage variables for internal use
-  (for ([elem reserved-zero-page])
+  (for [(elem reserved-zero-page)]
        (let ((symbol (car elem))
              (value (cadr elem)))
          (make-address! symbol value))))
 
 (define (generate-prefix)
   ;; Memory-mapped addresses
-  (for ([elem reg-table])
+  (for [(elem reg-table)]
        (let ((symbol (car elem))
              (value (cadr elem)))
          (emit (format "~a = $~x" (normalize-name symbol) value))))
   ;; PPU flags
-  (for ([elem ppu-flags])
+  (for [(elem ppu-flags)]
        (let ((symbol (car elem))
              (value (cadr elem)))
          (emit (format "~a = $~x" (normalize-name symbol) value))))
   ;; Reserved zeropage variables for internal use
-  (for ([elem reserved-zero-page])
+  (for [(elem reserved-zero-page)]
        (let ((symbol (car elem))
              (value (cadr elem)))
          (emit (format "~a = $~x" (normalize-name symbol) value))))
@@ -1582,7 +1582,7 @@
   (emit "")
   ;; Data segment
   (let ((data (get-data-segment)))
-    (for/list ([elem data])
+    (for/list [(elem data)]
       (let ((label (car elem))
             (value (cadr elem)))
         (emit (format "~a:" label))
@@ -1593,7 +1593,7 @@
     (emit ".pad $fffa")
     ; Output the vectors, entry points defined by hardware.
     (let ((build '()))
-      (for ([entry '(irq reset nmi)])
+      (for [(entry '(irq reset nmi))]
            (if (member entry *entry-points*)
                (set! build (cons (symbol->string entry) build))
                (set! build (cons "0" build))))
@@ -1629,7 +1629,7 @@
   (traverse-func-nodes)
   (generate-func-arg-memory-addresses)
   (let ((f (open-output-file out-filename #:exists 'replace)))
-    (for ([line *result*])
+    (for [(line *result*)]
          (write-string line f)
          (newline f))
     (close-output-port f))
