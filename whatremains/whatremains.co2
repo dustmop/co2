@@ -77,7 +77,7 @@
   ")
 
  ;; code start
- (org #x8000)
+ (program-begin #x8000)
 
  ;; we love globals
  (defvar gframe 0) ;; 8bit frame counter
@@ -1688,9 +1688,9 @@
  (deflabel future1-nam)
  (asm ".incbin \"whatremains/binary/cart-startup.nam\"")
 
- ;; interrupt vectors (addresses for functions)
- (asm ".pad $fffa") ;; jump to the end of prg-rom
- (asm ".word nmi, reset, 0")
+
+ (program-complete)
+
 
  ;; finally ppu-rom
  (asm

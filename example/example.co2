@@ -31,9 +31,9 @@
  (defconst ppu-palette #x3f00)
 
 
-
  ;; code start
- (org #xc000)
+ (program-begin #xc000)
+
 
  (defvector (reset)
    (init-system)
@@ -184,10 +184,11 @@
    .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
     .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00
     .byte $00,$00,$00,$00,$00,$00,$00,$00,$f0,$f0,$f0,$f0,$f0,$f0,$f0,$f0
-    .byte $ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$0f,$0f,$0f,$0f,$0f,$0f,$0f,$0f
-    .pad $fffa")
+    .byte $ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$0f,$0f,$0f,$0f,$0f,$0f,$0f,$0f")
 
- (asm ".word nmi, reset, 0")
+
+ (program-complete)
+
 
  (asm ".incbin \"example/sprites.chr\"
 ; fill the rest of the first chr-rom block with zeroes.

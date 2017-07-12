@@ -280,10 +280,13 @@
    (emit 'iny)
    (emit 'bne "-")))
 
+(define *need-ppu-load-functions* #f)
+
 (define (process-ppu-load context-ppu-addr context-address context-num)
   (let ((ppu-addr (syntax->datum context-ppu-addr))
         (address (syntax->datum context-address))
         (num (syntax->datum context-num)))
+    (set! *need-ppu-load-functions* #t)
     (emit-context)
     (emit 'bit "REG_PPU_STATUS")
     (emit 'lda (format "#>~a" (as-arg ppu-addr)))
@@ -762,6 +765,13 @@
     (emit-blank)
     (emit-context)
     (emit (format "~a:" def))))
+
+(define (process-program-begin context-address)
+  (let* ((address (syntax->datum context-address)))
+    (emit (format ".org $~x" address))))
+
+(define (process-program-complete)
+  (generate-suffix))
 
 (define (process-proc type context-decl body)
   (assert type symbol?)
@@ -1304,7 +1314,6 @@
   (let ((value (syntax->datum (car args))))
     (cond
      [(eq? symbol 'asm) (for [(elem args)] (emit (syntax->datum elem)))]
-     [(eq? symbol 'org) (emit (format ".org $~x" value))]
      [(eq? symbol 'jsr) (emit (format "  jsr ~a" value))]
      [(eq? symbol 'byte) (emit (format ".byte ~a" value))]
      [(eq? symbol 'text) (emit (format ".byte \"~a\"" value))])))
@@ -1380,6 +1389,8 @@
             [(defsub) (process-proc 'sub (car rest) (cdr rest))]
             [(defvector) (process-proc 'vector (car rest) (cdr rest))]
             [(deflabel) (process-deflabel (car rest))]
+            [(program-begin) (process-program-begin (lref rest 0))]
+            [(program-complete) (process-program-complete)]
             [(push pull) (process-stack symbol (unwrap-args rest 0 3))]
             [(set!) (process-set-bang (car rest) (cadr rest))]
             [(block) (process-block (car rest) (cdr rest))]
@@ -1442,7 +1453,7 @@
              (process-instruction-branch symbol (car rest))]
             [(clc cld cli clv dex dey inx iny nop rts tax tay txa tya)
              (process-instruction-implied symbol)]
-            [(asm byte jsr text org) (process-raw symbol rest)]
+            [(asm byte jsr text) (process-raw symbol rest)]
             [(+ - eq? > < >> << <s <= >s <=s)
              (process-math symbol (lref rest 0) (lref rest 1))]
             [(*)
@@ -1473,7 +1484,7 @@
   (let* ((name (syntax->datum context-name)))
     (make-address! name 0)))
 
-(define (analyze-org)
+(define (analyze-program-begin)
   (set! *user-specified-org* #t))
 
 (define (analyze-form form)
@@ -1491,7 +1502,7 @@
             [(defvector) (analyze-proc (car rest) (cdr rest))]
             [(deflabel) (analyze-label (car rest))]
             [(include-binary) (analyze-label (car rest))]
-            [(org) (analyze-org)]
+            [(program-begin) (analyze-program-begin)]
             [(do) (for [(elem rest)]
                        (analyze-form elem))])))))
 
@@ -1574,37 +1585,41 @@
          (emit (format "~a = $~x" (normalize-name symbol) value))))
   (emit ""))
 
+(define *has-generated-suffix* #f)
+
 (define (generate-suffix)
-  (emit "") (emit "")
-  ;; Pre-defined
-  (emit "_ppu_load_by_pointer:")
-  (emit 'lda "(_pointer),y")
-  (emit 'sta "REG_PPU_DATA")
-  (emit 'iny)
-  (emit 'bne "_ppu_load_by_pointer")
-  (emit 'inc "_pointer+1")
-  (emit 'dex)
-  (emit 'bne "_ppu_load_by_pointer")
-  (emit 'rts)
-  (emit "")
-  (emit "_ppu_load_by_val:")
-  (emit 'sta "REG_PPU_DATA")
-  (emit 'iny)
-  (emit 'bne "_ppu_load_by_val")
-  (emit 'dex)
-  (emit 'bne "_ppu_load_by_val")
-  (emit 'rts)
-  (emit "")
-  ;; Data segment
-  (let ((data (get-data-segment)))
-    (for/list [(elem data)]
-      (let ((label (car elem))
-            (value (cadr elem)))
-        (emit (format "~a:" label))
-        (emit (format "  .byte ~a" (list->byte-string value)))
-        (emit (format "~a_length = ~a" label (length value)))
-        (emit ""))))
-  (when (not *user-specified-org*)
+  (when (not *has-generated-suffix*)
+    (set! *has-generated-suffix* #t)
+    (emit "") (emit "")
+    ;; Pre-defined
+    (when *need-ppu-load-functions*
+      (emit "_ppu_load_by_pointer:")
+      (emit 'lda "(_pointer),y")
+      (emit 'sta "REG_PPU_DATA")
+      (emit 'iny)
+      (emit 'bne "_ppu_load_by_pointer")
+      (emit 'inc "_pointer+1")
+      (emit 'dex)
+      (emit 'bne "_ppu_load_by_pointer")
+      (emit 'rts)
+      (emit "")
+      (emit "_ppu_load_by_val:")
+      (emit 'sta "REG_PPU_DATA")
+      (emit 'iny)
+      (emit 'bne "_ppu_load_by_val")
+      (emit 'dex)
+      (emit 'bne "_ppu_load_by_val")
+      (emit 'rts)
+      (emit ""))
+    ;; Data segment
+    (let ((data (get-data-segment)))
+      (for/list [(elem data)]
+                (let ((label (car elem))
+                      (value (cadr elem)))
+                  (emit (format "~a:" label))
+                  (emit (format "  .byte ~a" (list->byte-string value)))
+                  (emit (format "~a_length = ~a" label (length value)))
+                  (emit ""))))
     (emit ".pad $fffa")
     ; Output the vectors, entry points defined by hardware.
     (let ((build '()))

@@ -20,7 +20,7 @@
  (defconst ppu-palette #x3f00)
 
  ;; code start
- (org #xc000)
+ (program-begin #xc000)
 
  (defvar n 0)
  (defvar k 0)
@@ -228,9 +228,7 @@
  (byte "$00,$00,$00,$00,$00,$00,$00,$00,$f0,$f0,$f0,$f0,$f0,$f0,$f0,$f0")
  (byte "$ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$0f,$0f,$0f,$0f,$0f,$0f,$0f,$0f")
 
- (asm ".pad $fffa")
-;; interrupt vectors (addresses for functions)
- (asm ".word nmi, reset, 0")
+ (program-complete)
 
  ;; finally all the chr data
  (asm

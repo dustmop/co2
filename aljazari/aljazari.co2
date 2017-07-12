@@ -42,8 +42,10 @@
  ;; 2x2 tile quad [tile top left id]
  (defconst prim-quad 3)
 
+
  ;; code start
- (org #xc000)
+ (program-begin #xc000)
+
 
  ;; globals that will be removed - honest gov
  (defvar gframe 0)
@@ -595,10 +597,10 @@
  (byte "$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00")
  (byte "$00,$00,$00,$00,$00,$00,$00,$00,$f0,$f0,$f0,$f0,$f0,$f0,$f0,$f0")
  (byte "$ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$0f,$0f,$0f,$0f,$0f,$0f,$0f,$0f")
- (asm ".pad $fffa")
 
-;; interrupt vectors (addresses for functions)
- (asm ".word nmi, reset, 0")
+
+ (program-complete)
+
 
  ;; finally all the chr data
  (asm 
