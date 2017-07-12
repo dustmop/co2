@@ -284,6 +284,7 @@
   (let ((ppu-addr (syntax->datum context-ppu-addr))
         (address (syntax->datum context-address))
         (num (syntax->datum context-num)))
+    (emit-context)
     (emit 'bit "REG_PPU_STATUS")
     (emit 'lda (format "#>~a" (as-arg ppu-addr)))
     (emit 'sta "REG_PPU_ADDR")
@@ -301,9 +302,9 @@
              (emit 'ldx (format "#>~a" (as-arg num)))
              (emit 'jsr "_ppu_load_by_val"))]
      [(< num #x100)
-      (begin (emit 'lda (format "#<~a+~a" (as-arg address) num))
+      (begin (emit 'lda (format "#<(~a+~a)" (as-arg address) num))
              (emit 'sta "_pointer+0")
-             (emit 'lda (format "#>~a-1" (as-arg address)))
+             (emit 'lda (format "#>(~a+~a-$100)" (as-arg address) num))
              (emit 'sta "_pointer+1")
              (emit 'ldy (format "#~a" (- #x100 num)))
              (emit 'ldx "#1")
@@ -1304,6 +1305,7 @@
     (cond
      [(eq? symbol 'asm) (for [(elem args)] (emit (syntax->datum elem)))]
      [(eq? symbol 'org) (emit (format ".org $~x" value))]
+     [(eq? symbol 'jsr) (emit (format "  jsr ~a" value))]
      [(eq? symbol 'byte) (emit (format ".byte ~a" value))]
      [(eq? symbol 'text) (emit (format ".byte \"~a\"" value))])))
 
@@ -1438,9 +1440,9 @@
              (process-instruction-standalone symbol (car rest))]
             [(beq bne bpl jmp)
              (process-instruction-branch symbol (car rest))]
-            [(clc cld cli clv dex dey inx iny nop tax tay txa tya)
+            [(clc cld cli clv dex dey inx iny nop rts tax tay txa tya)
              (process-instruction-implied symbol)]
-            [(asm byte text org) (process-raw symbol rest)]
+            [(asm byte jsr text org) (process-raw symbol rest)]
             [(+ - eq? > < >> << <s <= >s <=s)
              (process-math symbol (lref rest 0) (lref rest 1))]
             [(*)
