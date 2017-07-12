@@ -67,3 +67,22 @@
                 "  lda n"
                 "  cmp _loop"
                 "  bne _loop_up_to_0001"))
+
+(check-equal? (compile-code '(repeat (i 8)
+                                     (set! n i)))
+              '("  lda #0"
+                "  sta n"
+                "  lda #1"
+                "  sta n"
+                "  lda #2"
+                "  sta n"
+                "  lda #3"
+                "  sta n"
+                "  lda #4"
+                "  sta n"
+                "  lda #5"
+                "  sta n"
+                "  lda #6"
+                "  sta n"
+                "  lda #7"
+                "  sta n"))

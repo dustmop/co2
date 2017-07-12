@@ -68,7 +68,7 @@
     (-tmp                        #x04)
     (-loop                       #x05)
     (-pointer                    #x06)
-    (-pointer-1                  #x06)))
+    (-pointer-1                  #x07)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Label generation
@@ -132,6 +132,11 @@
 (define (make-const! sym value)
   (let ((name (normalize-name sym)))
     (hash-set! (car sym-label-defs) sym (sym-label sym name value 'const))
+    (hash-ref (car sym-label-defs) sym)))
+
+(define (make-metavar! sym value)
+  (let ((name (normalize-name sym)))
+    (hash-set! (car sym-label-defs) sym (sym-label sym name value 'metavar))
     (hash-ref (car sym-label-defs) sym)))
 
 (define (make-data! sym value)
@@ -270,14 +275,17 @@
         (begin (emit 'ldy "#0")
                (emit 'lda (format "(~a),y" (normalize-name pointer)))))))
 
-;; sets blocks of 256 bytes
-;; (set-page variable/value expr)
-(define (process-memset context-address context-value)
-  (let ((address (syntax->datum context-address)))
+(define (process-memset context-address context-value optional-limit)
+  (let ((address (syntax->datum context-address))
+        (limit (if optional-limit
+                   (syntax->datum optional-limit) #f)))
    (process-argument context-value)
    (emit 'ldy "#$00")
    (emit "-" 'sta (format "~a,y" (normalize-name address)))
    (emit 'iny)
+   (when limit
+         ; TODO: Currently only supports numbers for `limit`.
+         (emit 'cpy (as-arg limit)))
    (emit 'bne "-")))
 
 (define *need-ppu-load-functions* #f)
@@ -945,7 +953,9 @@
                                (format ";Not found: ~a" arg))
                         (if (eq? (sym-label-kind lookup) 'const)
                             (format "#~a" (sym-label-name lookup))
-                            (sym-label-name lookup))))]
+                            (if (eq? (sym-label-kind lookup) 'metavar)
+                                (format "#~a" (sym-label-address lookup))
+                                (sym-label-name lookup)))))]
    [(number? arg) (format "#$~x" (->unsigned arg))]
    [(literal-address? arg) (format "$~x" (literal-address-number arg))]
    [else (error (format "ERROR as-arg: ~a" arg))]))
@@ -1117,6 +1127,17 @@
     ; Loop back to start.
     (emit 'bne loop-label)))
 
+(define (process-repeat context-bindings body)
+  (let* ((bindings (syntax->datum context-bindings))
+         (label (car bindings))
+         (target (cadr bindings)))
+    (for [(count target)]
+         (sym-label-push-scope)
+         (make-metavar! label count)
+         (for [(stmt body)]
+              (process-form stmt))
+         (sym-label-pop-scope))))
+
 (define (process-let context-bindings body)
   ; TODO: This c(a|d)*r calls are awful.
   (let* ((bindings (syntax->datum context-bindings))
@@ -1286,12 +1307,14 @@
 (define (process-peek context-address context-index)
   (let ((address (syntax->datum context-address))
         (index (if context-index (syntax->datum context-index) #f)))
-    (if (not index)
-        (emit 'lda (as-arg address))
-        (begin
-          (when (string=? (process-argument context-index #:as 'ldy) "a")
-                (emit 'tay))
-          (emit 'lda (format "~a,y" (as-arg address)))))))
+    (emit-context)
+    (cond
+     [(not index) (emit 'lda (as-arg address))]
+     [(number? index) (emit 'lda (format "~a+~a" (as-arg address) index))]
+     [else (when (string=? (process-argument context-index #:skip-context #t
+                                             #:as 'ldy) "a")
+                 (emit 'tay))
+           (emit 'lda (format "~a,y" (as-arg address)))])))
 
 (define (process-poke! context-address context-arg0 context-arg1)
   (if context-arg1
@@ -1427,6 +1450,7 @@
                                                  (cddr rest))]
             [(loop-up-to loop) (process-loop-up (car rest) (cadr rest)
                                                 (caddr rest) (cdddr rest))]
+            [(repeat) (process-repeat (car rest) (cdr rest))]
             [(let) (process-let (car rest) (cdr rest))]
             [(if) (process-if (car rest) (cadr rest) (caddr rest))]
             [(while) (process-while (car rest) (cdr rest))]
@@ -1449,7 +1473,8 @@
                                                 (lref rest 2))]
             [(get-sprite) (process-get-sprite (lref rest 0) (lref rest 1))]
             [(high low) (process-address-specifier symbol (lref rest 0))]
-            [(memset) (process-memset (lref rest 0) (lref rest 1))]
+            [(memset) (process-memset (lref rest 0) (lref rest 1)
+                                      (lref rest 2))]
             [(load-pointer) (process-load-pointer (lref rest 0) (lref rest 1))]
             [(set-pointer!) (process-set-pointer! (lref rest 0) (lref rest 1))]
             [(or-sprites-attr!)

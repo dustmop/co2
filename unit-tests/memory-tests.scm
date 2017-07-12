@@ -43,6 +43,14 @@
                 "  iny"
                 "  bne -"))
 
+(check-equal? (compile-code '(memset render-buffer #x00 #x40))
+              '("  lda #$0"
+                "  ldy #$00"
+                "-  sta render_buffer,y"
+                "  iny"
+                "  cpy #$40"
+                "  bne -"))
+
 (check-equal? (compile-code '(ppu-memcpy ppu-palette 0 0 #x20 data 0))
               '("  lda #$0"
                 "  clc"
@@ -113,9 +121,12 @@
                 "  ldx #1"
                 "  jsr _ppu_load_by_val"))
 
-(check-equal? (compile-code '(peek data #x10))
-              '("  ldy #$10"
+(check-equal? (compile-code '(peek data n))
+              '("  ldy n"
                 "  lda data,y"))
+
+(check-equal? (compile-code '(peek data #x10))
+              '("  lda data+16"))
 
 (check-equal? (compile-code '(poke! array #x10 1))
               '("  ldy #$10"
