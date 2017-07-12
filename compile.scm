@@ -1131,7 +1131,6 @@
         (false-label (generate-label "false_case"))
         (if-done-label (generate-label "if_done")))
     (emit-context)
-    (emit "; condition begin")
     ; Check the condition of the `if`.
     (process-argument context-condition #:skip-context #t)
     ; TODO: Optimize to the negative case `beq`, but only if the branch is
@@ -1145,15 +1144,13 @@
     ; False case of the `if`.
     (emit-label false-label)
     (process-argument context-false #:skip-context #t)
-    (emit-label if-done-label)
-    (emit "; condition done")))
+    (emit-label if-done-label)))
 
 (define (process-while context-condition body)
   (let ((start-label (generate-label "while_start"))
         (body-label (generate-label "while_body"))
         (done-label (generate-label "while_done")))
     (emit-context)
-    (emit "; while begin")
     ; Check the condition of the `while`.
     (emit-label start-label)
     (process-argument context-condition #:skip-context #t)
@@ -1164,8 +1161,7 @@
     (for [(stmt body)]
          (process-form stmt))
     (emit 'jmp start-label)
-    (emit-label done-label)
-    (emit "; while done")))
+    (emit-label done-label)))
 
 (define (process-math operator context-left context-right)
   (assert operator symbol?)
