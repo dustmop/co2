@@ -146,15 +146,15 @@
     (hash-ref (car sym-label-defs) sym)))
 
 (define (variable? sym)
-  (let ((lookup (sym-label-lookup)))
+  (let ((lookup (sym-label-lookup sym)))
     (and lookup (eq? (sym-label-kind lookup) 'var))))
 
 (define (address? sym)
-  (let ((lookup (sym-label-lookup)))
+  (let ((lookup (sym-label-lookup sym)))
     (and lookup (eq? (sym-label-kind lookup) 'addr))))
 
 (define (const? sym)
-  (let ((lookup (sym-label-lookup)))
+  (let ((lookup (sym-label-lookup sym)))
     (and lookup (eq? (sym-label-kind lookup) 'const))))
 
 (define (sym-label-lookup sym)
@@ -1039,6 +1039,21 @@
     ; Label that #:break goes to.
     (emit-label break-label)))
 
+(define (process-bytes args)
+  (let ((build (make-gvector)))
+    (for [(context-elem args)]
+         (let ((elem (syntax->datum context-elem)))
+           (cond
+            [(number? elem) (gvector-add! build (format "$~x" elem))]
+            [(string? elem) (gvector-add! build (format "~s" elem))]
+            [(symbol? elem)
+             (let ((lookup (sym-label-lookup elem)))
+               (if (const? elem)
+                   (gvector-add! build (normalize-name elem))
+                   (add-error "Cannot output bytes" elem)))]
+            [else (add-error "Cannot output bytes" elem)])))
+    (emit (string-append ".byte " (string-join (gvector->list build) ",")))))
+
 (define (process-include-binary context-label context-path)
   (let* ((label (syntax->datum context-label))
          (name (normalize-name label))
@@ -1444,6 +1459,7 @@
             [(push pull) (process-stack symbol (unwrap-args rest 0 3))]
             [(set!) (process-set-bang (car rest) (cadr rest))]
             [(block) (process-block (car rest) (cdr rest))]
+            [(bytes) (process-bytes rest)]
             [(include-binary) (process-include-binary (lref rest 0)
                                                       (lref rest 1))]
             [(loop-down-from) (process-loop-down (car rest) (cadr rest)
@@ -1505,7 +1521,7 @@
              (process-instruction-branch symbol (car rest))]
             [(clc cld cli clv dex dey inx iny nop rts tax tay txa tya)
              (process-instruction-implied symbol)]
-            [(asm byte jsr text) (process-raw symbol rest)]
+            [(asm jsr) (process-raw symbol rest)]
             [(+ - eq? > < >> << <s <= >s <=s)
              (process-math symbol (lref rest 0) (lref rest 1))]
             [(*)
@@ -1731,6 +1747,7 @@
 (provide make-variable!)
 (provide make-function!)
 (provide make-address!)
+(provide make-const!)
 (provide first-error)
 (provide clear-errors)
 (provide traverse-func-nodes)

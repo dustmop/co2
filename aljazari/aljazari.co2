@@ -583,20 +583,26 @@
 
  (asm "mystring:")
 ;       xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
- (text " What remains? TESTING text 1234")
+ (bytes " What remains? TESTING text 1234")
  
  ;; stuff still to tidy up follows...
 
  (deflabel palette)
- (byte "$0f,$1c,$2c,$3c,$0f,$02,$03,$04,$0f,$02,$03,$0c,$0f,$1c,$2c,$3c")
- (byte "$0f,$18,$28,$38,$0f,$1c,$2c,$3c,$0f,$13,$23,$33,$0f,$19,$29,$39")
+ (bytes #x0f #x1c #x2c #x3c #x0f #x02 #x03 #x04
+        #x0f #x02 #x03 #x0c #x0f #x1c #x2c #x3c)
+ (bytes #x0f #x18 #x28 #x38 #x0f #x1c #x2c #x3c
+        #x0f #x13 #x23 #x33 #x0f #x19 #x29 #x39)
 
  (asm "bg:")
   ;; attribute table
- (byte "$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00")
- (byte "$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00")
- (byte "$00,$00,$00,$00,$00,$00,$00,$00,$f0,$f0,$f0,$f0,$f0,$f0,$f0,$f0")
- (byte "$ff,$ff,$ff,$ff,$ff,$ff,$ff,$ff,$0f,$0f,$0f,$0f,$0f,$0f,$0f,$0f")
+ (bytes #x00 #x00 #x00 #x00 #x00 #x00 #x00 #x00
+        #x00 #x00 #x00 #x00 #x00 #x00 #x00 #x00)
+ (bytes #x00 #x00 #x00 #x00 #x00 #x00 #x00 #x00
+        #x00 #x00 #x00 #x00 #x00 #x00 #x00 #x00)
+ (bytes #x00 #x00 #x00 #x00 #x00 #x00 #x00 #x00
+        #xf0 #xf0 #xf0 #xf0 #xf0 #xf0 #xf0 #xf0)
+ (bytes #xff #xff #xff #xff #xff #xff #xff #xff
+        #x0f #x0f #x0f #x0f #x0f #x0f #x0f #x0f)
 
 
  (program-complete)

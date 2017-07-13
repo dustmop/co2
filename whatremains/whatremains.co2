@@ -1512,104 +1512,104 @@
  ;; game data follows
 
  ;; text
- (asm "null_text:")(byte "0")
+ (asm "null_text:")(bytes 0)
 
- (asm "titles_1:")(text "PLUTONIAN CORP.        PRESENTS")(byte "0")
- (asm "titles_2:")(text "WITH SUPPORT FROM      CREATIVE INDUSTRIES    FUND NL")(byte "0")
- (asm "titles_3:")(text "AND                    HET NIEUWE INSTITUUT")(byte "0")
+ (asm "titles_1:")(bytes "PLUTONIAN CORP.        PRESENTS")(bytes 0)
+ (asm "titles_2:")(bytes "WITH SUPPORT FROM      CREATIVE INDUSTRIES    FUND NL")(bytes 0)
+ (asm "titles_3:")(bytes "AND                    HET NIEUWE INSTITUUT")(bytes 0)
 
- (asm "intro_1_1:")(text "TODAY STARTED OUT SOLIDWITH A BOWL OF FROSTED  STRAWBERRY POP-TARTS")(byte "0")
- (asm "intro_1_2:")(text "AFTER THAT I HAD A RAD  SKATE SESSION AROUND        THE BLOCK") (byte "0")
+ (asm "intro_1_1:")(bytes "TODAY STARTED OUT SOLIDWITH A BOWL OF FROSTED  STRAWBERRY POP-TARTS")(bytes 0)
+ (asm "intro_1_2:")(bytes "AFTER THAT I HAD A RAD  SKATE SESSION AROUND        THE BLOCK") (bytes 0)
 
- (asm "intro_2_1:")(text " BACK HOME I HEARD A   PACKAGE DROP THROUGH         THE MAILBOX") (byte "0")
- (asm "intro_2_2:")(text "I OPENED IT, AND FOUND    A NINTENDO GAME        CARTRIDGE INSIDE") (byte "0")
+ (asm "intro_2_1:")(bytes " BACK HOME I HEARD A   PACKAGE DROP THROUGH         THE MAILBOX") (bytes 0)
+ (asm "intro_2_2:")(bytes "I OPENED IT, AND FOUND    A NINTENDO GAME        CARTRIDGE INSIDE") (bytes 0)
 
- (asm "intro_3_1:")(text "         WEIRD") (byte "0")
- (asm "intro_3_2:")(text " I QUICKLY LOOKED OUT   THE WINDOW TO SEE WHO       DELIVERED IT") (byte "0")
- (asm "intro_3_3:")(text "        TOO LATE") (byte "0")
- (asm "intro_3_4:")(text " CAUGHT A GLIMPSE OF A   BLACK FORD SCORPIO     TURNING THE CORNER") (byte "0")
+ (asm "intro_3_1:")(bytes "         WEIRD") (bytes 0)
+ (asm "intro_3_2:")(bytes " I QUICKLY LOOKED OUT   THE WINDOW TO SEE WHO       DELIVERED IT") (bytes 0)
+ (asm "intro_3_3:")(bytes "        TOO LATE") (bytes 0)
+ (asm "intro_3_4:")(bytes " CAUGHT A GLIMPSE OF A   BLACK FORD SCORPIO     TURNING THE CORNER") (bytes 0)
 
- (asm "teachersays:")(text "   WELCOME TO STUDIO    FOND O'FONDA! PLEASE    HELP, I CAN'T STOP     MOVING! HIGH IMPACT  STEP AEROBICS YEAAAAAH!")(byte "0")
- (asm "dancersays:")(text "      FEEL MY ABS!")(byte "0")
+ (asm "teachersays:")(bytes "   WELCOME TO STUDIO    FOND O'FONDA! PLEASE    HELP, I CAN'T STOP     MOVING! HIGH IMPACT  STEP AEROBICS YEAAAAAH!")(bytes 0)
+ (asm "dancersays:")(bytes "      FEEL MY ABS!")(bytes 0)
 
- (asm "smoker1says:")(text "THERE IS NO PROOF THAT CIGARETTE SMOKING IS A CAUSE FOR *COUGH* LUNG        CANCER")(byte "0")
- (asm "smoker2says:")(text " DON'T LET THEM TAKE   YOUR *COUGH* FREEDOM          AWAY!")(byte "0")
- (asm "smoker3says:")(text "YOU CAN STOP *COUGH* ANYTIME")(byte "0")
- (asm "smoker4says:")(text "THERE IS NO *COUGH* SCIENTIFIC CONSENSUS")(byte "0")
+ (asm "smoker1says:")(bytes "THERE IS NO PROOF THAT CIGARETTE SMOKING IS A CAUSE FOR *COUGH* LUNG        CANCER")(bytes 0)
+ (asm "smoker2says:")(bytes " DON'T LET THEM TAKE   YOUR *COUGH* FREEDOM          AWAY!")(bytes 0)
+ (asm "smoker3says:")(bytes "YOU CAN STOP *COUGH* ANYTIME")(bytes 0)
+ (asm "smoker4says:")(bytes "THERE IS NO *COUGH* SCIENTIFIC CONSENSUS")(bytes 0)
 
- (asm "michaelsaysfirst:")(text "    WOW, A NES GAME!   THAT'S TOTALLY TUBULAR! MY PARENTS GOT ME ONE AT CHRISTMAS! LET'S TRY         IT!")(byte "0")
+ (asm "michaelsaysfirst:")(bytes "    WOW, A NES GAME!   THAT'S TOTALLY TUBULAR! MY PARENTS GOT ME ONE AT CHRISTMAS! LET'S TRY         IT!")(bytes 0)
 
- (asm "friendsays:")(text "MICHAEL IS NOT HOME YET YOU SHOULD COME BACK           LATER         ")(byte "0")
- (asm "friendsays2:")(text "YOU'RE IN LUCK, MICHAEL     JUST GOT HOME    ")(byte "0")
+ (asm "friendsays:")(bytes "MICHAEL IS NOT HOME YET YOU SHOULD COME BACK           LATER         ")(bytes 0)
+ (asm "friendsays2:")(bytes "YOU'RE IN LUCK, MICHAEL     JUST GOT HOME    ")(bytes 0)
 
- (asm "future_1:")(text "  CAN YOU DO SOMETHING         FOR ME?            PRESS A FOR YES        PRESS B FOR NO")(byte "0")
- (asm "future_2:")(text "    CAN I TRUST YOU?        ENTER THE CODE")(byte "0")
+ (asm "future_1:")(bytes "  CAN YOU DO SOMETHING         FOR ME?            PRESS A FOR YES        PRESS B FOR NO")(bytes 0)
+ (asm "future_2:")(bytes "    CAN I TRUST YOU?        ENTER THE CODE")(bytes 0)
 
  ;; bounding box data
  (deflabel collision-bboxes0)
- (byte "16") ;; number of boxes
- (byte "0, 0, 255, 32")
- (byte "0, 0, 16, 238")
- (byte "96, 0, 128, 64")
- (byte "176, 0, 223, 65")
- (byte "208, 53, 224, 81")
- (byte "212, 0, 255, 10")
- (byte "238, 0, 255, 17")
- (byte "15, 81, 32, 160")
- (byte "13, 96, 47, 160")
- (byte "80, 96, 160, 160")
- (byte "96, 80, 128, 112")
- (byte "144, 80, 160, 109")
- (byte "199, 96, 240, 177")
- (byte "191, 128, 255, 176")
- (byte "238, 112, 255, 134")
+ (bytes 16) ;; number of boxes
+ (bytes 0 0 255 32)
+ (bytes 0 0 16 238)
+ (bytes 96 0 128 64)
+ (bytes 176 0 223 65)
+ (bytes 208 53 224 81)
+ (bytes 212 0 255 10)
+ (bytes 238 0 255 17)
+ (bytes 15 81 32 160)
+ (bytes 13 96 47 160)
+ (bytes 80 96 160 160)
+ (bytes 96 80 128 112)
+ (bytes 144 80 160 109)
+ (bytes 199 96 240 177)
+ (bytes 191 128 255 176)
+ (bytes 238 112 255 134)
  ; bottom
- (byte "$00,$d0,$ff,$f0")
+ (bytes #x00 #xd0 #xff #xf0)
 
  (deflabel collision-bboxes1)
- (byte "16") ;; number of boxes
+ (bytes 16) ;; number of boxes
 ; top edge
- (byte "0, 0, 255, 32")
+ (bytes 0 0 255 32)
 ; top-left zigs
-(byte "0,0,$ff,$20")
-(byte "0,0,$30,$30")
-(byte "0,0,$20,$40")
-(byte "0,0,$10,$50")
+(bytes #x00 #x00 #xff #x20)
+(bytes #x00 #x00 #x30 #x30)
+(bytes #x00 #x00 #x20 #x40)
+(bytes #x00 #x00 #x10 #x50)
 ; top part that juts out
-(byte "$90,$20,$b0,$30")
+(bytes #x90 #x20 #xb0 #x30)
 ; middle partments
-(byte "$40,$40,$a0,$50")
-(byte "$40,$50,$50,$80")
-(byte "$70,$50,$a0,$90")
-(byte "$60,$80,$90,$b0")
-(byte "$40,$90,$60,$c0")
+(bytes #x40 #x40 #xa0 #x50)
+(bytes #x40 #x50 #x50 #x80)
+(bytes #x70 #x50 #xa0 #x90)
+(bytes #x60 #x80 #x90 #xb0)
+(bytes #x40 #x90 #x60 #xc0)
 ; left side
-(byte "$00,$60,$10,$b0")
+(bytes #x00 #x60 #x10 #xb0)
 ; more
-(byte "$b0,$50,$c0,$c0")
+(bytes #xb0 #x50 #xc0 #xc0)
 ; right
-(byte "$f0,$00,$ff,$ff")
-(byte "$e0,$40,$ff,$80")
+(bytes #xf0 #x00 #xff #xff)
+(bytes #xe0 #x40 #xff #x80)
  ; bottom
- (byte "$00,$d0,$ff,$f0")
+ (bytes #x00 #xd0 #xff #xf0)
 
 
 
  (deflabel collision-bboxes-aerobic)
- (byte "0")
+ (bytes 0)
  (deflabel collision-bboxes-tobacco)
- (byte "0")
+ (bytes 0)
  (deflabel collision-bboxes-michael)
- (byte "0")
+ (bytes 0)
 
  (deflabel doorway-bbox)
- (byte "32, 16, 48, 32") ;; aerobic in
- (byte "65, 81, 80, 97") ;; aerobic out
- (byte "210, 17, 226, 32") ;; tobacco in
- (byte "144, 80, 160, 96") ;; tobacco out
- (byte "90, 97, 106, 113") ;; michael in
- (byte "65, 81, 80, 97") ;; michael out
- (byte "115, 84, 131, 110") ;; future portal (nes)
+ (bytes 32 16 48 32) ;; aerobic in
+ (bytes 65 81 80 97) ;; aerobic out
+ (bytes 210 17 226 32) ;; tobacco in
+ (bytes 144 80 160 96) ;; tobacco out
+ (bytes 90 97 106 113) ;; michael in
+ (bytes 65 81 80 97) ;; michael out
+ (bytes 115 84 131 110) ;; future portal (nes)
 
  ;; sound code
  (asm ".include \"whatremains/music/famitone2_asm6.asm\"")
@@ -1629,33 +1629,33 @@
  (deflabel eighties-palette)
  (asm ".incbin \"whatremains/binary/eighties-palette.pal\"")
  ;; general sprite palette
- (byte "$30,$21,$26,$36")
- (byte "$0f,$25,$2d,$36")
- (byte "$0f,$23,$0b,$36")
- (byte "$0f,$2b,$06,$16")
+ (bytes #x30 #x21 #x26 #x36)
+ (bytes #x0f #x25 #x2d #x36)
+ (bytes #x0f #x23 #x0b #x36)
+ (bytes #x0f #x2b #x06 #x16)
 
  (deflabel indoor-palette)
  (asm ".incbin \"whatremains/binary/INDOOR_color_palette.pal\"")
  ;; general sprite palette
- (byte "$30,$21,$26,$36")
- (byte "$0f,$25,$2d,$36")
- (byte "$0f,$23,$0b,$36")
- (byte "$0f,$2b,$06,$16")
+ (bytes #x30 #x21 #x26 #x36)
+ (bytes #x0f #x25 #x2d #x36)
+ (bytes #x0f #x23 #x0b #x36)
+ (bytes #x0f #x2b #x06 #x16)
 
  (deflabel future-palette)
  (asm ".incbin \"whatremains/binary/PETSCIIish.pal\"")
 
  (deflabel black-palette)
 
- (byte "$0f,$0f,$0f,$0f")
- (byte "$0f,$0f,$0f,$0f")
- (byte "$0f,$0f,$0f,$0f")
- (byte "$0f,$0f,$0f,$0f")
+ (bytes #x0f #x0f #x0f #x0f)
+ (bytes #x0f #x0f #x0f #x0f)
+ (bytes #x0f #x0f #x0f #x0f)
+ (bytes #x0f #x0f #x0f #x0f)
 
- (byte "$0f,$0f,$0f,$0f")
- (byte "$0f,$0f,$0f,$0f")
- (byte "$0f,$0f,$0f,$0f")
- (byte "$0f,$0f,$0f,$0f")
+ (bytes #x0f #x0f #x0f #x0f)
+ (bytes #x0f #x0f #x0f #x0f)
+ (bytes #x0f #x0f #x0f #x0f)
+ (bytes #x0f #x0f #x0f #x0f)
 
  ;; screen tiles
  (asm ".align $100") ;; align so we don't need 16 address maths!
