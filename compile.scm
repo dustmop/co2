@@ -98,6 +98,10 @@
 
 (define sym-label-defs (list (make-hash)))
 
+(define (clear-var-allocation)
+  (set! var-allocation #x10)
+  (set! sym-label-defs (list (make-hash))))
+
 (define data-segment '())
 
 (struct sym-label (sym name address kind))
@@ -117,6 +121,15 @@
     (when (not (hash-has-key? table sym))
           (hash-set! table sym (sym-label sym name n 'var))
           (set! var-allocation (+ 1 var-allocation)))
+    (hash-ref table sym)))
+
+(define (make-buffer! sym length)
+  (let ((name (normalize-name sym))
+        (n var-allocation)
+        (table (car sym-label-defs)))
+    (when (not (hash-has-key? table sym))
+          (hash-set! table sym (sym-label sym name n 'buffer))
+          (set! var-allocation (+ length var-allocation)))
     (hash-ref table sym)))
 
 (define (make-address! sym addr)
@@ -805,6 +818,14 @@
     (emit-context)
     (emit (format "~a:" def))))
 
+(define (process-defbuffer name length)
+  (let* ((def (normalize-name name))
+         (sym-label (make-buffer! name length))
+         (addr (sym-label-address sym-label)))
+    (emit-blank)
+    (emit-context)
+    (emit (format "~a = $~a" def (left-pad (number->string addr 16) #\0 2)))))
+
 (define (process-program-begin context-address)
   (let* ((address (syntax->datum context-address)))
     (emit (format ".org $~x" address))))
@@ -1454,6 +1475,7 @@
             [(defsub) (process-proc 'sub (car rest) (cdr rest))]
             [(defvector) (process-proc 'vector (car rest) (cdr rest))]
             [(deflabel) (process-deflabel (car rest))]
+            [(defbuffer) (apply process-defbuffer (unwrap-args rest 2 0))]
             [(program-begin) (process-program-begin (lref rest 0))]
             [(program-complete) (process-program-complete)]
             [(push pull) (process-stack symbol (unwrap-args rest 0 3))]
@@ -1743,6 +1765,7 @@
 (provide analyze-form)
 (provide clear-result)
 (provide clear-label-id)
+(provide clear-var-allocation)
 (provide fetch-result)
 (provide make-variable!)
 (provide make-function!)
