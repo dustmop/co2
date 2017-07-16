@@ -301,6 +301,21 @@
          (emit 'cpy (as-arg limit)))
    (emit 'bne "-")))
 
+(define (process-memcpy context-address context-source context-limit)
+  (let ((address (syntax->datum context-address))
+        (source (syntax->datum context-source))
+        (limit (syntax->datum context-limit)))
+    ; TODO: This is really bad. Needs to be better generalized.
+    (process-argument context-source #:as 16)
+    (emit 'sty "_pointer")
+    (emit 'sta "_pointer+1")
+    (emit 'ldy "#$00")
+    (emit "-" 'lda "(_pointer),y")
+    (emit 'sta (format "~a,y" (normalize-name address)))
+    (emit 'iny)
+    (emit 'cpy (as-arg limit))
+    (emit 'bne "-")))
+
 (define *need-ppu-load-functions* #f)
 
 (define (process-ppu-load context-ppu-addr context-address context-num)
@@ -543,6 +558,32 @@
             (process-div-right-shift context-left (log-base-2 right))
             (process-mod-bitmask context-left (- right 1)))
         (add-error "Cannot divide by non-power-of-2" right))))
+
+(define (process-scale16 context-base context-offset context-scale)
+  (let ((base (syntax->datum context-base))
+        (offset (syntax->datum context-offset))
+        (scale (syntax->datum context-scale)))
+    (when (not (eq? scale #x20))
+          (error "Only scale of #x20 allowed"))
+    (emit-context)
+    (emit 'lda "#0")
+    (emit 'sta "_tmp")
+    (emit 'lda (as-arg offset))
+    (emit 'asl "a")
+    (emit 'rol "_tmp")
+    (emit 'asl "a")
+    (emit 'rol "_tmp")
+    (emit 'asl "a")
+    (emit 'rol "_tmp")
+    (emit 'asl "a")
+    (emit 'rol "_tmp")
+    (emit 'asl "a")
+    (emit 'rol "_tmp")
+    (emit 'clc)
+    (emit 'adc (format "#<~a" (normalize-name base)))
+    (emit 'tay)
+    (emit 'lda "_tmp")
+    (emit 'adc (format "#>~a" (normalize-name base)))))
 
 ;; add two 8 bit numbers to a 16 bit one
 (define (process-add16 context-place context-high context-low)
@@ -1006,6 +1047,8 @@
           (cond
            [(not as) (emit 'lda val)]
            [(eq? as 'rhs) (set! ret val)]
+           [(eq? as 16) (begin (emit 'ldy (format "#<~a" val))
+                               (emit 'lda (format "#>~a" val)))]
            [else (begin (emit as val)
                         (set! ret (string-last (symbol->string as))))])))
     (when (and (not skip-context) (vector-ref (*co2-source-context*) 1))
@@ -1513,6 +1556,10 @@
             [(high low) (process-address-specifier symbol (lref rest 0))]
             [(memset) (process-memset (lref rest 0) (lref rest 1)
                                       (lref rest 2))]
+            [(memcpy) (process-memcpy (lref rest 0) (lref rest 1)
+                                      (lref rest 2))]
+            [(scale16) (process-scale16 (lref rest 0) (lref rest 1)
+                                        (lref rest 2))]
             [(load-pointer) (process-load-pointer (lref rest 0) (lref rest 1))]
             [(set-pointer!) (process-set-pointer! (lref rest 0) (lref rest 1))]
             [(or-sprites-attr!)

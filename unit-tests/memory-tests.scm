@@ -51,6 +51,46 @@
                 "  cpy #$40"
                 "  bne -"))
 
+(check-equal? (compile-code '(memcpy render-buffer data #x40))
+              '("  ldy #<data"
+                "  lda #>data"
+                "  sty _pointer"
+                "  sta _pointer+1"
+                "  ldy #$00"
+                "-  lda (_pointer),y"
+                "  sta render_buffer,y"
+                "  iny"
+                "  cpy #$40"
+                "  bne -"))
+
+(check-equal? (compile-code '(memcpy render-buffer (scale16 data n #x20) #x40))
+              '("  lda #0"
+                "  sta _tmp"
+                "  lda n"
+                "  asl a"
+                "  rol _tmp"
+                "  asl a"
+                "  rol _tmp"
+                "  asl a"
+                "  rol _tmp"
+                "  asl a"
+                "  rol _tmp"
+                "  asl a"
+                "  rol _tmp"
+                "  clc"
+                "  adc #<data"
+                "  tay"
+                "  lda _tmp"
+                "  adc #>data"
+                "  sty _pointer"
+                "  sta _pointer+1"
+                "  ldy #$00"
+                "-  lda (_pointer),y"
+                "  sta render_buffer,y"
+                "  iny"
+                "  cpy #$40"
+                "  bne -"))
+
 (check-equal? (compile-code '(ppu-memcpy ppu-palette 0 0 #x20 data 0))
               '("  lda #$0"
                 "  clc"
