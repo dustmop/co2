@@ -1,6 +1,6 @@
 # CO2
 
-A Lisp-like language for creating NES / Famicom software. Version 2.0 is a partial rewrite of co2 by [Dave Griffiths](https://gitlab.com/nebogeo/co2).
+A Lisp-like language for creating NES / Famicom software. Based upon original work by [Dave Griffiths](https://gitlab.com/nebogeo/co2).
 
 ![](shot.png)
 
@@ -9,13 +9,13 @@ CO2 takes Lispy source files and compiles them into 6502 ROMs meant to run in an
 Small example code, for reading the joypad button state:
 
     (defun (read-joypad)
-      ;; need to 'strobe' register before reading
-      (set! reg-joypad-0 1)
-      (set! reg-joypad-0 0)
-      ;; need to read multiple times until we get to the button we want
-      ;; functions implicitly return the result of the last expression
-      (loop n 0 8
-         (poke! pad-data n (and (peek reg-joypad-0) #x1))))
+      ;; Strobe the controller.
+      (set! REG-JOYPAD-0 1)
+      (set! reg-JOYPAD-0 0)
+      ;; Read controller 8 times, rotate each bit into `joypad-data`.
+      (loop-down-from x 8
+        (lsr (lda REG-JOYPAD-0))
+        (rol joypad-data)))
 
 See example/example.co2 for full program.
 
@@ -23,7 +23,7 @@ See example/example.co2 for full program.
 
 Requires racket and asm6
 
-    $ racket co2 -o rom.nes example/example.co2
+    $ racket co2.scm -o rom.nes example/example.co2
 
 ## Memory use
 
@@ -180,19 +180,19 @@ insert raw assembly code
       ".byte $00,$00" ;; filler
       ".byte $00,$00,$00,$00,$00,$00,$00,$00")
 
-### (byte data)
+### (deflabel palette)
 
-insert raw bytes into the PRG-ROM
+define a label, visible to co2 code and in generated assembly
 
-     (asm "palette:")
-     (byte "$0d,$00,$00,...")
+### (bytes 1 2 3 "more")
 
-### (text string)
+insert bytes into the PRG-ROM
 
-insert raw text into the PRG-ROM
+     (deflabel palette)
+     (bytes #x0d #x00 #x0f)
 
-    (asm "mystring:")
-    (text "hello world")
+     (deflabel message)
+     (bytes "THIS IS A MESSAGE")
 
 ### (set! variable value)
 
@@ -376,11 +376,13 @@ clears memory, resets stack pointer and stack frame, initialises
 random number generator etc. needs to be called at the start of
 your reset interrupt.
 
-## (org addr)
+## (program-begin #x8000)
 
-set location of following code/data
+starts PRG-ROM, assigning addresses starting at the given 16bit value
 
-    (org #xc000)
+## (program-end)
+
+end PRG-ROM, anything after will be CHR-ROM, if used
 
 ## (memset address value)
 
@@ -388,8 +390,6 @@ block writes an entire page of PRG-RAM - 256 bytes to a 16bit address
 
     ;; clear sprite data
     (memset sprite-data 0)
-
-
 
 ## PPU DMA commands
 
@@ -460,25 +460,6 @@ binary or-s the value to the current set of sprites
 
 the most common size of sprites are 2x2 square, these commands produce
 code optimised for this type of metasprite
-
-## (animate-sprites-2x2! sprite-id pattern-location)
-
-sets the 4 sprite metasprite starting at sprite-id to the patterns
-starting at pattern-location. the patterns are arranged to form a
-visible block for the sprite pattern data in a 16x16 grid for easier
-drawing/editing. the first is the top left, second top right
-(pattern-location+1), third bottom left (pattern-location+16), fourth
-bottom right (pattern-location+17).
-
-## (set-sprites-2x2-x! sprite-id x-value)
-
-sets the top left x coordinate of the metasprite, keeping them 'stuck'
-together.
-
-## (set-sprites-2x2-y! sprite-id y-value)
-
-sets the top left y coordinate of the metasprite, keeping them 'stuck'
-together.
 
 # registers
 
@@ -552,34 +533,22 @@ follows normal NES/Famicom behaviour
 
     (do
       (nes-header ...)
-      (org #xc000) ;; code start
-      (defun ...)
-      (defun ...)
+      (program-begin #xc000)
+      (defsub ...)
+      (defsub ...)
       ...
-      (defint (nmi) ...)
-      (defint (reset)
+      (defvector (nmi) ...)
+      (defvector (reset)
          (init-system)
          ...)
-      (defint (irq) ...)
-      data
-      ;; set up the interrupt vectors
-      (asm ".word nmi, reset, irq")
-      more data
+      (defvector (irq) ...)
+      (program-end)
+      chr-data
       )
 
 # Version 2.0
 
-The rewrite is mostly backwards-compatible with Version 1.0, with a few superficial changes: `defconst` takes integers to define immediate values, `defaddr` is used for addresses, built-in NES registers are capitalized, `defsub` is used for subroutines and `defvector` is used for `reset` / `nmi` / `irq`. More breaking changes are coming too:
-
-1) Moving some functions out of the core implementation and into a stdlib
-
-2) Loop not being inclusive by default
-
-3) Sprite support changes
-
-4) Replacing the commonly used display-list with a better supported feature.
-
-5) Single command-line invocation to produce a ROM with debugging info.
+The rewrite is mostly backwards-compatible with Version 1.0, with a few superficial changes: `defconst` takes integers to define immediate values, `defaddr` is used for addresses, built-in NES registers are capitalized, `defsub` is used for subroutines and `defvector` is used for `reset` / `nmi` / `irq`. `loop` is no longer inclusive by default. Finally, many sprite manipulation functions were moved out of core, and rewritten in the projets that used them.
 
 For semantics, CO2 treats the `A` register as the "current value" being operated on, whether it's a value to be set! into a RAM location, the conditional for an if statement, the return value from a subroutine, or the evaluation of an expression to be passed to a function call. Parameters passed to functions used fastcall, A for the 0th arg, X for the 1st, Y for the 2nd, and the system stack for more (evaluated and pushed in reverse order). There is also the option to directly manipulation X and Y with raw 6502 instructions, in which case it is up to the programmer to not evaluate any instrucitons that could clobber these registers.
 
