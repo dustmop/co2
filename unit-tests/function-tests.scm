@@ -1,6 +1,7 @@
 #lang racket
 
 (require rackunit "../compile.scm")
+(require rackunit "../casla.scm")
 
 (let* ((test-code '(do (defsub (a s)
                          (b (+ s 1))
@@ -15,8 +16,6 @@
   (make-variable! 'n)
   (analyze-form test-form)
   (process-form test-form)
-  (traverse-func-nodes)
-  (generate-func-arg-memory-addresses)
   (check-equal? (fetch-result)
                 '(""
                   "a:"
@@ -41,9 +40,17 @@
                   "  sta _c__u"
                   "  lda _c__u"
                   "  sta n"
-                  "  rts"
-                  ""
+                  "  rts"))
+  (check-equal? (casla->allocations)
+                '((a s 1)
+                  (c u 0)
+                  (b t 0)))
+  (clear-result)
+  (generate-func-memory-addresses (casla->allocations))
+  (check-equal? (fetch-result)
+                '(""
                   ""
                   "_a__s = $41"
                   "_c__u = $40"
                   "_b__t = $40")))
+

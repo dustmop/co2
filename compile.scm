@@ -15,6 +15,7 @@
 ;; along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 (require data/gvector)
+(require "casla.scm")
 
 ;; internal compiler register on zero page
 (define rnd-reg "$fc")
@@ -804,13 +805,6 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Keep track of function calls to build a call tree. Used to determine
 ; memory addresses for local vars and function arguments.
-
-(define func-nodes (make-hash))
-
-(struct func-node (name params calls [memory #:mutable]))
-
-(define (make-func-node! name params calls)
-  (hash-set! func-nodes name (func-node name params calls #f)))
 
 (define *invocations* (make-parameter #f))
 
@@ -1647,42 +1641,15 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(define (resolve-func-node-memory func-nodes n)
-  (let* ((f (hash-ref func-nodes n))
-         (name (func-node-name f))
-         (params (func-node-params f))
-         (calls (func-node-calls f))
-         (memory (func-node-memory f)))
-    (if (number? memory)
-        memory ; return early
-        (begin (let ((total 0)
-                     (curr 0))
-                 (for [(c calls)]
-                   (set! curr (resolve-func-node-memory func-nodes c))
-                   (when (> curr total)
-                     (set! total curr)))
-                 (set! total (+ total (length params)))
-                 (set-func-node-memory! f total)
-                 total)))))
-
-(define (traverse-func-nodes)
-  (let ((names (hash-keys func-nodes)))
-    (for [(n names)]
-      (resolve-func-node-memory func-nodes n))))
-
-(define (generate-func-arg-memory-addresses)
-  (emit "") (emit "")
-  (let ((names (hash-keys func-nodes)))
-    (for [(n names)]
-         (let* ((f (hash-ref func-nodes n))
-                (name (func-node-name f))
-                (params (func-node-params f))
-                (calls (func-node-calls f))
-                (memory (func-node-memory f))
-                (k (- memory (length params))))
-           (for [(p params) (i (in-naturals))]
-                (emit (format "_~a__~a = $~x" (normalize-name name)
-                              (normalize-name p) (+ k i #x40))))))))
+(define (generate-func-memory-addresses results)
+  (emit "")
+  (emit "")
+  (for [(elem results)]
+       (let* ((name (list-ref elem 0))
+              (param (list-ref elem 1))
+              (addr (list-ref elem 2)))
+         (emit (format "_~a__~a = $~x" (normalize-name name)
+                       (normalize-name param) (+ addr #x40))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Entry point
@@ -1795,8 +1762,7 @@
 (define (compile-co2 fname out-filename)
   (analyze-func-defs fname)
   (generate-assembly fname)
-  (traverse-func-nodes)
-  (generate-func-arg-memory-addresses)
+  (generate-func-memory-addresses (casla->allocations))
   (let ((f (open-output-file out-filename #:exists 'replace)))
     (for [(line *result*)]
          (write-string line f)
@@ -1820,5 +1786,4 @@
 (provide make-const!)
 (provide first-error)
 (provide clear-errors)
-(provide traverse-func-nodes)
-(provide generate-func-arg-memory-addresses)
+(provide generate-func-memory-addresses)
