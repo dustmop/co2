@@ -11,7 +11,7 @@
 
 (check-equal? (compile-code '(and 1)) '("  and #$1"))
 
-; TODO: Test branch opcodes, like beq, bne, bpl, jmp
+; TODO: Test branch opcodes, like beq, bne, bmi, bpl, jmp
 
 (check-equal? (compile-code '(clc)) '("  clc"))
 
@@ -46,6 +46,10 @@
 (check-equal? (compile-code '(nop)) '("  nop"))
 
 (check-equal? (compile-code '(ora 1)) '("  ora #$1"))
+
+(check-equal? (compile-code '(pha)) '("  pha"))
+
+(check-equal? (compile-code '(pla)) '("  pla"))
 
 (check-equal? (compile-code '(sta "n")) '("  sta n"))
 
