@@ -5,6 +5,7 @@
 (define (compile-code code)
   (clear-result)
   (clear-var-allocation)
+  (make-address! 'data 0)
   (make-const! 'd 10)
   (process-form (datum->syntax #f code))
   (fetch-result))
@@ -21,6 +22,9 @@
 (check-equal? (compile-code '(bytes d))
               '(".byte d"))
 
+(check-equal? (compile-code '(bytes data))
+              '(".byte <data,>data"))
+
 (check-equal? (compile-code '(defvar s))
               '(""
                 "s = $10"))
@@ -36,3 +40,13 @@
                 "s = $10"
                 ""
                 "t = $20"))
+
+(check-equal? (compile-code '(include-binary graphics "gfx.dat"))
+              '(""
+                "graphics:"
+                ".incbin \"gfx.dat\""))
+
+(check-equal? (compile-code '(include-binary graphics "gfx.dat" :size #x1000))
+              '(""
+                "graphics:"
+                ".incbin \"gfx.dat\",0,$1000"))

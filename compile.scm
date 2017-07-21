@@ -1105,21 +1105,30 @@
             [(number? elem) (gvector-add! build (format "$~x" elem))]
             [(string? elem) (gvector-add! build (format "~s" elem))]
             [(symbol? elem)
-             (let ((lookup (sym-label-lookup elem)))
-               (if (const? elem)
-                   (gvector-add! build (normalize-name elem))
-                   (add-error "Cannot output bytes" elem)))]
+             (let ((lookup (sym-label-lookup elem))
+                   (normal (normalize-name elem)))
+               (cond
+                [(const? elem) (gvector-add! build normal)]
+                [(address? elem) (begin
+                                   (gvector-add! build (format "<~a" normal))
+                                   (gvector-add! build (format ">~a" normal)))]
+                [else (add-error "Cannot output bytes" elem)]))]
             [else (add-error "Cannot output bytes" elem)])))
     (emit (string-append ".byte " (string-join (gvector->list build) ",")))))
 
-(define (process-include-binary context-label context-path)
+(define (process-include-binary context-label context-path optional-key
+                                optional-size)
   (let* ((label (syntax->datum context-label))
          (name (normalize-name label))
-         (path (syntax->datum context-path)))
+         (path (syntax->datum context-path))
+         (size (if optional-size
+                   (syntax->datum optional-size) #f)))
     (emit-blank)
     (emit-context)
     (emit (format "~a:" name))
-    (emit (format ".incbin \"~a\"" path))))
+    (if size
+        (emit (format ".incbin \"~a\",0,$~x" path size))
+        (emit (format ".incbin \"~a\"" path)))))
 
 (define (process-loop-down context-reg context-start body)
   (assert context-reg syntax?)
@@ -1520,7 +1529,9 @@
             [(block) (process-block (car rest) (cdr rest))]
             [(bytes) (process-bytes rest)]
             [(include-binary) (process-include-binary (lref rest 0)
-                                                      (lref rest 1))]
+                                                      (lref rest 1)
+                                                      (lref rest 2)
+                                                      (lref rest 3))]
             [(loop-down-from) (process-loop-down (car rest) (cadr rest)
                                                  (cddr rest))]
             [(loop-up-to loop) (process-loop-up (car rest) (cadr rest)
