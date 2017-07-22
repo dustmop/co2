@@ -57,3 +57,9 @@
 
 (check-equal? (compile-code '(mod 75 8)) '("  lda #$4b"
                                            "  and #7"))
+
+(check-equal? (compile-code '(not 5))
+              '("  lda #$5"
+                "  cmp #1"
+                "  lda #$ff"
+                "  adc #0"))

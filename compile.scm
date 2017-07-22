@@ -1374,17 +1374,10 @@
 (define (process-not operator context-arg)
   (assert operator symbol?)
   (assert context-arg syntax?)
-  (let ((is-label (generate-label "not"))
-        (done-label (generate-label "not")))
-    (process-argument context-arg)
-    (emit 'beq is-label)
-    ; not zero
-    (emit 'lda "#0")
-    (emit 'jmp done-label)
-    ; is zero
-    (emit-label is-label)
-    (emit 'lda "#1")
-    (emit-label done-label)))
+  (process-argument context-arg)
+  (emit 'cmp "#1")
+  (emit 'lda "#$ff")
+  (emit 'adc "#0"))
 
 (define (process-peek context-address context-index)
   (let ((address (syntax->datum context-address))
