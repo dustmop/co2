@@ -7,7 +7,7 @@
   (process-form (datum->syntax #f code))
   (fetch-result))
 
-                                        ; TODO: Implement constant folding, which should break most of these tests.
+; TODO: Implement constant folding, which should break most of these tests.
 (check-equal? (compile-code '(+ 1 2)) '("  lda #$1"
                                         "  clc"
                                         "  adc #$2"))
@@ -28,6 +28,14 @@
                                          "  asl a"
                                          "  asl a"
                                          "  asl a"))
+
+(check-equal? (compile-code '(* 3 10)) '("  lda #$3"
+                                         "  asl a"
+                                         "  sta _count"
+                                         "  asl a"
+                                         "  asl a"
+                                         "  clc"
+                                         "  adc _count"))
 
 (check-equal? (compile-code '(* 3 5)) '("  lda #$5"
                                         "  bne _mul_start_0001"

@@ -508,6 +508,15 @@
 (define (log-base-2 num)
   (inexact->exact (/ (log num) (log 2))))
 
+(define (process-mul-by-10 context-left)
+  (process-argument context-left)
+  (emit 'asl "a")
+  (emit 'sta "_count")
+  (emit 'asl "a")
+  (emit 'asl "a")
+  (emit 'clc)
+  (emit 'adc "_count"))
+
 (define (process-mul-left-shift context-left num-right)
   (process-argument context-left)
   (for [(n num-right)]
@@ -526,31 +535,33 @@
   (let ((right (syntax->datum context-right)))
     (if (and (number? right) (power-of-2? right))
         (process-mul-left-shift context-left (log-base-2 right))
-        (let ((start-label (generate-label "mul_start"))
-              (loop-label (generate-label "mul_loop"))
-              (inc-label (generate-label "mul_inc"))
-              (done-label (generate-label "mul_done")))
-          (emit-context)
-          (process-argument context-right #:skip-context #t)
-          (emit 'bne start-label)
-          (emit 'lda "#0")
-          (emit 'jmp done-label)
-          (emit-label start-label)
-          (emit 'sta "_count")
-          (process-argument context-left #:skip-context #t)
-          (emit 'sta "_tmp")
-          (emit 'ldy "#8")
-          (emit 'lda "#0")
-          (emit-label loop-label)
-          (emit 'asl "a")
-          (emit 'asl "_count")
-          (emit 'bcc inc-label)
-          (emit 'clc)
-          (emit 'adc "_tmp")
-          (emit-label inc-label)
-          (emit 'dey)
-          (emit 'bne loop-label)
-          (emit-label done-label)))))
+        (if (and (number? right) (= right 10))
+            (process-mul-by-10 context-left)
+            (let ((start-label (generate-label "mul_start"))
+                  (loop-label (generate-label "mul_loop"))
+                  (inc-label (generate-label "mul_inc"))
+                  (done-label (generate-label "mul_done")))
+              (emit-context)
+              (process-argument context-right #:skip-context #t)
+              (emit 'bne start-label)
+              (emit 'lda "#0")
+              (emit 'jmp done-label)
+              (emit-label start-label)
+              (emit 'sta "_count")
+              (process-argument context-left #:skip-context #t)
+              (emit 'sta "_tmp")
+              (emit 'ldy "#8")
+              (emit 'lda "#0")
+              (emit-label loop-label)
+              (emit 'asl "a")
+              (emit 'asl "_count")
+              (emit 'bcc inc-label)
+              (emit 'clc)
+              (emit 'adc "_tmp")
+              (emit-label inc-label)
+              (emit 'dey)
+              (emit 'bne loop-label)
+              (emit-label done-label))))))
 
 (define (process-div symbol context-left context-right)
   (let ((right (syntax->datum context-right)))
@@ -1013,6 +1024,7 @@
                                 (format "#~a" (sym-label-address lookup))
                                 (sym-label-name lookup)))))]
    [(number? arg) (format "#$~x" (->unsigned arg))]
+   [(char? arg) (format "#$~x" (->unsigned (char->integer arg)))]
    [(literal-address? arg) (format "$~x" (literal-address-number arg))]
    [else (error (format "ERROR as-arg: ~a" arg))]))
 
@@ -1340,6 +1352,19 @@
               (emit-label is-label)
               (emit 'lda "#1")
               (emit-label done-label))]
+      [(>=) (let ((not-label (generate-label "not_gt"))
+                 (is-label (generate-label "is_gt"))
+                 (done-label (generate-label "done_gt")))
+             (emit 'cmp (as-arg rhs))
+             (emit 'bcs is-label)
+             ; not gt
+             (emit-label not-label)
+             (emit 'lda "#0")
+             (emit 'jmp done-label)
+             ; is gt
+             (emit-label is-label)
+             (emit 'lda "#1")
+             (emit-label done-label))]
       [(<=) (let ((is-label (generate-label "is_lt"))
                   (done-label (generate-label "done_lt")))
               (emit 'cmp (as-arg rhs))
@@ -1589,7 +1614,7 @@
             [(clc cld cli clv dex dey inx iny nop pha pla rts tax tay txa tya)
              (process-instruction-implied symbol)]
             [(asm jsr) (process-raw symbol rest)]
-            [(+ - eq? > < >> << <s <= >s <=s)
+            [(+ - eq? > < >> << <s >= <= >s <=s)
              (process-math symbol (lref rest 0) (lref rest 1))]
             [(*)
              (process-mul (lref rest 0) (lref rest 1))]
