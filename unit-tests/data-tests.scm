@@ -25,6 +25,12 @@
 (check-equal? (compile-code '(bytes data))
               '(".byte <data,>data"))
 
+(check-equal? (compile-code '(bytes (1 2)))
+              '(".byte $1,$2"))
+
+(check-equal? (compile-code '(bytes (d 3)))
+              '(".byte d,$3"))
+
 (check-equal? (compile-code '(defvar s))
               '(""
                 "s = $10"))

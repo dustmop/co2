@@ -1111,21 +1111,25 @@
 
 (define (process-bytes args)
   (let ((build (make-gvector)))
+    (define (add-elem-to-vector elem)
+      (cond
+       [(number? elem) (gvector-add! build (format "$~x" elem))]
+       [(string? elem) (gvector-add! build (format "~s" elem))]
+       [(symbol? elem)
+        (let ((lookup (sym-label-lookup elem))
+              (normal (normalize-name elem)))
+          (cond
+           [(const? elem) (gvector-add! build normal)]
+           [(address? elem) (begin
+                              (gvector-add! build (format "<~a" normal))
+                              (gvector-add! build (format ">~a" normal)))]
+           [else (add-error "Cannot output bytes" elem)]))]
+       [(list? elem) (for [(item elem)]
+                          (add-elem-to-vector item))]
+       [else (add-error "Cannot output bytes" elem)]))
     (for [(context-elem args)]
          (let ((elem (syntax->datum context-elem)))
-           (cond
-            [(number? elem) (gvector-add! build (format "$~x" elem))]
-            [(string? elem) (gvector-add! build (format "~s" elem))]
-            [(symbol? elem)
-             (let ((lookup (sym-label-lookup elem))
-                   (normal (normalize-name elem)))
-               (cond
-                [(const? elem) (gvector-add! build normal)]
-                [(address? elem) (begin
-                                   (gvector-add! build (format "<~a" normal))
-                                   (gvector-add! build (format ">~a" normal)))]
-                [else (add-error "Cannot output bytes" elem)]))]
-            [else (add-error "Cannot output bytes" elem)])))
+           (add-elem-to-vector elem)))
     (emit (string-append ".byte " (string-join (gvector->list build) ",")))))
 
 (define (process-include-binary context-label context-path optional-key
