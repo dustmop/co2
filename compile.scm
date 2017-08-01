@@ -1615,9 +1615,11 @@
              (process-instruction-accumulator symbol (car rest))]
             [(bit dec inc)
              (process-instruction-standalone symbol (car rest))]
-            [(beq bne bmi bpl jmp)
+            [(beq bcc bcs bne bmi bpl jmp)
              (process-instruction-branch symbol (car rest))]
-            [(clc cld cli clv dex dey inx iny nop pha pla rts tax tay txa tya)
+            [(clc cld cli clv dex dey inx iny nop pha pla rts sec)
+             (process-instruction-implied symbol)]
+            [(tax tay tsx txa txs tya)
              (process-instruction-implied symbol)]
             [(asm jsr) (process-raw symbol rest)]
             [(+ - eq? > < >> << <s >= <= >s <=s)

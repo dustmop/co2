@@ -51,6 +51,8 @@
 
 (check-equal? (compile-code '(pla)) '("  pla"))
 
+(check-equal? (compile-code '(sec)) '("  sec"))
+
 (check-equal? (compile-code '(sta "n")) '("  sta n"))
 
 (check-equal? (compile-code '(stx "n")) '("  stx n"))
@@ -61,7 +63,11 @@
 
 (check-equal? (compile-code '(tay)) '("  tay"))
 
+(check-equal? (compile-code '(tsx)) '("  tsx"))
+
 (check-equal? (compile-code '(txa)) '("  txa"))
+
+(check-equal? (compile-code '(txs)) '("  txs"))
 
 (check-equal? (compile-code '(tya)) '("  tya"))
 
