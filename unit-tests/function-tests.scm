@@ -12,6 +12,7 @@
                          (set! n u))))
        (test-form (datum->syntax #f test-code)))
   (clear-result)
+  (clear-var-allocation)
   (make-variable! 'm)
   (make-variable! 'n)
   (analyze-form test-form)
@@ -50,7 +51,7 @@
   (check-equal? (fetch-result)
                 '(""
                   ""
-                  "_a__s = $41"
-                  "_c__u = $40"
-                  "_b__t = $40")))
+                  "_a__s = $16"
+                  "_c__u = $15"
+                  "_b__t = $15")))
 

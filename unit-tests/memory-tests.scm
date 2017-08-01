@@ -168,8 +168,13 @@
 (check-equal? (compile-code '(peek data #x10))
               '("  lda data+16"))
 
+(check-equal? (compile-code '(peek data x))
+              '("  lda data,x"))
+
+(check-equal? (compile-code '(peek data y))
+              '("  lda data,y"))
+
 (check-equal? (compile-code '(poke! array #x10 1))
               '("  ldy #$10"
                 "  lda #$1"
                 "  sta array,y"))
-

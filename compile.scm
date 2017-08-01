@@ -1415,6 +1415,8 @@
     (cond
      [(not index) (emit 'lda (as-arg address))]
      [(number? index) (emit 'lda (format "~a+~a" (as-arg address) index))]
+     [(eq? index 'x) (emit 'lda (format "~a,x" (as-arg address)))]
+     [(eq? index 'y) (emit 'lda (format "~a,y" (as-arg address)))]
      [else (when (string=? (process-argument context-index #:skip-context #t
                                              #:as 'ldy) "a")
                  (emit 'tay))
@@ -1682,7 +1684,7 @@
               (param (list-ref elem 1))
               (addr (list-ref elem 2)))
          (emit (format "_~a__~a = $~x" (normalize-name name)
-                       (normalize-name param) (+ addr #x40))))))
+                       (normalize-name param) (+ addr var-allocation))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Entry point
