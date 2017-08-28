@@ -928,9 +928,11 @@
   (assert target syntax?)
   (assert expr syntax?)
   (let ((place (syntax->datum target)))
-    (process-argument expr)
-    ; TODO: Assert that place is a valid lvalue for set!
-    (emit 'sta (as-arg place))))
+    (if (immediate? place)
+        (add-error "Cannot assign to" place)
+        (begin
+          (process-argument expr)
+          (emit 'sta (as-arg place))))))
 
 (define (process-instruction-expression instr args)
   (assert instr symbol?)
@@ -978,8 +980,7 @@
         (when const
               (emit instr const)
               (set! const #f)))]
-        ;(emit instr (format "~a|~a" (as-arg second) (as-arg third)))))
-     [else (error (format "ERROR expression: ~a ~a" instr args))])))
+     [else (add-error (format "Invalid arguments to \"~a\":" instr) args)])))
 
 (define (process-instruction-accumulator instr context-arg)
   (assert instr symbol?)
@@ -1504,7 +1505,9 @@
 
 (define (process-invocation context-original symbol rest)
   (cond
+   [(null? (syntax->datum context-original)) #f]
    [(not symbol) (process-argument context-original)]
+   [(not (symbol? symbol)) (add-error "Invalid function or macro name" symbol)]
    [(function? symbol) (process-jump-subroutine symbol rest)]
    [(macro? symbol) (let* ((forms (list (syntax->datum context-original)))
                            (expanded (car (macro-expand forms)))
@@ -1512,6 +1515,12 @@
                                                    expanded
                                                    context-original)))
                       (process-form wrapped))]))
+
+(define (process-with-args func args num-needed)
+  (if (< (length args) num-needed)
+      (add-error (format "Need ~a arguments, only got ~a, for"
+                         num-needed (length args)) (object-name func))
+      (apply func args)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Syntax tree walker
@@ -1527,11 +1536,12 @@
 (define (process-form form)
   (assert form syntax?)
   (let* ((inner (syntax-e form))
-         (first (if (list? inner) (car inner) #f))
-         (rest (if (list? inner) (cdr inner) #f))
+         (first (if (and (list? inner) (not (null? inner))) (car inner) #f))
+         (rest (if (and (list? inner) (not (null? inner))) (cdr inner) #f))
          (symbol (if first (syntax->datum first) #f)))
     (parameterize [(*co2-source-context* (vector form #t))]
-      (if (or (not symbol) (function? symbol) (macro? symbol))
+      (if (or (not symbol) (not (symbol? symbol))
+              (function? symbol) (macro? symbol))
           (process-invocation form symbol rest)
           (case symbol
             ; Main expression walker.
@@ -1549,7 +1559,7 @@
             [(program-begin) (process-program-begin (lref rest 0))]
             [(program-complete) (process-program-complete)]
             [(push pull) (process-stack symbol (unwrap-args rest 0 3))]
-            [(set!) (process-set-bang (car rest) (cadr rest))]
+            [(set!) (process-with-args process-set-bang rest 2)]
             [(block) (process-block (car rest) (cdr rest))]
             [(bytes) (process-bytes rest)]
             [(include-binary) (process-include-binary (lref rest 0)
@@ -1562,7 +1572,7 @@
                                                 (caddr rest) (cdddr rest))]
             [(repeat) (process-repeat (car rest) (cdr rest))]
             [(let) (process-let (car rest) (cdr rest))]
-            [(if) (process-if (car rest) (cadr rest) (caddr rest))]
+            [(if) (process-with-args process-if rest 3)]
             [(while) (process-while (car rest) (cdr rest))]
             [(do) (for [(elem rest)]
                        (process-form elem))]
@@ -1612,11 +1622,11 @@
             [(or) (process-instruction-expression 'ora rest)]
             [(xor) (process-instruction-expression 'eor rest)]
             [(asl lsr rol ror)
-             (process-instruction-accumulator symbol (car rest))]
+             (process-instruction-accumulator symbol (lref rest 0))]
             [(bit dec inc)
-             (process-instruction-standalone symbol (car rest))]
+             (process-instruction-standalone symbol (lref rest 0))]
             [(beq bcc bcs bne bmi bpl jmp)
-             (process-instruction-branch symbol (car rest))]
+             (process-instruction-branch symbol (lref rest 0))]
             [(clc cld cli clv dex dey inx iny nop pha pla rts sec)
              (process-instruction-implied symbol)]
             [(tax tay tsx txa txs tya)
@@ -1632,7 +1642,7 @@
              (process-add16 (lref rest 0) (lref rest 1) (lref rest 2))]
             [(-16!)
              (process-sub16 (lref rest 0) (lref rest 1) (lref rest 2))]
-            [(not) (process-not symbol (car rest))]
+            [(not) (process-not symbol (lref rest 0))]
             [else (add-error "Not defined" symbol)
                   (format ";Unknown: ~a ~a" symbol rest)])))))
 
