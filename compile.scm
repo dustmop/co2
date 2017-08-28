@@ -822,6 +822,27 @@
 (define *entry-points* '())
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; Optimization setting.
+
+(define *opt-enabled* #f)
+
+(define *opt-mode* (make-parameter #f))
+
+(define (set-optimization! opt)
+  (set! *opt-enabled* opt))
+
+(define (optimization-enabled? kind)
+  (and *opt-enabled* (eq? kind 'if)))
+
+(define (optimization-using-mode? kind)
+  (and *opt-enabled* (vector? (*opt-mode*))
+       (eq? kind (vector-ref (*opt-mode*) 0))))
+
+(define (optimization-successful?)
+  (and *opt-enabled* (vector? (*opt-mode*))
+       (or (vector-ref (*opt-mode*) 1) (vector-ref (*opt-mode*) 2))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Main processor.
 
 (define (merge-const instr accum arg)
@@ -1249,14 +1270,31 @@
 (define (process-if context-condition context-truth context-false)
   (let ((truth-label (generate-label "truth_case"))
         (false-label (generate-label "false_case"))
-        (if-done-label (generate-label "if_done")))
+        (if-done-label (generate-label "if_done"))
+        (optimization-result #f))
     (emit-context)
-    ; Check the condition of the `if`.
-    (process-argument context-condition #:skip-context #t)
-    ; TODO: Optimize to the negative case `beq`, but only if the branch is
-    ; within range (< 128 bytes away).
-    (emit 'bne truth-label)
-    (emit 'jmp false-label)
+    ; Check the condition of the `if`, with optimizations if enabled.
+    (if (optimization-enabled? 'if)
+        (parameterize [(*opt-mode* (vector 'if #f #f))]
+          (begin
+            (process-argument context-condition #:skip-context #t)
+            (when (optimization-successful?)
+                  (set! optimization-result (*opt-mode*)))))
+        (process-argument context-condition #:skip-context #t))
+    ;
+    (if optimization-result
+        (let ((truth-case (vector-ref optimization-result 1))
+              (false-case (vector-ref optimization-result 2)))
+          ; TODO: Handle cases where optimized code has a false-case.
+          (assert false-case not)
+          (emit 'jmp false-label)
+;          (emit (format "~a = ~a" truth-case truth-label))
+          (emit-label truth-case))
+        (begin
+          ; TODO: Optimize to the negative case `beq`, but only if the branch is
+          ; within range (< 128 bytes away).
+          (emit 'bne truth-label)
+          (emit 'jmp false-label)))
     ; Truth case of the `if`.
     (emit-label truth-label)
     (process-argument context-truth #:skip-context #t)
@@ -1325,13 +1363,18 @@
                  (done-label (generate-label "done_lt")))
              (emit 'cmp (as-arg rhs))
              (emit 'bcc is-label)
-             ; not lt
-             (emit 'lda "#0")
-             (emit 'jmp done-label)
-             ; is lt
-             (emit-label is-label)
-             (emit 'lda "#1")
-             (emit-label done-label))]
+             (if (optimization-using-mode? 'if)
+                 (begin
+                   (vector-set! (*opt-mode*) 1 is-label)
+                   (vector-set! (*opt-mode*) 2 #f))
+                 (begin
+                   ; not lt
+                   (emit 'lda "#0")
+                   (emit 'jmp done-label)
+                   ; is lt
+                   (emit-label is-label)
+                   (emit 'lda "#1")
+                   (emit-label done-label))))]
       [(>s) (let ((not-label (generate-label "not_gt"))
                   (is-label (generate-label "is_gt"))
                   (done-label (generate-label "done_gt")))
@@ -1807,6 +1850,7 @@
     (close-input-port f)))
 
 (define (compile-co2 fname out-filename)
+  (set-optimization! #t)
   (analyze-func-defs fname)
   (generate-assembly fname)
   (generate-func-memory-addresses (casla->allocations))
@@ -1833,4 +1877,5 @@
 (provide make-const!)
 (provide first-error)
 (provide clear-errors)
+(provide set-optimization!)
 (provide generate-func-memory-addresses)
