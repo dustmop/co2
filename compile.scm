@@ -745,6 +745,16 @@
            (let ((lookup (sym-label-lookup obj)))
              (and lookup (eq? (sym-label-kind lookup) 'const))))))
 
+(define (every-first-in-tree? pred tree)
+  (cond
+   [(not tree) #t]
+   [(null? tree) #t]
+   [(not (list? tree)) #t]
+   [(pred (car tree))
+      (for/and ([item tree])
+               (every-first-in-tree? pred item))]
+   [else #f]))
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Source file context information for debugging / compiler metadata
 
@@ -1267,14 +1277,21 @@
     (for [(stmt body)]
          (process-form stmt))))
 
+(define (is-optimizable? symbol)
+  (eq? symbol '<))
+
+(define (can-optimize-tree? tree)
+  (every-first-in-tree? is-optimizable? tree))
+
 (define (process-if context-condition context-truth context-false)
   (let ((truth-label (generate-label "truth_case"))
         (false-label (generate-label "false_case"))
         (if-done-label (generate-label "if_done"))
+        (if-cond (syntax->datum context-condition))
         (optimization-result #f))
     (emit-context)
     ; Check the condition of the `if`, with optimizations if enabled.
-    (if (optimization-enabled? 'if)
+    (if (and (optimization-enabled? 'if) (can-optimize-tree? if-cond))
         (parameterize [(*opt-mode* (vector 'if #f #f))]
           (begin
             (process-argument context-condition #:skip-context #t)
@@ -1288,7 +1305,6 @@
           ; TODO: Handle cases where optimized code has a false-case.
           (assert false-case not)
           (emit 'jmp false-label)
-;          (emit (format "~a = ~a" truth-case truth-label))
           (emit-label truth-case))
         (begin
           ; TODO: Optimize to the negative case `beq`, but only if the branch is
@@ -1875,6 +1891,7 @@
 (provide make-function!)
 (provide make-address!)
 (provide make-const!)
+(provide has-errors?)
 (provide first-error)
 (provide clear-errors)
 (provide set-optimization!)
