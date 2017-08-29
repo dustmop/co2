@@ -855,11 +855,16 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Main processor.
 
-(define (merge-const instr accum arg)
-  (assert instr (lambda (n) (or (eq? n 'or) (eq? n 'ora))))
+(define (can-fold-const? instr accum arg)
+  (and (immediate? arg)
+       (or (eq? instr 'or) (eq? instr 'ora))))
+
+(define (do-fold-const instr accum arg)
   (if (not accum)
       (as-arg arg)
-      (format "~a|~a" accum (as-arg arg))))
+      (cond
+       [(or (eq? instr 'or) (eq? instr 'ora))
+          (format "~a|~a" accum (as-arg arg))])))
 
 (define (process-defvar name [value 0])
   (let* ((def (normalize-name name))
@@ -978,6 +983,7 @@
         (emit-context)
         (emit instr (as-arg first)))]
      ; Single argument with an index register.
+     ; TODO: Should validate that the instruction can use indexed addressing.
      [(and (= (length args) 2) (index-register? second))
       (begin
         (emit-context)
@@ -996,17 +1002,18 @@
       (begin
         (process-argument (car args))
         (for [(elem (cdr args))]
-             (if (immediate? (syntax->datum elem))
-                 ; Fold constant
-                 (set! const (merge-const instr const (syntax->datum elem)))
-                 ; Flush constant
-                 (begin
-                   (when const
-                         (emit instr const)
-                         (set! const #f))
-                   (let ((val (process-argument elem #:preserve '(a) #:as 'rhs
-                                                #:skip-context #t)))
-                     (emit instr val)))))
+             (let ((e (syntax->datum elem)))
+               (if (can-fold-const? instr const e)
+                   ; Fold constant
+                   (set! const (do-fold-const instr const e))
+                   ; Flush constant
+                   (begin
+                     (when const
+                           (emit instr const)
+                           (set! const #f))
+                     (let ((val (process-argument elem #:preserve '(a) #:as 'rhs
+                                                  #:skip-context #t)))
+                       (emit instr val))))))
         ; Flush any remaining constants.
         (when const
               (emit instr const)

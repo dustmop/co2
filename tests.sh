@@ -4,6 +4,7 @@ racket unit-tests/compare-tests.scm
 racket unit-tests/control-tests.scm
 racket unit-tests/data-tests.scm
 racket unit-tests/error-tests.scm
+racket unit-tests/expression-tests.scm
 racket unit-tests/function-tests.scm
 racket unit-tests/literal-tests.scm
 racket unit-tests/loop-tests.scm
