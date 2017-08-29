@@ -7,6 +7,7 @@
   (clear-label-id)
   (make-variable! 'n)
   (make-variable! 'm)
+  (make-variable! 'p)
   (set-optimization! #f)
   (process-form (datum->syntax #f code))
   (when (has-errors?)
@@ -18,6 +19,7 @@
   (clear-label-id)
   (make-variable! 'n)
   (make-variable! 'm)
+  (make-variable! 'p)
   (set-optimization! #t)
   (process-form (datum->syntax #f code))
   (when (has-errors?)
@@ -140,6 +142,27 @@
               '("  lda n"
                 "  cmp #$a"
                 "  bcc _is_lt_0004"
+                "  jmp _false_case_0002"
+                "_is_lt_0004:"
+                "  lda m"
+                "  cmp #$14"
+                "  bcc _is_lt_0006"
+                "  jmp _false_case_0002"
+                "_is_lt_0006:"
+                "_truth_case_0001:"
+                "  lda #$1"
+                "  jmp _if_done_0003"
+                "_false_case_0002:"
+                "  lda #$2"
+                "_if_done_0003:"
+                ))
+
+; No optimizations because, for now, `and` only optimizes with 3 parameters.
+(check-equal? (compile-code-with-optimizations '(if (and (< n 10) (< m 20)
+                                                         (< p 30)) 1 2))
+              '("  lda n"
+                "  cmp #$a"
+                "  bcc _is_lt_0004"
                 "  lda #0"
                 "  jmp _done_lt_0005"
                 "_is_lt_0004:"
@@ -154,6 +177,18 @@
                 "_is_lt_0006:"
                 "  lda #1"
                 "_done_lt_0007:"
+                "  sta _tmp"
+                "  pla"
+                "  and _tmp"
+                "  pha"
+                "  lda p"
+                "  cmp #$1e"
+                "  bcc _is_lt_0008"
+                "  lda #0"
+                "  jmp _done_lt_0009"
+                "_is_lt_0008:"
+                "  lda #1"
+                "_done_lt_0009:"
                 "  sta _tmp"
                 "  pla"
                 "  and _tmp"

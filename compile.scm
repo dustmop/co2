@@ -970,6 +970,34 @@
           (process-argument expr)
           (emit 'sta (as-arg place))))))
 
+(define (process-cond-or-expression instr args)
+  (if (or (not (optimization-using-mode? 'if))
+          (> (length args) 2))
+      ; Not in a conditional, process as a normal instruction.
+      (parameterize [(*opt-mode* #f)]
+        (process-instruction-expression instr args))
+      ; TODO: More than 2 arguments.
+      (let ((context-first (car args))
+            (context-second (cadr args)))
+        (process-argument context-first)
+        (if (not (optimization-successful?))
+            ; No optimizations within arguments, just output normal instruction.
+            (let ((rhs (process-argument (cadr args) #:preserve '(a) #:as 'rhs
+                                         #:skip-context #t)))
+              (emit instr (as-arg rhs))
+              ; TODO: vector-set! (*opt-mode*) ???
+              )
+            ;
+            (let* ((optimization-result (*opt-mode*))
+                   (truth-inner (vector-ref optimization-result 1))
+                   (false-inner (vector-ref optimization-result 2))
+                   (false-outer (vector-ref optimization-result 3)))
+              ; TODO: Handle cases where optimized code has a false-inner.
+              (assert false-inner not)
+              (emit 'jmp false-outer)
+              (emit-label truth-inner)
+              (process-argument context-second))))))
+
 (define (process-instruction-expression instr args)
   (assert instr symbol?)
   (assert args list?)
@@ -1285,7 +1313,7 @@
          (process-form stmt))))
 
 (define (is-optimizable? symbol)
-  (eq? symbol '<))
+  (or (eq? symbol '<) (eq? symbol 'and)))
 
 (define (can-optimize-tree? tree)
   (every-first-in-tree? is-optimizable? tree))
@@ -1299,7 +1327,7 @@
     (emit-context)
     ; Check the condition of the `if`, with optimizations if enabled.
     (if (and (optimization-enabled? 'if) (can-optimize-tree? if-cond))
-        (parameterize [(*opt-mode* (vector 'if #f #f))]
+        (parameterize [(*opt-mode* (vector 'if #f #f false-label))]
           (begin
             (process-argument context-condition #:skip-context #t)
             (when (optimization-successful?)
@@ -1683,9 +1711,10 @@
              (process-sprites-apply-to-field! (lref rest 0) (lref rest 1)
                                               (lref rest 2) 3 'sbc)]
             [(_rnd) (process-underscore-rnd)]
-            [(adc and cmp cpx cpy eor lda ldx ldy ora sta stx sty)
+            [(adc cmp cpx cpy eor lda ldx ldy sta stx sty)
              (process-instruction-expression symbol rest)]
-            [(or) (process-instruction-expression 'ora rest)]
+            [(and ora) (process-cond-or-expression symbol rest)]
+            [(or) (process-cond-or-expression 'ora rest)]
             [(xor) (process-instruction-expression 'eor rest)]
             [(asl lsr rol ror)
              (process-instruction-accumulator symbol (lref rest 0))]
