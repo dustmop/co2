@@ -782,7 +782,15 @@
 ; Built-in functions
 
 (define (built-in-nes-header num-prg num-chr mapper mirroring)
-  (let ((third-byte (+ (* mapper #x10) (if (eq? mirroring 'vertical) 1 0))))
+  (let* ((mbit (cond
+                [(eq? mirroring #f) 0]
+                [(eq? mirroring 'horizontal) 0]
+                [(eq? mirroring 'vertical) 1]
+                [(eq? mirroring 'quote)
+                 (begin (add-error "Do not quote mirroring" 'quote) 0)]
+                [else
+                 (begin (add-error "Unknown mirroring" mirroring) 0)]))
+         (third-byte (+ (* mapper #x10) mbit)))
     (emit-context)
     (emit ".byte \"NES\",$1a")
     (emit (format ".byte $~x" (or num-prg 1)))
