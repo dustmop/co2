@@ -1102,6 +1102,7 @@
                                 (sym-label-name lookup)))))]
    [(number? arg) (format "#$~x" (->unsigned arg))]
    [(char? arg) (format "#$~x" (->unsigned (char->integer arg)))]
+   [(eq? arg #f) "#$00"]
    [(eq? arg #t) "#$ff"]
    [(literal-address? arg) (format "$~x" (literal-address-number arg))]
    [else (error (format "ERROR as-arg: ~a" arg))]))
@@ -1146,11 +1147,8 @@
   ;TODO: Rhs being an expression is an error
   (assert instr symbol?)
   (assert operand syntax?)
-  (let ((value (syntax->datum operand)))
-    (emit-context)
-    (cond
-     [(symbol? value) (emit instr (normalize-name value))]
-     [else (error (format "ERROR standalone: ~a" value))])))
+  (let ((val (process-argument operand #:as 'rhs)))
+    (emit instr val)))
 
 (define (process-instruction-branch instr target)
   (assert instr symbol?)
@@ -1770,6 +1768,11 @@
   (let* ((name (syntax->datum context-name)))
     (make-address! name 0)))
 
+(define (analyze-const context-name)
+  (assert context-name syntax?)
+  (let* ((name (syntax->datum context-name)))
+    (make-const! name 0)))
+
 (define (analyze-program-begin)
   (set! *user-specified-org* #t))
 
@@ -1787,6 +1790,7 @@
             [(defsub) (analyze-proc (car rest) (cdr rest))]
             [(defvector) (analyze-proc (car rest) (cdr rest))]
             [(deflabel) (analyze-label (car rest))]
+            [(defconst) (analyze-const (car rest))]
             [(include-binary) (analyze-label (car rest))]
             [(program-begin) (analyze-program-begin)]
             [(do) (for [(elem rest)]

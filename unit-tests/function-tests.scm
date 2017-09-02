@@ -55,3 +55,40 @@
                   "_c__u = $15"
                   "_b__t = $15")))
 
+(define (compile-code code)
+  (clear-result)
+  (clear-label-id)
+  (make-variable! 'n)
+  (make-variable! 'm)
+  (process-form (datum->syntax #f code))
+  (fetch-result))
+
+(check-equal? (compile-code '(defsub (func s)
+                               (inc s)
+                               (dec s)
+                               (lsr s)
+                               (asl s)
+                               (ror s)
+                               (rol s)
+                               (lda s)
+                               (clc)
+                               (adc s)
+                               (sec)
+                               (sbc s)
+                               (sta n)))
+              '(""
+                "func:"
+                "  sta _func__s"
+                "  inc _func__s"
+                "  dec _func__s"
+                "  lsr _func__s"
+                "  asl _func__s"
+                "  ror _func__s"
+                "  rol _func__s"
+                "  lda _func__s"
+                "  clc"
+                "  adc _func__s"
+                "  sec"
+                "  sbc _func__s"
+                "  sta n"
+                "  rts"))
