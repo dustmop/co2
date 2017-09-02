@@ -10,3 +10,7 @@
 (check-equal? (compile-code '(+ 1 #\A)) '("  lda #$1"
                                           "  clc"
                                           "  adc #$41"))
+
+(check-equal? (compile-code '(+ 1 #t)) '("  lda #$1"
+                                         "  clc"
+                                         "  adc #$ff"))

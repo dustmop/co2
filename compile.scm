@@ -1100,6 +1100,7 @@
                                 (sym-label-name lookup)))))]
    [(number? arg) (format "#$~x" (->unsigned arg))]
    [(char? arg) (format "#$~x" (->unsigned (char->integer arg)))]
+   [(eq? arg #t) "#$ff"]
    [(literal-address? arg) (format "$~x" (literal-address-number arg))]
    [else (error (format "ERROR as-arg: ~a" arg))]))
 
