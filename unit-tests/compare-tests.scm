@@ -19,7 +19,7 @@
                 "  lda #0"
                 "  jmp _done_gt_0003"
                 "_is_gt_0002:"
-                "  lda #1"
+                "  lda #$ff"
                 "_done_gt_0003:"))
 
 (check-equal? (compile-code '(< m n))
@@ -29,7 +29,7 @@
                 "  lda #0"
                 "  jmp _done_lt_0002"
                 "_is_lt_0001:"
-                "  lda #1"
+                "  lda #$ff"
                 "_done_lt_0002:"))
 
 (check-equal? (compile-code '(<= m n))
@@ -40,7 +40,7 @@
                 "  lda #0"
                 "  jmp _done_lt_0002"
                 "_is_lt_0001:"
-                "  lda #1"
+                "  lda #$ff"
                 "_done_lt_0002:"))
 
 (check-equal? (compile-code '(>= m n))
@@ -51,7 +51,7 @@
                 "  lda #0"
                 "  jmp _done_gt_0003"
                 "_is_gt_0002:"
-                "  lda #1"
+                "  lda #$ff"
                 "_done_gt_0003:"))
 
 (check-equal? (compile-code '(<s m n))
@@ -61,7 +61,7 @@
                 "  lda #0"
                 "  jmp _done_lt_0002"
                 "_is_lt_0001:"
-                "  lda #1"
+                "  lda #$ff"
                 "_done_lt_0002:"))
 
 (check-equal? (compile-code '(>s m n))
@@ -73,7 +73,7 @@
                 "  lda #0"
                 "  jmp _done_gt_0003"
                 "_is_gt_0002:"
-                "  lda #1"
+                "  lda #$ff"
                 "_done_gt_0003:"
                 ))
 
@@ -85,5 +85,5 @@
                 "  lda #0"
                 "  jmp _done_lt_0002"
                 "_is_lt_0001:"
-                "  lda #1"
+                "  lda #$ff"
                 "_done_lt_0002:"))

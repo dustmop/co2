@@ -1402,7 +1402,7 @@
                (emit 'jmp done-label)
                ; is equal
                (emit-label is-label)
-               (emit 'lda "#1")
+               (emit 'lda "#$ff")
                (emit-label done-label))]
       [(>) (let ((not-label (generate-label "not_gt"))
                  (is-label (generate-label "is_gt"))
@@ -1416,7 +1416,7 @@
              (emit 'jmp done-label)
              ; is gt
              (emit-label is-label)
-             (emit 'lda "#1")
+             (emit 'lda "#$ff")
              (emit-label done-label))]
       [(<) (let ((is-label (generate-label "is_lt"))
                  (done-label (generate-label "done_lt")))
@@ -1432,7 +1432,7 @@
                    (emit 'jmp done-label)
                    ; is lt
                    (emit-label is-label)
-                   (emit 'lda "#1")
+                   (emit 'lda "#$ff")
                    (emit-label done-label))))]
       [(>s) (let ((not-label (generate-label "not_gt"))
                   (is-label (generate-label "is_gt"))
@@ -1446,7 +1446,7 @@
               (emit 'jmp done-label)
               ; is gt
               (emit-label is-label)
-              (emit 'lda "#1")
+              (emit 'lda "#$ff")
               (emit-label done-label))]
       [(<s) (let ((is-label (generate-label "is_lt"))
                   (done-label (generate-label "done_lt")))
@@ -1457,7 +1457,7 @@
               (emit 'jmp done-label)
               ; is lt
               (emit-label is-label)
-              (emit 'lda "#1")
+              (emit 'lda "#$ff")
               (emit-label done-label))]
       [(>=) (let ((not-label (generate-label "not_gt"))
                  (is-label (generate-label "is_gt"))
@@ -1470,7 +1470,7 @@
              (emit 'jmp done-label)
              ; is gt
              (emit-label is-label)
-             (emit 'lda "#1")
+             (emit 'lda "#$ff")
              (emit-label done-label))]
       [(<=) (let ((is-label (generate-label "is_lt"))
                   (done-label (generate-label "done_lt")))
@@ -1482,7 +1482,7 @@
               (emit 'jmp done-label)
               ; is lt
               (emit-label is-label)
-              (emit 'lda "#1")
+              (emit 'lda "#$ff")
               (emit-label done-label))]
       [(<=s) (let ((is-label (generate-label "is_lt"))
                    (done-label (generate-label "done_lt")))
@@ -1494,7 +1494,7 @@
                (emit 'jmp done-label)
                ; is lt
                (emit-label is-label)
-               (emit 'lda "#1")
+               (emit 'lda "#$ff")
                (emit-label done-label))]
       [(>>) (begin (assert right number?)
                    (for [(i (in-range right))]
