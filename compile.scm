@@ -58,6 +58,8 @@
 (define ppu-flags
   ;; TODO: More
   '((PPU-CTRL-NMI                #x80)
+    (PPU-CTRL-1000-BG            #x10)
+    (PPU-CTRL-1000-SPR           #x08)
     (PPU-MASK-SHOW-SPR           #x10)
     (PPU-MASK-SHOW-BG            #x08)))
 
@@ -1720,7 +1722,7 @@
              (process-sprites-apply-to-field! (lref rest 0) (lref rest 1)
                                               (lref rest 2) 3 'sbc)]
             [(_rnd) (process-underscore-rnd)]
-            [(adc cmp cpx cpy eor lda ldx ldy sta stx sty)
+            [(adc cmp cpx cpy eor lda ldx ldy sbc sta stx sty)
              (process-instruction-expression symbol rest)]
             [(and ora) (process-cond-or-expression symbol rest)]
             [(or) (process-cond-or-expression 'ora rest)]

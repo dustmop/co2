@@ -62,3 +62,7 @@
                 "  sta _tmp"
                 "  pla"
                 "  and _tmp"))
+
+(check-equal? (compile-code '(sbc 4))
+              '("  sbc #$4"))
+
