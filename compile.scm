@@ -1729,7 +1729,7 @@
              (process-instruction-accumulator symbol (lref rest 0))]
             [(bit dec inc)
              (process-instruction-standalone symbol (lref rest 0))]
-            [(beq bcc bcs bne bmi bpl jmp)
+            [(beq bcc bcs bne bmi bpl bvc bvs jmp)
              (process-instruction-branch symbol (lref rest 0))]
             [(clc cld cli clv dex dey inx iny nop pha pla rts sec)
              (process-instruction-implied symbol)]
