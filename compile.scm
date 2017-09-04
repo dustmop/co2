@@ -61,7 +61,9 @@
     (PPU-CTRL-1000-BG            #x10)
     (PPU-CTRL-1000-SPR           #x08)
     (PPU-MASK-SHOW-SPR           #x10)
-    (PPU-MASK-SHOW-BG            #x08)))
+    (PPU-MASK-SHOW-BG            #x08)
+    (PPU-MASK-NOCLIP-SPR         #x04)
+    (PPU-MASK-NOCLIP-BG          #x02)))
 
 (define reserved-zero-page
   '((ppu-ctrl                    #x00)
@@ -1768,6 +1770,11 @@
   (let* ((name (syntax->datum context-name)))
     (make-address! name 0)))
 
+(define (analyze-var context-name)
+  (assert context-name syntax?)
+  (let* ((name (syntax->datum context-name)))
+    (make-variable! name #:global #t)))
+
 (define (analyze-const context-name)
   (assert context-name syntax?)
   (let* ((name (syntax->datum context-name)))
@@ -1789,6 +1796,7 @@
             ; Main expression walker.
             [(defsub) (analyze-proc (car rest) (cdr rest))]
             [(defvector) (analyze-proc (car rest) (cdr rest))]
+            [(defvar) (analyze-var (car rest))]
             [(deflabel) (analyze-label (car rest))]
             [(defconst) (analyze-const (car rest))]
             [(include-binary) (analyze-label (car rest))]
