@@ -271,6 +271,64 @@
       (gvector-ref *errors* 0)
       #f))
 
+;;----------------------------------------------------------------
+
+(define (lvalue? arg)
+  (cond
+   [(string? arg) #t]
+   [(symbol? arg) (let ((lookup (sym-label-lookup arg)))
+                    (if (not lookup)
+                        #f
+                        (if (eq? (sym-label-kind lookup) 'const)
+                            #f
+                            (if (eq? (sym-label-kind lookup) 'metavar)
+                                #f
+                                #t))))]
+   ; TODO: More cases. Tests.
+   [(number? arg) #f]
+   [(char? arg) #f]
+   [(literal-address? arg) #t]
+   [else (error (format "ERROR: Unknown ~a" arg))]))
+
+(define (index-register? arg)
+  (or (eq? arg 'x) (eq? arg 'y)))
+
+(define (->register arg)
+  (symbol->string arg))
+
+(define (->unsigned num)
+  (if (>= num 0)
+      num
+      (+ #x100 num)))
+
+(define (datum-ref list index)
+  (if (>= index (length list))
+      #f
+      (syntax->datum (list-ref list index))))
+
+(define (lref list index)
+  (if (>= index (length list))
+      #f
+      (list-ref list index)))
+
+(define (arg->str arg)
+  (cond
+   [(string? arg) arg]
+   [(symbol? arg) (let ((lookup (sym-label-lookup arg)))
+                    (if (not lookup)
+                        (begin (add-error "Variable not found" arg)
+                               (format ";Not found: ~a" arg))
+                        (if (eq? (sym-label-kind lookup) 'const)
+                            (format "#~a" (sym-label-name lookup))
+                            (if (eq? (sym-label-kind lookup) 'metavar)
+                                (format "#~a" (sym-label-address lookup))
+                                (sym-label-name lookup)))))]
+   [(number? arg) (format "#$~x" (->unsigned arg))]
+   [(char? arg) (format "#$~x" (->unsigned (char->integer arg)))]
+   [(eq? arg #f) "#$00"]
+   [(eq? arg #t) "#$ff"]
+   [(literal-address? arg) (format "$~x" (literal-address-number arg))]
+   [else (error (format "ERROR arg->str: ~a" arg))]))
 
 ;;----------------------------------------------------------------
 
@@ -303,7 +361,7 @@
    (emit 'iny)
    (when limit
          ; TODO: Currently only supports numbers for `limit`.
-         (emit 'cpy (as-arg limit)))
+         (emit 'cpy (arg->str limit)))
    (emit 'bne "-")))
 
 (define (process-memcpy context-address context-source context-limit)
@@ -318,7 +376,7 @@
     (emit "-" 'lda "(_pointer),y")
     (emit 'sta (format "~a,y" (normalize-name address)))
     (emit 'iny)
-    (emit 'cpy (as-arg limit))
+    (emit 'cpy (arg->str limit))
     (emit 'bne "-")))
 
 (define *need-ppu-load-functions* #f)
@@ -330,36 +388,36 @@
     (set! *need-ppu-load-functions* #t)
     (emit-context)
     (emit 'bit "REG_PPU_STATUS")
-    (emit 'lda (format "#>~a" (as-arg ppu-addr)))
+    (emit 'lda (format "#>~a" (arg->str ppu-addr)))
     (emit 'sta "REG_PPU_ADDR")
-    (emit 'lda (format "#<~a" (as-arg ppu-addr)))
+    (emit 'lda (format "#<~a" (arg->str ppu-addr)))
     (emit 'sta "REG_PPU_ADDR")
     (cond
      [(and (number? address) (< num #x100))
-      (begin (emit 'lda (as-arg address))
+      (begin (emit 'lda (arg->str address))
              (emit 'ldy (format "#~a" (- #x100 num)))
              (emit 'ldx "#1")
              (emit 'jsr "_ppu_load_by_val"))]
      [(number? address)
-      (begin (emit 'lda (as-arg address))
+      (begin (emit 'lda (arg->str address))
              (emit 'ldy "#0")
-             (emit 'ldx (format "#>~a" (as-arg num)))
+             (emit 'ldx (format "#>~a" (arg->str num)))
              (emit 'jsr "_ppu_load_by_val"))]
      [(< num #x100)
-      (begin (emit 'lda (format "#<(~a+~a)" (as-arg address) num))
+      (begin (emit 'lda (format "#<(~a+~a)" (arg->str address) num))
              (emit 'sta "_pointer+0")
-             (emit 'lda (format "#>(~a+~a-$100)" (as-arg address) num))
+             (emit 'lda (format "#>(~a+~a-$100)" (arg->str address) num))
              (emit 'sta "_pointer+1")
              (emit 'ldy (format "#~a" (- #x100 num)))
              (emit 'ldx "#1")
              (emit 'jsr "_ppu_load_by_pointer"))]
      [else
-      (begin (emit 'lda (format "#<~a" (as-arg address)))
+      (begin (emit 'lda (format "#<~a" (arg->str address)))
              (emit 'sta "_pointer+0")
-             (emit 'lda (format "#>~a" (as-arg address)))
+             (emit 'lda (format "#>~a" (arg->str address)))
              (emit 'sta "_pointer+1")
              (emit 'ldy "#0")
-             (emit 'ldx (format "#>~a" (as-arg num)))
+             (emit 'ldx (format "#>~a" (arg->str num)))
              (emit 'jsr "_ppu_load_by_pointer"))])))
 
 (define (process-ppu-memset context-ppu-base context-dest-high
@@ -404,11 +462,11 @@
    (emit 'clc)
    (emit 'adc (format "#<~a" (normalize-name ppu-base)))
    (emit 'sta "REG_PPU_ADDR")
-   (emit 'ldy (as-arg start-index))
-   (emit "-" 'lda (format "~a,y" (as-arg prg-base)))
+   (emit 'ldy (arg->str start-index))
+   (emit "-" 'lda (format "~a,y" (arg->str prg-base)))
    (emit 'sta "REG_PPU_DATA")
    (emit 'iny)
-   (emit 'cpy (as-arg end-index))
+   (emit 'cpy (arg->str end-index))
    (emit 'bne "-")
    ;; reset ppu addr
    (emit 'lda "#$00")
@@ -435,7 +493,7 @@
    (emit "-" 'lda (format "(~a),y" (normalize-name pointer)))
    (emit 'sta "REG_PPU_DATA")
    (emit 'iny)
-   (emit 'cpy (as-arg length))
+   (emit 'cpy (arg->str length))
    (emit 'bne "-")
    ;; reset ppu addr
    (emit 'lda "#$00")
@@ -473,7 +531,7 @@
      (emit 'asl) ;; *2
      (emit 'asl) ;; *4
      (emit 'clc)
-     (emit 'adc (as-arg field)) ;; field
+     (emit 'adc (arg->str field)) ;; field
      (emit 'tax) ;; put offset in x
      (emit 'pla) ;; pull count out
      (emit 'tay) ;; put sprite count in y
@@ -496,7 +554,7 @@
 (define (process-underscore-rnd)
   (let ((label (generate-label "rnd"))
         (okay (generate-label "okay")))
-     (emit 'lda (as-arg rnd-reg))
+     (emit 'lda (arg->str rnd-reg))
      (emit 'bne okay)
      (emit 'lda "#$c7")
      (emit-label okay)
@@ -504,7 +562,7 @@
      (emit 'bcc label)
      (emit 'eor "#$1d")
      (emit-label label)
-     (emit 'sta (as-arg rnd-reg))))
+     (emit 'sta (arg->str rnd-reg))))
 
 (define (power-of-2? num)
   (eq? (bitwise-and num (- num 1)) 0))
@@ -584,7 +642,7 @@
     (emit-context)
     (emit 'lda "#0")
     (emit 'sta "_tmp")
-    (emit 'lda (as-arg offset))
+    (emit 'lda (arg->str offset))
     (emit 'asl "a")
     (emit 'rol "_tmp")
     (emit 'asl "a")
@@ -873,10 +931,10 @@
 
 (define (do-fold-const instr accum arg)
   (if (not accum)
-      (as-arg arg)
+      (arg->str arg)
       (cond
        [(or (eq? instr 'or) (eq? instr 'ora))
-          (format "~a|~a" accum (as-arg arg))])))
+          (format "~a|~a" accum (arg->str arg))])))
 
 (define (process-defvar name [value 0])
   (let* ((def (normalize-name name))
@@ -949,16 +1007,16 @@
                                 (normalize-name sym))))
              (make-variable! sym #:label label)
              (cond
-              [(= i 0) (emit 'sta (as-arg sym))]
-              [(= i 1) (emit 'stx (as-arg sym))]
-              [(= i 2) (emit 'sty (as-arg sym))])))
+              [(= i 0) (emit 'sta (arg->str sym))]
+              [(= i 1) (emit 'stx (arg->str sym))]
+              [(= i 2) (emit 'sty (arg->str sym))])))
       ; Additional parameters
       (when (> (length args) 3)
             (emit 'tsx)
             (let ((params (cdddr args)))
               (for [(p params) (i (in-naturals))]
                    (emit 'lda (format "$~x,x" (+ #x103 i)))
-                   (emit 'sta (as-arg p)))))
+                   (emit 'sta (arg->str p)))))
       ; Process body.
       (for [(stmt body)]
            (process-form stmt))
@@ -980,14 +1038,14 @@
         (add-error "Cannot assign to" place)
         (begin
           (process-argument expr)
-          (emit 'sta (as-arg place))))))
+          (emit 'sta (arg->str place))))))
 
 (define (process-cond-or-expression instr args)
   (if (or (not (optimization-using-mode? 'if))
           (> (length args) 2))
       ; Not in a conditional, process as a normal instruction.
       (parameterize [(*opt-mode* #f)]
-        (process-instruction-expression instr args))
+        (process-instruction-transitive instr args))
       ; TODO: More than 2 arguments.
       (let ((context-first (car args))
             (context-second (cadr args)))
@@ -996,7 +1054,7 @@
             ; No optimizations within arguments, just output normal instruction.
             (let ((rhs (process-argument (cadr args) #:preserve '(a) #:as 'rhs
                                          #:skip-context #t)))
-              (emit instr (as-arg rhs))
+              (emit instr (arg->str rhs))
               ; TODO: vector-set! (*opt-mode*) ???
               )
             ;
@@ -1010,7 +1068,15 @@
               (emit-label truth-inner)
               (process-argument context-second))))))
 
-(define (process-instruction-expression instr args)
+; Used for instructions that can "chain" arguments in such a way that they can
+; implemented by running that instruction on each argument after the 1st.
+; For example:
+;  (and #xfe a b c)
+;  > lda #fe
+;  > and a
+;  > and b
+;  > and c
+(define (process-instruction-transitive instr args)
   (assert instr symbol?)
   (assert args list?)
   (let ((first (datum-ref args 0))
@@ -1021,13 +1087,13 @@
      [(= (length args) 1)
       (begin
         (emit-context)
-        (emit instr (as-arg first)))]
+        (emit instr (arg->str first)))]
      ; Single argument with an index register.
      ; TODO: Should validate that the instruction can use indexed addressing.
      [(and (= (length args) 2) (index-register? second))
       (begin
         (emit-context)
-        (emit instr (format "~a,~a" (as-arg first) (->register second))))]
+        (emit instr (format "~a,~a" (arg->str first) (->register second))))]
      ; Two arguments, evaluate any expressions, load the first arg into A,
      ; and output the instruction using the second arg as the operand.
      [(= (length args) 2)
@@ -1035,7 +1101,7 @@
         (let* ((lhs (process-argument (car args)))
                (rhs (process-argument (cadr args) #:preserve '(a) #:as 'rhs
                                       #:skip-context #t)))
-          (emit instr (as-arg rhs))))]
+          (emit instr (arg->str rhs))))]
      ; More than two arguments. Load first, generate code for others, folding
      ; constants along the way.
      [(> (length args) 2)
@@ -1060,6 +1126,26 @@
               (set! const #f)))]
      [else (add-error (format "Invalid arguments to \"~a\":" instr) args)])))
 
+; Use for load or store instructions.
+(define (process-instruction-mov need-lvalue? instr args)
+  (assert instr symbol?)
+  (assert args list?)
+  (let ((first (datum-ref args 0))
+        (second (datum-ref args 1)))
+    (cond
+     [(= (length args) 0)
+        (add-error (format "Invalid arguments to \"~a\":" instr) args)]
+     [(and need-lvalue? (not (lvalue? first)))
+        (add-error "Not a valid lvalue" first)]
+     [(and (= (length args) 2) (index-register? second))
+      (begin
+        (emit-context)
+        (emit instr (format "~a,~a" (arg->str first) (->register second))))]
+     [(> (length args) 1)
+      (add-error (format "Only one argument allowed for ~a, got" instr) args)]
+     [else
+      (emit instr (arg->str first))])))
+
 (define (process-instruction-accumulator instr context-arg)
   (assert instr symbol?)
   (assert context-arg syntax?)
@@ -1068,46 +1154,6 @@
         (emit instr "a")
         (let ((value (process-argument context-arg #:as 'rhs)))
           (emit instr value)))))
-
-(define (index-register? arg)
-  (or (eq? arg 'x) (eq? arg 'y)))
-
-(define (->register arg)
-  (symbol->string arg))
-
-(define (->unsigned num)
-  (if (>= num 0)
-      num
-      (+ #x100 num)))
-
-(define (datum-ref list index)
-  (if (>= index (length list))
-      #f
-      (syntax->datum (list-ref list index))))
-
-(define (lref list index)
-  (if (>= index (length list))
-      #f
-      (list-ref list index)))
-
-(define (as-arg arg)
-  (cond
-   [(string? arg) arg]
-   [(symbol? arg) (let ((lookup (sym-label-lookup arg)))
-                    (if (not lookup)
-                        (begin (add-error "Variable not found" arg)
-                               (format ";Not found: ~a" arg))
-                        (if (eq? (sym-label-kind lookup) 'const)
-                            (format "#~a" (sym-label-name lookup))
-                            (if (eq? (sym-label-kind lookup) 'metavar)
-                                (format "#~a" (sym-label-address lookup))
-                                (sym-label-name lookup)))))]
-   [(number? arg) (format "#$~x" (->unsigned arg))]
-   [(char? arg) (format "#$~x" (->unsigned (char->integer arg)))]
-   [(eq? arg #f) "#$00"]
-   [(eq? arg #t) "#$ff"]
-   [(literal-address? arg) (format "$~x" (literal-address-number arg))]
-   [else (error (format "ERROR as-arg: ~a" arg))]))
 
 ;Generate code to get a single value into the desired return value, which
 ; defaults to the accumulator. Preserve registers to the stack if needed.
@@ -1127,7 +1173,7 @@
                 (emit 'sta ret)
                 (process-stack 'pull preserve #:skip-context #t)))
         ; Load an atomic value.
-        (let ((val (as-arg arg)))
+        (let ((val (arg->str arg)))
           (when (and (not skip-context) (vector-ref (*co2-source-context*) 1))
                 (emit-context)
                 (vector-set! (*co2-source-context*) 1 #f))
@@ -1241,7 +1287,7 @@
         (emit (format "  ld~a #~a" iter initial-loop-value))
         (begin
           (emit 'lda (format "#~a" initial-loop-value))
-          (emit 'sta (as-arg iter))))
+          (emit 'sta (arg->str iter))))
     (let ((loop-label (generate-label "loop_down_from")))
       (emit-label loop-label)
       ; TODO: Disallow `reg` changes within `body`
@@ -1250,7 +1296,7 @@
       (emit-context)
       (if (register? iter)
           (emit (format "  de~a" iter))
-          (emit 'dec (as-arg iter)))
+          (emit 'dec (arg->str iter)))
       (emit 'bne loop-label))))
 
 (define (process-loop-up context-iter context-start context-end body
@@ -1273,13 +1319,13 @@
         (emit 'lda (format "#~a_~a"
                            (normalize-name (cadr end))
                            (normalize-name (car end))))
-        (emit 'lda (as-arg end)))
+        (emit 'lda (arg->str end)))
     (emit 'sta sentinal-value)
     ; Setup iteration value.
     (if (register? iter)
         (emit (format "  ld~a #~a" iter initial-loop-value))
-        (begin (emit 'lda (as-arg initial-loop-value))
-               (emit 'sta (as-arg iter))))
+        (begin (emit 'lda (arg->str initial-loop-value))
+               (emit 'sta (arg->str iter))))
     (emit-label loop-label)
     ; TODO: Disallow `reg` changes within `body`
     (for [(stmt body)]
@@ -1291,15 +1337,15 @@
              (begin (emit (format "  t~aa" iter))
                     (emit (format "  in~a" iter))
                     (emit (format "  cmp ~a" sentinal-value)))
-             (begin (emit 'lda (as-arg iter))
-                    (emit 'inc (as-arg iter))
-                    (emit 'cmp (as-arg sentinal-value))))
+             (begin (emit 'lda (arg->str iter))
+                    (emit 'inc (arg->str iter))
+                    (emit 'cmp (arg->str sentinal-value))))
          (if (register? iter)
              (begin (emit (format "  in~a" iter))
                     (emit (format "  cp~a ~a" iter sentinal-value)))
-             (begin (emit 'inc (as-arg iter))
-                    (emit 'lda (as-arg iter))
-                    (emit 'cmp (as-arg sentinal-value)))))
+             (begin (emit 'inc (arg->str iter))
+                    (emit 'lda (arg->str iter))
+                    (emit 'cmp (arg->str sentinal-value)))))
     ; Loop back to start.
     (emit 'bne loop-label)))
 
@@ -1393,12 +1439,12 @@
          (right (syntax->datum context-right)))
     (case operator
       [(+) (begin (emit 'clc)
-                  (emit 'adc (as-arg rhs)))]
+                  (emit 'adc (arg->str rhs)))]
       [(-) (begin (emit 'sec)
-                  (emit 'sbc (as-arg rhs)))]
+                  (emit 'sbc (arg->str rhs)))]
       [(eq?) (let ((is-label (generate-label "is_eq"))
                    (done-label (generate-label "done_eq")))
-               (emit 'cmp (as-arg rhs))
+               (emit 'cmp (arg->str rhs))
                (emit 'beq is-label)
                ; not equal
                (emit 'lda "#0")
@@ -1410,7 +1456,7 @@
       [(>) (let ((not-label (generate-label "not_gt"))
                  (is-label (generate-label "is_gt"))
                  (done-label (generate-label "done_gt")))
-             (emit 'cmp (as-arg rhs))
+             (emit 'cmp (arg->str rhs))
              (emit 'beq not-label)
              (emit 'bcs is-label)
              ; not gt
@@ -1423,7 +1469,7 @@
              (emit-label done-label))]
       [(<) (let ((is-label (generate-label "is_lt"))
                  (done-label (generate-label "done_lt")))
-             (emit 'cmp (as-arg rhs))
+             (emit 'cmp (arg->str rhs))
              (emit 'bcc is-label)
              (if (optimization-using-mode? 'if)
                  (begin
@@ -1440,7 +1486,7 @@
       [(>s) (let ((not-label (generate-label "not_gt"))
                   (is-label (generate-label "is_gt"))
                   (done-label (generate-label "done_gt")))
-              (emit 'cmp (as-arg rhs))
+              (emit 'cmp (arg->str rhs))
               (emit 'beq not-label)
               (emit 'bpl is-label)
               ; not gt
@@ -1453,7 +1499,7 @@
               (emit-label done-label))]
       [(<s) (let ((is-label (generate-label "is_lt"))
                   (done-label (generate-label "done_lt")))
-              (emit 'cmp (as-arg rhs))
+              (emit 'cmp (arg->str rhs))
               (emit 'bmi is-label)
               ; not lt
               (emit 'lda "#0")
@@ -1465,7 +1511,7 @@
       [(>=) (let ((not-label (generate-label "not_gt"))
                  (is-label (generate-label "is_gt"))
                  (done-label (generate-label "done_gt")))
-             (emit 'cmp (as-arg rhs))
+             (emit 'cmp (arg->str rhs))
              (emit 'bcs is-label)
              ; not gt
              (emit-label not-label)
@@ -1477,7 +1523,7 @@
              (emit-label done-label))]
       [(<=) (let ((is-label (generate-label "is_lt"))
                   (done-label (generate-label "done_lt")))
-              (emit 'cmp (as-arg rhs))
+              (emit 'cmp (arg->str rhs))
               (emit 'beq is-label)
               (emit 'bcc is-label)
               ; not lt
@@ -1489,7 +1535,7 @@
               (emit-label done-label))]
       [(<=s) (let ((is-label (generate-label "is_lt"))
                    (done-label (generate-label "done_lt")))
-               (emit 'cmp (as-arg rhs))
+               (emit 'cmp (arg->str rhs))
                (emit 'beq is-label)
                (emit 'bmi is-label)
                ; not lt
@@ -1519,14 +1565,14 @@
         (index (if context-index (syntax->datum context-index) #f)))
     (emit-context)
     (cond
-     [(not index) (emit 'lda (as-arg address))]
-     [(number? index) (emit 'lda (format "~a+~a" (as-arg address) index))]
-     [(eq? index 'x) (emit 'lda (format "~a,x" (as-arg address)))]
-     [(eq? index 'y) (emit 'lda (format "~a,y" (as-arg address)))]
+     [(not index) (emit 'lda (arg->str address))]
+     [(number? index) (emit 'lda (format "~a+~a" (arg->str address) index))]
+     [(eq? index 'x) (emit 'lda (format "~a,x" (arg->str address)))]
+     [(eq? index 'y) (emit 'lda (format "~a,y" (arg->str address)))]
      [else (when (string=? (process-argument context-index #:skip-context #t
                                              #:as 'ldy) "a")
                  (emit 'tay))
-           (emit 'lda (format "~a,y" (as-arg address)))])))
+           (emit 'lda (format "~a,y" (arg->str address)))])))
 
 (define (process-poke! context-address context-arg0 context-arg1)
   (if context-arg1
@@ -1537,11 +1583,11 @@
         (when (string=? (process-argument context-index #:as 'ldy) "a")
               (emit 'tay))
         (process-argument context-value #:preserve '(y))
-        (emit 'sta (format "~a,y" (as-arg address))))
+        (emit 'sta (format "~a,y" (arg->str address))))
       (let* ((address (syntax->datum context-address))
              (context-value context-arg0))
         (process-argument context-value)
-        (emit 'sta (as-arg address)))))
+        (emit 'sta (arg->str address)))))
 
 (define (process-address-specifier specifier context-address)
   (let ((address (syntax->datum context-address)))
@@ -1722,11 +1768,15 @@
              (process-sprites-apply-to-field! (lref rest 0) (lref rest 1)
                                               (lref rest 2) 3 'sbc)]
             [(_rnd) (process-underscore-rnd)]
-            [(adc cmp cpx cpy eor lda ldx ldy sbc sta stx sty)
-             (process-instruction-expression symbol rest)]
+            [(adc cmp cpx cpy eor sbc)
+             (process-instruction-transitive symbol rest)]
             [(and ora) (process-cond-or-expression symbol rest)]
             [(or) (process-cond-or-expression 'ora rest)]
-            [(xor) (process-instruction-expression 'eor rest)]
+            [(xor) (process-instruction-transitive 'eor rest)]
+            [(lda ldx ldy)
+             (process-instruction-mov #f symbol rest)]
+            [(sta stx sty)
+             (process-instruction-mov #t symbol rest)]
             [(asl lsr rol ror)
              (process-instruction-accumulator symbol (lref rest 0))]
             [(bit dec inc)
