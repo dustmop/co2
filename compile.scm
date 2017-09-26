@@ -78,14 +78,14 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Label generation
 
-(define label-id 0)
+(define *gen-id* 0)
 
 (define (clear-label-id)
-  (set! label-id 0))
+  (set! *gen-id* 0))
 
 (define (generate-label name)
-  (set! label-id (+ label-id 1))
-  (string-append "_" name "_" (left-pad (number->string label-id 16) #\0 4)))
+  (set! *gen-id* (+ *gen-id* 1))
+  (string-append "_" name "_" (left-pad (number->string *gen-id* 16) #\0 4)))
 
 ;;----------------------------------------------------------------
 
@@ -134,6 +134,15 @@
 (define (make-local! sym scope)
   (let ((label (format "_~a__~a" (normalize-name scope) (normalize-name sym))))
     (make-variable! sym #:label label)))
+
+(define (make-local-gensym! scope)
+  (set! *gen-id* (+ *gen-id* 1))
+  (let* ((uniq (format "_gen_~a" (left-pad (number->string *gen-id* 16) #\0 4)))
+         (label (format "_~a__~a" (normalize-name scope) uniq)))
+    (make-variable! '_gensym #:label label)
+    (when (*local-vars*)
+          (gvector-add! (*local-vars*) (list '_gensym label)))
+    label))
 
 (define (make-buffer! sym length)
   (let ((name (normalize-name sym))
@@ -915,7 +924,7 @@
 (define *scope-name* (make-parameter #f))
 
 (define (current-scope-name)
-  (*scope-name*))
+  (or (*scope-name*) '_global))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Optimization setting.
@@ -1300,9 +1309,15 @@
      [(< start #x100) (set! initial-loop-value start)]
      [(= start #x100) (set! initial-loop-value 0)]
      [else (error "Initial loop value invalid")])
+    ; Push scope.
+    (sym-label-push-scope)
+    ; Define the local var, or use a register.
     (if (register? iter)
         (emit (format "  ld~a #~a" iter initial-loop-value))
         (begin
+          (make-local! iter (current-scope-name))
+          (when (*local-vars*)
+                (gvector-add! (*local-vars*) iter))
           (emit 'lda (format "#~a" initial-loop-value))
           (emit 'sta (arg->str iter))))
     (let ((loop-label (generate-label "loop_down_from")))
@@ -1314,7 +1329,9 @@
       (if (register? iter)
           (emit (format "  de~a" iter))
           (emit 'dec (arg->str iter)))
-      (emit 'bne loop-label))))
+      (emit 'bne loop-label))
+    ; Pop scope.
+    (sym-label-pop-scope)))
 
 (define (process-loop-up context-iter context-start context-end body
                          #:inclusive [inclusive #f])
@@ -1323,13 +1340,14 @@
   (assert context-end syntax?)
   (assert body list?)
   (emit-context)
+  ; Push scope.
+  (sym-label-push-scope)
+  ;
   (let* ((iter (syntax->datum context-iter))
          (start (syntax->datum context-start))
          (end (syntax->datum context-end))
          (initial-loop-value start)
-         ; TODO: Value reserved by implemention. Ensure `body` doesn't modify it
-         ; This breaks nested loops.
-         (sentinal-value "_loop")
+         (sentinal-value (make-local-gensym! (current-scope-name)))
          (loop-label (generate-label "loop_up_to")))
     ; Store the sentinal value into memory.
     (if (and (list? end) (eq? (car end) 'length))
@@ -1341,7 +1359,10 @@
     ; Setup iteration value.
     (if (register? iter)
         (emit (format "  ld~a #~a" iter initial-loop-value))
-        (begin (emit 'lda (arg->str initial-loop-value))
+        (begin (make-local! iter (current-scope-name))
+               (when (*local-vars*)
+                     (gvector-add! (*local-vars*) iter))
+               (emit 'lda (arg->str initial-loop-value))
                (emit 'sta (arg->str iter))))
     (emit-label loop-label)
     ; TODO: Disallow `reg` changes within `body`
@@ -1364,7 +1385,9 @@
                     (emit 'lda (arg->str iter))
                     (emit 'cmp (arg->str sentinal-value)))))
     ; Loop back to start.
-    (emit 'bne loop-label)))
+    (emit 'bne loop-label)
+    ; Pop scope.
+    (sym-label-pop-scope)))
 
 (define (process-repeat context-bindings body)
   (let* ((bindings (syntax->datum context-bindings))
@@ -1904,8 +1927,10 @@
        (let* ((name (list-ref elem 0))
               (param (list-ref elem 1))
               (addr (list-ref elem 2)))
-         (emit (format "_~a__~a = $~x" (normalize-name name)
-                       (normalize-name param) (+ addr var-allocation))))))
+         (if (list? param)
+             (emit (format "~a = $~x" (cadr param) (+ addr var-allocation)))
+             (emit (format "_~a__~a = $~x" (normalize-name name)
+                           (normalize-name param) (+ addr var-allocation)))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Entry point

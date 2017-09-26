@@ -93,10 +93,10 @@
                 "  adc _func__q"
                 "  sta out"
                 "  rts"))
-  (check-equal? (casla->allocations)
-                '((func m 0)
-                  (func n 1)
-                  (func q 2)))
+(check-equal? (casla->allocations)
+              '((func m 0)
+                (func n 1)
+                (func q 2)))
 
 (check-equal? (compile-code-first-error '(defsub (func m)
                                            (let ((n 0) (q))
