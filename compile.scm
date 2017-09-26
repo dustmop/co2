@@ -1217,11 +1217,22 @@
           (emit 'lda ret))
     ret))
 
+(define (process-operand context-operand)
+  (emit-context)
+  (let ((operand (syntax->datum context-operand)))
+    (cond
+     [(and (list? operand) (eq? (car operand) 'high))
+        ; TODO: Check type of operand, make sure it's a pointer.
+        (format "~a+1" (arg->str (cadr operand)))]
+     [(symbol? operand)
+        (arg->str operand)]
+     [else
+        (add-error "ERROR NOT IMPLEMENTED:" operand)])))
+
 (define (process-instruction-standalone instr operand)
-  ;TODO: Rhs being an expression is an error
   (assert instr symbol?)
   (assert operand syntax?)
-  (let ((val (process-argument operand #:as 'rhs)))
+  (let ((val (process-operand operand)))
     (emit instr val)))
 
 (define (process-instruction-branch instr target)

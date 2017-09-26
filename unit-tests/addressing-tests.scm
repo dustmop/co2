@@ -4,6 +4,7 @@
 
 (define (compile-code code)
   (clear-result)
+  (make-variable! 'n)
   (process-form (datum->syntax #f code))
   (fetch-result))
 
@@ -31,3 +32,10 @@
 (check-equal? (compile-code '(sta (addr #x100) x)) '("  sta $100,x"))
 
 (check-equal? (compile-code '(sta (addr #x100) y)) '("  sta $100,y"))
+
+(check-equal? (compile-code '(inc n))
+              '("  inc n"))
+
+(check-equal? (compile-code '(inc (high n)))
+              '("  inc n+1"))
+
