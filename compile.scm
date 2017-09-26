@@ -103,11 +103,14 @@
 
 (define sym-label-defs (list (make-hash)))
 
+(define *data-segment* '())
+
 (define (clear-var-allocation)
   (set! var-allocation #x10)
   (set! sym-label-defs (list (make-hash))))
 
-(define data-segment '())
+(define (clear-data-segment)
+  (set! *data-segment* '()))
 
 (struct sym-label (sym name address kind))
 
@@ -127,6 +130,10 @@
           (hash-set! table sym (sym-label sym name n 'var))
           (set! var-allocation (+ 1 var-allocation)))
     (hash-ref table sym)))
+
+(define (make-local! sym scope)
+  (let ((label (format "_~a__~a" (normalize-name scope) (normalize-name sym))))
+    (make-variable! sym #:label label)))
 
 (define (make-buffer! sym length)
   (let ((name (normalize-name sym))
@@ -159,7 +166,7 @@
 
 (define (make-data! sym value)
   (let ((name (normalize-name sym)))
-    (set! data-segment (cons (list name value) data-segment))
+    (set! *data-segment* (cons (list name value) *data-segment*))
     (hash-set! (car sym-label-defs) sym (sym-label sym name 0 'data))
     (hash-ref (car sym-label-defs) sym)))
 
@@ -191,7 +198,7 @@
   (set! sym-label-defs (cdr sym-label-defs)))
 
 (define (get-data-segment)
-  data-segment)
+  *data-segment*)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Function definition
@@ -901,6 +908,15 @@
 
 (define *entry-points* '())
 
+(define *local-vars* (make-parameter #f))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(define *scope-name* (make-parameter #f))
+
+(define (current-scope-name)
+  (*scope-name*))
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Optimization setting.
 
@@ -995,7 +1011,7 @@
     ; Add vector entry points.
     (when (eq? type 'vector)
           (set! *entry-points* (cons name *entry-points*)))
-    (parameterize [(*invocations* (make-gvector))]
+    (parameterize [(*invocations* (make-gvector)) (*local-vars* (make-gvector))]
       (emit-blank)
       (emit-context)
       (emit-label (normalize-name name))
@@ -1003,13 +1019,11 @@
       (sym-label-push-scope)
       ; Fastcall parameters
       (for [(sym args) (i (in-naturals))]
-           (let ((label (format "_~a__~a" (normalize-name name)
-                                (normalize-name sym))))
-             (make-variable! sym #:label label)
-             (cond
-              [(= i 0) (emit 'sta (arg->str sym))]
-              [(= i 1) (emit 'stx (arg->str sym))]
-              [(= i 2) (emit 'sty (arg->str sym))])))
+           (make-local! sym name)
+           (cond
+            [(= i 0) (emit 'sta (arg->str sym))]
+            [(= i 1) (emit 'stx (arg->str sym))]
+            [(= i 2) (emit 'sty (arg->str sym))]))
       ; Additional parameters
       (when (> (length args) 3)
             (emit 'tsx)
@@ -1017,9 +1031,11 @@
               (for [(p params) (i (in-naturals))]
                    (emit 'lda (format "$~x,x" (+ #x103 i)))
                    (emit 'sta (arg->str p)))))
-      ; Process body.
-      (for [(stmt body)]
-           (process-form stmt))
+      ; Set scope name.
+      (parameterize [(*scope-name* name)]
+        ; Process body.
+        (for [(stmt body)]
+             (process-form stmt)))
       ; Pop scope.
       (sym-label-pop-scope)
       ; Return from function.
@@ -1027,8 +1043,9 @@
        [(eq? type 'sub) (emit 'rts)]
        [(eq? type 'vector) (emit 'rti)])
       ; Store inner function calls for building call tree.
-      (let ((calls (gvector->list (*invocations*))))
-        (make-func-node! name args calls)))))
+      (let ((calls (gvector->list (*invocations*)))
+            (vars (gvector->list (*local-vars*))))
+        (make-func-node! name (append args vars) calls)))))
 
 (define (process-set-bang target expr)
   (assert target syntax?)
@@ -1363,11 +1380,35 @@
 (define (process-let context-bindings body)
   ; TODO: This c(a|d)*r calls are awful.
   (let* ((bindings (syntax->datum context-bindings))
-         (label (caar bindings))
-         (value (cadr (cadar bindings))))
-    (make-data! label value)
+         (new-syms '()))
+    ; Push scope for local variables.
+    (sym-label-push-scope)
+    ; Define local variables, or data arrays.
+    (for [(bind bindings)]
+         (let ((label (car bind))
+               (value (if (not (null? (cdr bind))) (cadr bind) #f)))
+           (cond
+            [(and (list? value) (eq? (car value) 'quote))
+               (make-data! label (cadr value))]
+            [(list? value)
+               (add-error "NOT IMPLEMENTED: bind" value)]
+            [(number? value)
+               (make-local! label (current-scope-name))
+               (when (*local-vars*)
+                     (gvector-add! (*local-vars*) label))
+               (emit 'lda (arg->str value))
+               (emit 'sta (arg->str label))]
+            [(not value)
+               (make-local! label (current-scope-name))
+               (when (*local-vars*)
+                     (gvector-add! (*local-vars*) label))]
+            [else
+               (add-error "NOT IMPLEMENTED: bind" value)])))
+    ; Process body.
     (for [(stmt body)]
-         (process-form stmt))))
+         (process-form stmt))
+    ; Pop scope.
+    (sym-label-pop-scope)))
 
 (define (is-optimizable? symbol)
   (or (eq? symbol '<) (eq? symbol 'and)))
@@ -1995,6 +2036,7 @@
 (provide clear-result)
 (provide clear-label-id)
 (provide clear-var-allocation)
+(provide clear-data-segment)
 (provide fetch-result)
 (provide make-variable!)
 (provide make-function!)
@@ -2005,3 +2047,4 @@
 (provide clear-errors)
 (provide set-optimization!)
 (provide generate-func-memory-addresses)
+(provide get-data-segment)

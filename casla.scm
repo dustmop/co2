@@ -28,19 +28,19 @@
 
 (define *func-nodes* (make-hash))
 
-(struct func-node (name params calls [memory #:mutable]))
+(struct func-node (name locals calls [memory #:mutable]))
 
-; Keep track of function name, its parameters, and its callees.
+; Keep track of function name, its locals and parameters, and its callees.
 ; Called by compiler after it finishes processing each function body.
-(define (make-func-node! name params calls)
-  (hash-set! *func-nodes* name (func-node name params calls #f)))
+(define (make-func-node! name locals calls)
+  (hash-set! *func-nodes* name (func-node name locals calls #f)))
 
 ; Recursively resolve each function and its callees. Implicitly builds a total
 ; call graph of the entire program.
 (define (resolve-func-node-memory n)
   (let* ((f (hash-ref *func-nodes* n))
          (name (func-node-name f))
-         (params (func-node-params f))
+         (locals (func-node-locals f))
          (calls (func-node-calls f))
          (memory (func-node-memory f)))
     (if (number? memory)
@@ -51,7 +51,7 @@
                    (set! curr (resolve-func-node-memory c))
                    (when (> curr total)
                      (set! total curr)))
-                 (set! total (+ total (length params)))
+                 (set! total (+ total (length locals)))
                  (set-func-node-memory! f total)
                  total)))))
 
@@ -65,12 +65,12 @@
     (for [(n names)]
          (let* ((f (hash-ref *func-nodes* n))
                 (name (func-node-name f))
-                (params (func-node-params f))
+                (locals (func-node-locals f))
                 (calls (func-node-calls f))
                 (memory (func-node-memory f))
-                (k (- memory (length params))))
-           (for [(p params) (i (in-naturals))]
-                (gvector-add! result (list name p (+ k i))))))
+                (k (- memory (length locals))))
+           (for [(l locals) (i (in-naturals))]
+                (gvector-add! result (list name l (+ k i))))))
     (gvector->list result)))
 
 (provide make-func-node!)
