@@ -4,10 +4,18 @@
 
 (define (compile-code code)
   (clear-result)
+  (clear-var-allocation)
   (make-variable! 'm)
   (make-variable! 'n)
   (make-variable! 'array)
+  (make-pointer! 'ptr)
   (make-address! 'data 0)
+  (process-form (datum->syntax #f code))
+  (fetch-result))
+
+(define (compile-code-no-defs code)
+  (clear-result)
+  (clear-var-allocation)
   (process-form (datum->syntax #f code))
   (fetch-result))
 
@@ -21,19 +29,32 @@
                                                     "  sta n"
                                                     "  sta m"))
 
+(check-equal? (compile-code-no-defs '(do (defpointer ptr) (defpointer qtr)))
+              '(""
+                "ptr = $10"
+                ""
+                "qtr = $12"))
+
 (check-equal? (compile-code '(set-pointer! ptr addr))
               '("  lda #<addr"
                 "  sta ptr"
                 "  lda #>addr"
                 "  sta ptr+1"))
 
+(check-equal? (compile-code '(peek ptr))
+              '("  ldy #0"
+                "  lda (ptr),y"))
+
+(check-equal? (compile-code '(peek ptr 2))
+              '("  ldy #$2"
+                "  lda (ptr),y"))
+
 (check-equal? (compile-code '(load-pointer ptr))
               '("  ldy #0"
                 "  lda (ptr),y"))
 
 (check-equal? (compile-code '(load-pointer ptr 2))
-              '("  lda #$2"
-                "  tay"
+              '("  ldy #$2"
                 "  lda (ptr),y"))
 
 (check-equal? (compile-code '(memset sprites #xff))
@@ -174,7 +195,58 @@
 (check-equal? (compile-code '(peek data y))
               '("  lda data,y"))
 
-(check-equal? (compile-code '(poke! array #x10 1))
-              '("  ldy #$10"
-                "  lda #$1"
+(check-equal? (compile-code '(poke! array #x10 4))
+              '("  lda #$4"
+                "  sta array+16"))
+
+(check-equal? (compile-code '(poke! array x 5))
+              '("  lda #$5"
+                "  sta array,x"))
+
+(check-equal? (compile-code '(poke! array y 6))
+              '("  lda #$6"
                 "  sta array,y"))
+
+(check-equal? (compile-code '(poke! array n 7))
+              '("  lda #$7"
+                "  ldy n"
+                "  sta array,y"))
+
+(check-equal? (compile-code '(poke! array (+ n 1) 8))
+              '("  lda #$8"
+                "  sta __global___gen_0001"
+                "  lda n"
+                "  clc"
+                "  adc #$1"
+                "  tay"
+                "  lda __global___gen_0001"
+                "  sta array,y"))
+
+(check-equal? (compile-code '(poke! ptr 9))
+              '("  lda #$9"
+                "  ldy #0"
+                "  sta (ptr),y"))
+
+(check-equal? (compile-code '(poke! ptr #x10 10))
+              '("  lda #$a"
+                "  ldy #$10"
+                "  sta (ptr),y"))
+
+(check-equal? (compile-code '(poke! ptr y 11))
+              '("  lda #$b"
+                "  sta (ptr),y"))
+
+(check-equal? (compile-code '(poke! ptr n 12))
+              '("  lda #$c"
+                "  ldy n"
+                "  sta (ptr),y"))
+
+(check-equal? (compile-code '(poke! ptr (+ n 1) 13))
+              '("  lda #$d"
+                "  sta __global___gen_0002"
+                "  lda n"
+                "  clc"
+                "  adc #$1"
+                "  tay"
+                "  lda __global___gen_0002"
+                "  sta (ptr),y"))

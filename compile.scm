@@ -101,6 +101,7 @@
 
 (define var-allocation #x10)
 
+; List of symbol definitions, representing a stack. Front of list is global.
 (define sym-label-defs (list (make-hash)))
 
 (define *data-segment* '())
@@ -152,6 +153,13 @@
           (hash-set! table sym (sym-label sym name n 'buffer))
           (set! var-allocation (+ length var-allocation)))
     (hash-ref table sym)))
+
+(define (make-pointer! sym)
+  (let ((name (normalize-name sym))
+        (n var-allocation))
+    (hash-set! (car sym-label-defs) sym (sym-label sym name n 'pointer))
+    (set! var-allocation (+ 2 var-allocation))
+    (hash-ref (car sym-label-defs) sym)))
 
 (define (make-address! sym addr)
   (let ((name (normalize-name sym)))
@@ -225,7 +233,8 @@
   (hash-has-key? function-defs (normalize-name name)))
 
 (define (macro? name)
-  (member name '(cond when set-sprite-y! set-sprite-id! set-sprite-attr!
+  (member name '(cond when load-pointer
+                      set-sprite-y! set-sprite-id! set-sprite-attr!
                       set-sprite-x! get-sprite-y get-sprite-id
                       get-sprite-attr get-sprite-x)))
 
@@ -744,6 +753,9 @@
 (define (m-expand-get-sprite x f)
   (list 'get-sprite (list-ref x 1) f))
 
+(define (m-expand-load-pointer x)
+  (append (list 'peek) (cdr x)))
+
 ;; basically diy-macro from the main tinyscheme stuff
 (define (macro-expand s)
   (cond
@@ -768,6 +780,8 @@
             [(eq? (car i) 'set-sprite-id!) (m-expand-set-sprite! i 1)]
             [(eq? (car i) 'set-sprite-attr!) (m-expand-set-sprite! i 2)]
             [(eq? (car i) 'set-sprite-x!) (m-expand-set-sprite! i 3)]
+            [(eq? (car i) 'set-sprite-x!) (m-expand-set-sprite! i 3)]
+            [(eq? (car i) 'load-pointer) (m-expand-load-pointer i)]
             [else (macro-expand i)])
            (macro-expand i)))
      s)]
@@ -822,6 +836,11 @@
       (and (symbol? obj)
            (let ((lookup (sym-label-lookup obj)))
              (and lookup (eq? (sym-label-kind lookup) 'const))))))
+
+(define (pointer? obj)
+  (and (symbol? obj)
+       (let ((lookup (sym-label-lookup obj)))
+         (and lookup (eq? (sym-label-kind lookup) 'pointer)))))
 
 (define (every-first-in-tree? pred tree)
   (cond
@@ -971,6 +990,14 @@
     (when (not (= value 0))
           (emit 'lda (format "#$~x" value))
           (emit 'sta def))))
+
+(define (process-defpointer name)
+  (let* ((def (normalize-name name))
+         (sym-label (make-pointer! name))
+         (addr (sym-label-address sym-label)))
+    (emit-blank)
+    (emit-context)
+    (emit (format "~a = $~a" def (left-pad (number->string addr 16) #\0 2)))))
 
 (define (process-defaddr name value)
   (let* ((def (normalize-name name))
@@ -1639,30 +1666,77 @@
   (let ((address (syntax->datum context-address))
         (index (if context-index (syntax->datum context-index) #f)))
     (emit-context)
-    (cond
-     [(not index) (emit 'lda (arg->str address))]
-     [(number? index) (emit 'lda (format "~a+~a" (arg->str address) index))]
-     [(eq? index 'x) (emit 'lda (format "~a,x" (arg->str address)))]
-     [(eq? index 'y) (emit 'lda (format "~a,y" (arg->str address)))]
-     [else (when (string=? (process-argument context-index #:skip-context #t
-                                             #:as 'ldy) "a")
-                 (emit 'tay))
-           (emit 'lda (format "~a,y" (arg->str address)))])))
+    (if (pointer? address)
+        (cond
+         [(not index) (emit 'ldy "#0")
+                      (emit 'lda (format "(~a),y" (arg->str address)))]
+         [else (when (string=? (process-argument context-index #:skip-context #t
+                                                 #:as 'ldy) "a")
+                     (emit 'tay))
+               (emit 'lda (format "(~a),y" (arg->str address)))])
+        (cond
+         [(not index) (emit 'lda (arg->str address))]
+         [(number? index) (emit 'lda (format "~a+~a" (arg->str address) index))]
+         [(eq? index 'x) (emit 'lda (format "~a,x" (arg->str address)))]
+         [(eq? index 'y) (emit 'lda (format "~a,y" (arg->str address)))]
+         [else (when (string=? (process-argument context-index #:skip-context #t
+                                                 #:as 'ldy) "a")
+                     (emit 'tay))
+               (emit 'lda (format "~a,y" (arg->str address)))]))))
 
 (define (process-poke! context-address context-arg0 context-arg1)
-  (if context-arg1
-      (let* ((address (syntax->datum context-address))
-             (context-index context-arg0)
-             (context-value context-arg1)
-             (arg #f))
-        (when (string=? (process-argument context-index #:as 'ldy) "a")
-              (emit 'tay))
-        (process-argument context-value #:preserve '(y))
-        (emit 'sta (format "~a,y" (arg->str address))))
-      (let* ((address (syntax->datum context-address))
-             (context-value context-arg0))
-        (process-argument context-value)
-        (emit 'sta (arg->str address)))))
+  (let ((address (syntax->datum context-address))
+        (context-index (if context-arg0 context-arg0 #f))
+        (context-value (if context-arg1 context-arg1 #f))
+        (index #f))
+    (when (not context-value)
+          (set! context-value context-arg0)
+          (set! context-index #f))
+    (when context-index
+          (set! index (syntax->datum context-index)))
+    (if (pointer? address)
+        (begin
+          (process-argument context-value)
+          (cond
+           [(not index) (emit 'ldy "#0")
+                        (emit 'sta (format "(~a),y" (arg->str address)))]
+           [(eq? index 'y) (emit 'sta (format "(~a),y" (arg->str address)))]
+           [(not (list? index))
+              (when (string=? (process-argument context-index
+                                                #:skip-context #t
+                                                #:as 'ldy) "a")
+                    (emit 'tay))
+              (emit 'sta (format "(~a),y" (arg->str address)))]
+           [else (let ((gensym (make-local-gensym! (current-scope-name))))
+                   (emit 'sta gensym)
+                   (when (string=? (process-argument context-index
+                                                     #:skip-context #t
+                                                     #:as 'ldy) "a")
+                         (emit 'tay)
+                         (emit 'lda gensym))
+                   (emit 'sta (format "(~a),y" (arg->str address))))]))
+        (begin
+          (process-argument context-value)
+          (cond
+           [(not index) (emit 'sta (arg->str address))]
+           [(number? index) (emit 'sta (format "~a+~a"
+                                               (arg->str address) index))]
+           [(eq? index 'x) (emit 'sta (format "~a,x" (arg->str address)))]
+           [(eq? index 'y) (emit 'sta (format "~a,y" (arg->str address)))]
+           [(not (list? index))
+              (when (string=? (process-argument context-index
+                                                #:skip-context #t
+                                                #:as 'ldy) "a")
+                    (emit 'tay))
+              (emit 'sta (format "~a,y" (arg->str address)))]
+           [else (let ((gensym (make-local-gensym! (current-scope-name))))
+                   (emit 'sta gensym)
+                   (when (string=? (process-argument context-index
+                                                     #:skip-context #t
+                                                     #:as 'ldy) "a")
+                         (emit 'tay)
+                         (emit 'lda gensym))
+                   (emit 'sta (format "~a,y" (arg->str address))))])))))
 
 (define (process-address-specifier specifier context-address)
   (let ((address (syntax->datum context-address)))
@@ -1778,6 +1852,7 @@
             [(defconst) (apply process-defconst (unwrap-args rest 2 0))]
             [(defaddr) (apply process-defaddr (unwrap-args rest 2 0))]
             [(defvar) (apply process-defvar (unwrap-args rest 1 1))]
+            [(defpointer) (apply process-defpointer (unwrap-args rest 1 0))]
             [(defsub) (process-proc 'sub (car rest) (cdr rest))]
             [(defvector) (process-proc 'vector (car rest) (cdr rest))]
             [(deflabel) (process-deflabel (car rest))]
@@ -1825,7 +1900,6 @@
                                       (lref rest 2))]
             [(scale16) (process-scale16 (lref rest 0) (lref rest 1)
                                         (lref rest 2))]
-            [(load-pointer) (process-load-pointer (lref rest 0) (lref rest 1))]
             [(set-pointer!) (process-set-pointer! (lref rest 0) (lref rest 1))]
             [(or-sprites-attr!)
              (process-sprites-apply-to-field! (lref rest 0) (lref rest 1)
@@ -1895,6 +1969,11 @@
   (let* ((name (syntax->datum context-name)))
     (make-address! name 0)))
 
+(define (analyze-pointer context-name)
+  (assert context-name syntax?)
+  (let* ((name (syntax->datum context-name)))
+    (make-pointer! name)))
+
 (define (analyze-var context-name)
   (assert context-name syntax?)
   (let* ((name (syntax->datum context-name)))
@@ -1922,6 +2001,7 @@
             [(defsub) (analyze-proc (car rest) (cdr rest))]
             [(defvector) (analyze-proc (car rest) (cdr rest))]
             [(defvar) (analyze-var (car rest))]
+            [(defpointer) (analyze-pointer (car rest))]
             [(deflabel) (analyze-label (car rest))]
             [(defconst) (analyze-const (car rest))]
             [(include-binary) (analyze-label (car rest))]
@@ -2075,6 +2155,7 @@
 (provide clear-data-segment)
 (provide fetch-result)
 (provide make-variable!)
+(provide make-pointer!)
 (provide make-function!)
 (provide make-address!)
 (provide make-const!)

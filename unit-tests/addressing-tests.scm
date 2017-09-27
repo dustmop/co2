@@ -38,4 +38,3 @@
 
 (check-equal? (compile-code '(inc (high n)))
               '("  inc n+1"))
-
