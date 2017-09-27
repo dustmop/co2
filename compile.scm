@@ -1320,6 +1320,13 @@
            (add-elem-to-vector elem)))
     (emit (string-append ".byte " (string-join (gvector->list build) ",")))))
 
+(define (process-include context-filename)
+  (when (not *include-base*)
+        (error "ERROR: Include base not assigned"))
+  (let ((filename (syntax->datum context-filename)))
+    (set! filename (string-append *include-base* filename))
+    (process-file filename)))
+
 (define (process-include-binary context-label context-path optional-key
                                 optional-size)
   (let* ((label (syntax->datum context-label))
@@ -1863,6 +1870,7 @@
             [(set!) (process-with-args process-set-bang rest 2)]
             [(block) (process-block (car rest) (cdr rest))]
             [(bytes) (process-bytes rest)]
+            [(include) (process-include (lref rest 0))]
             [(include-binary) (process-include-binary (lref rest 0)
                                                       (lref rest 1)
                                                       (lref rest 2)
@@ -1984,6 +1992,14 @@
   (let* ((name (syntax->datum context-name)))
     (make-const! name 0)))
 
+(define (analyze-include context-filename)
+  (assert context-filename syntax?)
+  (when (not *include-base*)
+        (error "ERROR: Include base not assigned"))
+  (let* ((filename (syntax->datum context-filename)))
+    (set! filename (string-append *include-base* filename))
+    (analyze-file filename)))
+
 (define (analyze-program-begin)
   (set! *user-specified-org* #t))
 
@@ -2004,6 +2020,7 @@
             [(defpointer) (analyze-pointer (car rest))]
             [(deflabel) (analyze-label (car rest))]
             [(defconst) (analyze-const (car rest))]
+            [(include) (analyze-include (car rest))]
             [(include-binary) (analyze-label (car rest))]
             [(program-begin) (analyze-program-begin)]
             [(do) (for [(elem rest)]
@@ -2107,7 +2124,7 @@
                (set! build (cons "0" build))))
       (emit (string-append ".word " (string-join build ","))))))
 
-(define (analyze-func-defs fname)
+(define (analyze-file fname)
   (let ((f (open-input-file fname)))
     (define (loop)
       (let ((top-level-form (read-syntax fname f)))
@@ -2117,23 +2134,32 @@
     (loop)
     (close-input-port f)))
 
-(define (generate-assembly fname)
-  (let ((f (open-input-file fname)))
+(define (process-file filename)
+  (let ((f (open-input-file filename)))
     (port-count-lines! f)
-    (define-built-ins)
-    (generate-prefix)
     (define (loop)
-      (let ((top-level-form (read-syntax fname f)))
+      (let ((top-level-form (read-syntax filename f)))
         (when (not (eof-object? top-level-form))
               (process-form top-level-form)
               (loop))))
     (loop)
-    (generate-suffix)
     (close-input-port f)))
+
+(define (generate-assembly filename)
+  (define-built-ins)
+  (generate-prefix)
+  (process-file filename)
+  (generate-suffix))
+
+(define *include-base* #f)
+
+(define (assign-include-base! filename)
+  (set! *include-base* (path->string (path-only filename))))
 
 (define (compile-co2 fname out-filename)
   (set-optimization! #t)
-  (analyze-func-defs fname)
+  (assign-include-base! (string->path fname))
+  (analyze-file fname)
   (generate-assembly fname)
   (generate-func-memory-addresses (casla->allocations))
   (let ((f (open-output-file out-filename #:exists 'replace)))
@@ -2145,10 +2171,10 @@
         (display-errors)
         (exit 1)))
 
-
 (provide compile-co2)
 (provide process-form)
 (provide analyze-form)
+(provide assign-include-base!)
 (provide clear-result)
 (provide clear-label-id)
 (provide clear-var-allocation)
