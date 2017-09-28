@@ -56,14 +56,19 @@
     (REG-JOYPAD-1             #x4017)))
 
 (define ppu-flags
-  ;; TODO: More
   '((PPU-CTRL-NMI                #x80)
+    (PPU-CTRL-SPRITE-8x16        #x20)
     (PPU-CTRL-1000-BG            #x10)
     (PPU-CTRL-1000-SPR           #x08)
+    (PPU-CTRL-VRAM-DOWN          #x04)
+    (PPU-MASK-TINT-BLUE          #x80)
+    (PPU-MASK-TINT-GREEN         #x40)
+    (PPU-MASK-TINT-RED           #x20)
     (PPU-MASK-SHOW-SPR           #x10)
     (PPU-MASK-SHOW-BG            #x08)
     (PPU-MASK-NOCLIP-SPR         #x04)
-    (PPU-MASK-NOCLIP-BG          #x02)))
+    (PPU-MASK-NOCLIP-BG          #x02)
+    (PPU-MASK-GREYSCALE          #x01)))
 
 (define reserved-zero-page
   '((ppu-ctrl                    #x00)
