@@ -10,6 +10,7 @@
   (make-variable! 'array)
   (make-pointer! 'ptr)
   (make-address! 'data 0)
+  (make-const! 'some-field 4)
   (process-form (datum->syntax #f code))
   (fetch-result))
 
@@ -194,6 +195,13 @@
 
 (check-equal? (compile-code '(peek data y))
               '("  lda data,y"))
+
+(check-equal? (compile-code '(peek data some-field))
+              '("  lda data+some_field"))
+
+(check-equal? (compile-code '(repeat (i 2) (peek data i)))
+              '("  lda data+0"
+                "  lda data+1"))
 
 (check-equal? (compile-code '(poke! array #x10 4))
               '("  lda #$4"

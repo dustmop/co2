@@ -206,6 +206,10 @@
   (let ((lookup (sym-label-lookup sym)))
     (and lookup (eq? (sym-label-kind lookup) 'const))))
 
+(define (metavar? sym)
+  (let ((lookup (sym-label-lookup sym)))
+    (and lookup (eq? (sym-label-kind lookup) 'metavar))))
+
 (define (sym-label-lookup sym)
   (define (_ table parents)
     (if (hash-has-key? table sym)
@@ -361,6 +365,17 @@
    [(eq? arg #t) "#$ff"]
    [(literal-address? arg) (format "$~x" (literal-address-number arg))]
    [else (error (format "ERROR arg->str: ~a" arg))]))
+
+(define (resolve-arg arg)
+  (cond
+   [(symbol? arg) (let ((lookup (sym-label-lookup arg)))
+                    (cond
+                     [(eq? (sym-label-kind lookup) 'const)
+                        (normalize-name arg)]
+                     [(eq? (sym-label-kind lookup) 'metavar)
+                        (sym-label-address lookup)]
+                     [else (error (format "ERROR resolve-arg: ~a" arg))]))]
+   [else (error (format "ERROR resolve-arg: ~a" arg))]))
 
 ;;----------------------------------------------------------------
 
@@ -1691,6 +1706,10 @@
         (cond
          [(not index) (emit 'lda (arg->str address))]
          [(number? index) (emit 'lda (format "~a+~a" (arg->str address) index))]
+         [(const? index) (emit 'lda (format "~a+~a" (arg->str address)
+                                            (resolve-arg index)))]
+         [(metavar? index) (emit 'lda (format "~a+~a" (arg->str address)
+                                              (resolve-arg index)))]
          [(eq? index 'x) (emit 'lda (format "~a,x" (arg->str address)))]
          [(eq? index 'y) (emit 'lda (format "~a,y" (arg->str address)))]
          [else (when (string=? (process-argument context-index #:skip-context #t

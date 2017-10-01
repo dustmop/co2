@@ -7,6 +7,7 @@
   (clear-result)
   (clear-label-id)
   (make-variable! 'b)
+  (make-address! 'data 0)
   (process-form (datum->syntax #f code))
   (fetch-result))
 
