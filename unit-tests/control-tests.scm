@@ -202,9 +202,10 @@
                 "_if_done_0003:"))
 
 (check-equal? (compile-code '(cond
-                              ((eq? n 10) 100)
-                              ((eq? n 20) 2000)
-                              ((eq? n 30) 30000)))
+                              ((eq? n 10) (set! m 1) 15)
+                              ((eq? n 20) (set! m 2) 200)
+                              (else       (set! m 3) 33)))
+
               '("  lda n"
                 "  cmp #$a"
                 "  beq _is_eq_0004"
@@ -216,7 +217,9 @@
                 "  bne _truth_case_0001"
                 "  jmp _false_case_0002"
                 "_truth_case_0001:"
-                "  lda #$64"
+                "  lda #$1"
+                "  sta m"
+                "  lda #$f"
                 "  jmp _if_done_0003"
                 "_false_case_0002:"
                 "  lda n"
@@ -230,24 +233,14 @@
                 "  bne _truth_case_0006"
                 "  jmp _false_case_0007"
                 "_truth_case_0006:"
-                "  lda #$7d0"
+                "  lda #$2"
+                "  sta m"
+                "  lda #$c8"
                 "  jmp _if_done_0008"
                 "_false_case_0007:"
-                "  lda n"
-                "  cmp #$1e"
-                "  beq _is_eq_000e"
-                "  lda #0"
-                "  jmp _done_eq_000f"
-                "_is_eq_000e:"
-                "  lda #$ff"
-                "_done_eq_000f:"
-                "  bne _truth_case_000b"
-                "  jmp _false_case_000c"
-                "_truth_case_000b:"
-                "  lda #$7530"
-                "  jmp _if_done_000d"
-                "_false_case_000c:"
-                "  lda #$0"
-                "_if_done_000d:"
+                "  lda #$3"
+                "  sta m"
+                "  lda #$21"
                 "_if_done_0008:"
-                "_if_done_0003:"))
+                "_if_done_0003:"
+                ))

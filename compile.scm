@@ -244,10 +244,10 @@
   (hash-has-key? function-defs (normalize-name name)))
 
 (define (macro? name)
-  (member name '(cond when load-pointer
-                      set-sprite-y! set-sprite-id! set-sprite-attr!
-                      set-sprite-x! get-sprite-y get-sprite-id
-                      get-sprite-attr get-sprite-x)))
+  (member name '(when load-pointer
+                 set-sprite-y! set-sprite-id! set-sprite-attr!
+                 set-sprite-x! get-sprite-y get-sprite-id
+                 get-sprite-attr get-sprite-x)))
 
 ;;----------------------------------------------------------------
 ; Emit
@@ -742,17 +742,6 @@
 
 ;----------------------------------------------------------------
 
-(define (m-expand-cond-to-if x)
-  (define (_ l)
-    (cond
-      ((null? l) 0)
-      ((eq? (macro-expand (caar l)) 'else) (cons 'do
-                                                 (macro-expand (cdr (car l)))))
-      [else (list 'if (macro-expand (caar l))
-                  (cons 'do (macro-expand (cdr (car l))))
-                  (_ (cdr l)))]))
-  (_ (cdr x)))
-
 (define (m-expand-when-to-if x)
   (list 'if (cadr x) (append (list 'do) (cddr x)) 0))
 
@@ -788,7 +777,6 @@
        (if (and (list? i) (not (null? i)))
            ;; dispatch to macro processors
            (cond
-            [(eq? (car i) 'cond) (m-expand-cond-to-if i)]
             [(eq? (car i) 'when) (m-expand-when-to-if i)]
             [(eq? (car i) 'get-sprite-vflip) (m-expand-get-sprite-vflip i)]
             [(eq? (car i) 'get-sprite-hflip) (m-expand-get-sprite-hflip i)]
@@ -1543,6 +1531,26 @@
     (process-argument context-false #:skip-context #t)
     (emit-label if-done-label)))
 
+(define (process-cond context-cond branches)
+  (let ((accum (datum->syntax context-cond 0)))
+    (for [(context-branch (reverse branches))]
+         (let* ((context-condition (car (syntax-e context-branch)))
+                (true-case (cons (datum->syntax context-branch 'do)
+                                 (cdr (syntax-e context-branch)))))
+           (if (eq? (syntax->datum context-condition) 'else)
+               (begin
+                 (when (not (eq? (syntax->datum accum) 0))
+                       (add-error "`else` can only appear as last branch"
+                                  branches))
+                 (set! accum true-case))
+               (begin
+                 (set! accum (list (datum->syntax context-branch 'if)
+                                   context-condition
+                                   (datum->syntax context-branch true-case)
+                                   accum))))
+           (set! accum (datum->syntax context-branch accum))))
+    (process-form accum)))
+
 (define (process-while context-condition body)
   (let ((start-label (generate-label "while_start"))
         (body-label (generate-label "while_body"))
@@ -1908,6 +1916,7 @@
             [(repeat) (process-repeat (car rest) (cdr rest))]
             [(let) (process-let (car rest) (cdr rest))]
             [(if) (process-with-args process-if rest 3)]
+            [(cond) (process-cond form rest)]
             [(while) (process-while (car rest) (cdr rest))]
             [(do) (for [(elem rest)]
                        (process-form elem))]
