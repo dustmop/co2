@@ -342,10 +342,12 @@
       #f
       (syntax->datum (list-ref list index))))
 
-(define (lref list index)
-  (if (>= index (length list))
+(define (lref elems index)
+  (if (not (list? elems))
       #f
-      (list-ref list index)))
+      (if (>= index (length elems))
+          #f
+          (list-ref elems index))))
 
 (define (arg->str arg)
   (cond
@@ -366,12 +368,15 @@
    [(literal-address? arg) (format "$~x" (literal-address-number arg))]
    [else (error (format "ERROR arg->str: ~a" arg))]))
 
-(define (resolve-arg arg)
+(define (resolve-arg arg #:even-const [even-const #f])
   (cond
+   [(number? arg) arg]
    [(symbol? arg) (let ((lookup (sym-label-lookup arg)))
                     (cond
                      [(eq? (sym-label-kind lookup) 'const)
-                        (normalize-name arg)]
+                        (if even-const
+                            (sym-label-address lookup)
+                            (normalize-name arg))]
                      [(eq? (sym-label-kind lookup) 'metavar)
                         (sym-label-address lookup)]
                      [else (error (format "ERROR resolve-arg: ~a" arg))]))]
@@ -1532,6 +1537,109 @@
     (emit-label if-done-label)))
 
 (define (process-cond context-cond branches)
+  (when (not (maybe-process-cond-jump-table context-cond branches))
+        (process-cond-as-ifs context-cond branches)))
+
+(define (num-like? arg)
+  (or (number? arg) (const? arg) (metavar? arg)))
+
+(define (maybe-process-cond-jump-table context-cond branches)
+  (let ((min #f) (max #f) (source #f) (complete #f))
+    ; Observe each branch, figure out how possible a jump table is.
+    (for [(context-branch branches)]
+         (let* ((context-condition (car (syntax-e context-branch)))
+                (condition (syntax->datum context-condition))
+                (rest (cdr (syntax-e context-branch)))
+                (op (lref condition 0))
+                (lhs (lref condition 1))
+                (rhs (lref condition 2)))
+           (if (not (and (eq? op 'eq?) (symbol? lhs) (num-like? rhs)))
+               (set! complete #t)
+               (begin (set! rhs (resolve-arg rhs #:even-const #t))
+                      (cond
+                       [(not min) (set! source lhs)
+                                  (set! min rhs)
+                                  (set! max rhs)]
+                       [(not (eq? lhs source)) (set! complete #t)]
+                       [(not (eq? (+ max 1) rhs)) (set! complete #t)]
+                       [(eq? (+ max 1) rhs) (set! max rhs)])))))
+    ; Determine if a jump table should be used.
+    (if (and min (>= (- (+ max 1) min) 3))
+        ; Yes, build list of jumps and list of other branch cases.
+        (let ((jumps '()) (cases '()))
+          (for [(context-branch branches)]
+               (let* ((context-condition (car (syntax-e context-branch)))
+                      (condition (syntax->datum context-condition))
+                      (body (cdr (syntax-e context-branch)))
+                      (op (lref condition 0))
+                      (lhs (lref condition 1))
+                      (rhs (lref condition 2))
+                      (val (if (num-like? rhs) (resolve-arg rhs #:even-const #t)
+                               #f)))
+                 (set! body (datum->syntax context-branch
+                                           (cons (datum->syntax context-branch
+                                                                'do) body)))
+                 (if (and (eq? op 'eq?) (eq? lhs source) val
+                          (>= val min) (<= val max))
+                     (set! jumps (cons (list val body) jumps))
+                     (set! cases (cons context-branch cases)))))
+          (set! jumps (sort jumps < #:key car))
+          (set! cases (reverse cases))
+          (process-cond-jump-table context-cond jumps cases min max source)
+          #t)
+        ; No, use the normal version.
+        #f)))
+
+(define (process-cond-jump-table context-cond jumps cases min max source)
+  (let ((lookup-low-label (generate-label "cond_lookup_low"))
+        (lookup-high-label (generate-label "cond_lookup_high"))
+        (not-jump-label (generate-label "cond_not_jump"))
+        (cases-label (generate-label "cond_cases"))
+        (done-label (generate-label "cond_done")))
+    ; Check if index is in range of jump table.
+    (emit-context)
+    (emit 'ldy (arg->str source))
+    (when (not (eq? min 0))
+          (emit 'cpy (arg->str min))
+          (emit 'bcc not-jump-label))
+    (emit 'cpy (arg->str (+ max 1)))
+    (emit 'bcs not-jump-label)
+    ; Load jump address from table, push to the stack.
+    (emit 'lda (format "~a,y" lookup-high-label))
+    (emit 'pha)
+    (emit 'lda (format "~a,y" lookup-low-label))
+    (emit 'pha)
+    (emit 'rts)
+    ; Trampoline to non-jump cases.
+    (emit-label not-jump-label)
+    (emit 'jmp cases-label)
+    ; Jumps to branches reachable by jump table.
+    (let ((data-table (make-gvector)))
+      (for [(jump-branch jumps)]
+           (let ((jump-label (generate-label "cond_jump")))
+             (gvector-add! data-table jump-label)
+             (emit-label jump-label)
+             (process-form (cadr jump-branch))
+             (emit 'jmp done-label)))
+      ; Add jump table.
+      (let ((lookup-low-data (format "~a_data" lookup-low-label))
+            (lookup-high-data (format "~a_data" lookup-high-label)))
+        ; Low bytes.
+        (emit-label lookup-low-data)
+        (for [(dat data-table)]
+             (emit (format ".byte <(~a - 1)" dat)))
+        (emit (format "~a = ~a - ~a" lookup-low-label lookup-low-data min))
+        ; High bytes.
+        (emit-label lookup-high-data)
+        (for [(dat data-table)]
+             (emit (format ".byte >(~a - 1)" dat)))
+        (emit (format "~a = ~a - ~a" lookup-high-label lookup-high-data min))))
+    ; Other cases not handled by jump table.
+    (emit-label cases-label)
+    (process-cond-as-ifs context-cond cases)
+    (emit-label done-label)))
+
+(define (process-cond-as-ifs context-cond branches)
   (let ((accum (datum->syntax context-cond 0)))
     (for [(context-branch (reverse branches))]
          (let* ((context-condition (car (syntax-e context-branch)))
@@ -2022,10 +2130,11 @@
   (let* ((name (syntax->datum context-name)))
     (make-variable! name #:global #t)))
 
-(define (analyze-const context-name)
+(define (analyze-const context-name context-value)
   (assert context-name syntax?)
-  (let* ((name (syntax->datum context-name)))
-    (make-const! name 0)))
+  (let* ((name (syntax->datum context-name))
+         (value (syntax->datum context-value)))
+    (make-const! name value)))
 
 (define (analyze-include context-filename)
   (assert context-filename syntax?)
@@ -2054,7 +2163,7 @@
             [(defvar) (analyze-var (car rest))]
             [(defpointer) (analyze-pointer (car rest))]
             [(deflabel) (analyze-label (car rest))]
-            [(defconst) (analyze-const (car rest))]
+            [(defconst) (analyze-const (car rest) (cadr rest))]
             [(include) (analyze-include (car rest))]
             [(include-binary) (analyze-label (car rest))]
             [(program-begin) (analyze-program-begin)]
