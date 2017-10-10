@@ -116,8 +116,7 @@
  (defvar text-x 0)
  (defvar text-line 0)
  (defvar text-time 0)
- (defvar text-addr 0)
- (defvar text-addr-h 0)
+ (defpointer text-addr)
 
  (defvar setup-eighties 0)
  (defvar password-pos 0)
