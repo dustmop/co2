@@ -51,9 +51,9 @@
   (check-equal? (fetch-result)
                 '(""
                   ""
-                  "_a__s = $16"
-                  "_c__u = $15"
-                  "_b__t = $15")))
+                  "_a__s = $13"
+                  "_c__u = $12"
+                  "_b__t = $12")))
 
 (define (compile-code code)
   (clear-result)

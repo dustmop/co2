@@ -100,8 +100,8 @@
   (check-equal? (fetch-result)
                 '(""
                   ""
-                  "_func___gen_0001 = $1a"
-                  "_func___gen_0003 = $1b")))
+                  "_func___gen_0001 = $11"
+                  "_func___gen_0003 = $12")))
 
 (check-equal? (compile-code '(defsub (func)
                                (loop m 0 8
@@ -139,10 +139,10 @@
   (check-equal? (fetch-result)
                 '(""
                   ""
-                  "_func___gen_0001 = $1e"
-                  "_func__m = $1f"
-                  "_func___gen_0003 = $20"
-                  "_func__n = $21")))
+                  "_func___gen_0001 = $11"
+                  "_func__m = $12"
+                  "_func___gen_0003 = $13"
+                  "_func__n = $14")))
 
 (check-equal? (compile-code '(repeat (i 8)
                                      (set! b i)))

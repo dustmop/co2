@@ -136,7 +136,8 @@
           (set! name label))
     (when (not (hash-has-key? table sym))
           (hash-set! table sym (sym-label sym name n 'var))
-          (set! var-allocation (+ 1 var-allocation)))
+          (when (not label)
+            (set! var-allocation (+ 1 var-allocation))))
     (hash-ref table sym)))
 
 (define (make-local! sym scope)
@@ -996,8 +997,9 @@
           (format "~a|~a" accum (arg->str arg))])))
 
 (define (process-defvar name [value 0])
+  ; Created by analyze-defvar, get the sym-label.
   (let* ((def (normalize-name name))
-         (sym-label (make-variable! name #:global #t))
+         (sym-label (sym-label-lookup name))
          (addr (sym-label-address sym-label)))
     (emit-blank)
     (emit-context)
@@ -1007,24 +1009,27 @@
           (emit 'sta def))))
 
 (define (process-defpointer name)
+  ; Created by analyze-defpointer, get the sym-label.
   (let* ((def (normalize-name name))
-         (sym-label (make-pointer! name))
+         (sym-label (sym-label-lookup name))
          (addr (sym-label-address sym-label)))
     (emit-blank)
     (emit-context)
     (emit (format "~a = $~a" def (left-pad (number->string addr 16) #\0 2)))))
 
 (define (process-defaddr name value)
+  ; Created by analyze-defaddr, get the sym-label.
   (let* ((def (normalize-name name))
-         (sym-label (make-address! name value))
+         (sym-label (sym-label-lookup name))
          (value (sym-label-address sym-label)))
     (emit-blank)
     (emit-context)
     (emit (format "~a = $~a" def (left-pad (number->string value 16) #\0 2)))))
 
 (define (process-defconst name value)
+  ; Created by analyze-defconst, get the sym-label.
   (let* ((def (normalize-name name))
-         (sym-label (make-const! name value))
+         (sym-label (sym-label-lookup name))
          (value (sym-label-address sym-label)))
     (emit-blank)
     (emit-context)
@@ -1039,7 +1044,7 @@
 
 (define (process-defbuffer name length)
   (let* ((def (normalize-name name))
-         (sym-label (make-buffer! name length))
+         (sym-label (sym-label-lookup name))
          (addr (sym-label-address sym-label)))
     (emit-blank)
     (emit-context)
@@ -2115,26 +2120,38 @@
     ; TODO: Add number of parameters to table, to check when called.
     (make-function! name)))
 
-(define (analyze-label context-name)
+(define (analyze-deflabel context-name)
   (assert context-name syntax?)
   (let* ((name (syntax->datum context-name)))
     (make-address! name 0)))
 
-(define (analyze-pointer context-name)
+(define (analyze-defpointer context-name)
   (assert context-name syntax?)
   (let* ((name (syntax->datum context-name)))
     (make-pointer! name)))
 
-(define (analyze-var context-name)
+(define (analyze-defvar context-name)
   (assert context-name syntax?)
   (let* ((name (syntax->datum context-name)))
     (make-variable! name #:global #t)))
 
-(define (analyze-const context-name context-value)
+(define (analyze-defconst context-name context-value)
   (assert context-name syntax?)
   (let* ((name (syntax->datum context-name))
          (value (syntax->datum context-value)))
     (make-const! name value)))
+
+(define (analyze-defaddr context-name context-value)
+  (assert context-name syntax?)
+  (let* ((name (syntax->datum context-name))
+         (value (syntax->datum context-value)))
+    (make-address! name value)))
+
+(define (analyze-defbuffer context-name context-length)
+  (assert context-name syntax?)
+  (let* ((name (syntax->datum context-name))
+         (length (syntax->datum context-length)))
+    (make-buffer! name length)))
 
 (define (analyze-include context-filename)
   (assert context-filename syntax?)
@@ -2160,12 +2177,14 @@
             ; Main expression walker.
             [(defsub) (analyze-proc (car rest) (cdr rest))]
             [(defvector) (analyze-proc (car rest) (cdr rest))]
-            [(defvar) (analyze-var (car rest))]
-            [(defpointer) (analyze-pointer (car rest))]
-            [(deflabel) (analyze-label (car rest))]
-            [(defconst) (analyze-const (car rest) (cadr rest))]
+            [(defvar) (analyze-defvar (car rest))]
+            [(defpointer) (analyze-defpointer (car rest))]
+            [(deflabel) (analyze-deflabel (car rest))]
+            [(defconst) (analyze-defconst (car rest) (cadr rest))]
+            [(defaddr) (analyze-defaddr (car rest) (cadr rest))]
+            [(defbuffer) (analyze-defbuffer (car rest) (cadr rest))]
             [(include) (analyze-include (car rest))]
-            [(include-binary) (analyze-label (car rest))]
+            [(include-binary) (analyze-deflabel (car rest))]
             [(program-begin) (analyze-program-begin)]
             [(do) (for [(elem rest)]
                        (analyze-form elem))])))))

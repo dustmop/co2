@@ -10,6 +10,7 @@
   (make-address! 'out #x8000)
   (make-address! 'data 0)
   (make-const! 'd 10)
+  (analyze-form (datum->syntax #f code))
   (process-form (datum->syntax #f code))
   (fetch-result))
 

@@ -17,6 +17,7 @@
 (define (compile-code-no-defs code)
   (clear-result)
   (clear-var-allocation)
+  (analyze-form (datum->syntax #f code))
   (process-form (datum->syntax #f code))
   (fetch-result))
 
