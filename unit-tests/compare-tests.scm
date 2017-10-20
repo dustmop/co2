@@ -46,13 +46,12 @@
 (check-equal? (compile-code '(>= m n))
               '("  lda m"
                 "  cmp n"
-                "  bcs _is_gt_0002"
-                "_not_gt_0001:"
+                "  bcs _is_gt_0001"
                 "  lda #0"
-                "  jmp _done_gt_0003"
-                "_is_gt_0002:"
+                "  jmp _done_gt_0002"
+                "_is_gt_0001:"
                 "  lda #$ff"
-                "_done_gt_0003:"))
+                "_done_gt_0002:"))
 
 (check-equal? (compile-code '(<s m n))
               '("  lda m"

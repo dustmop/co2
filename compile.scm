@@ -211,6 +211,9 @@
   (let ((lookup (sym-label-lookup sym)))
     (and lookup (eq? (sym-label-kind lookup) 'metavar))))
 
+(define (num-like? arg)
+  (or (number? arg) (const? arg) (metavar? arg)))
+
 (define (sym-label-lookup sym)
   (define (_ table parents)
     (if (hash-has-key? table sym)
@@ -974,13 +977,22 @@
 (define (optimization-enabled? kind)
   (and *opt-enabled* (eq? kind 'if)))
 
-(define (optimization-using-mode? kind)
-  (and *opt-enabled* (vector? (*opt-mode*))
-       (eq? kind (vector-ref (*opt-mode*) 0))))
+(define (is-optimizable? symbol)
+  (member symbol '(< >= eq? not and)))
 
-(define (optimization-successful?)
-  (and *opt-enabled* (vector? (*opt-mode*))
-       (or (vector-ref (*opt-mode*) 1) (vector-ref (*opt-mode*) 2))))
+(define (can-optimize-tree? tree)
+  (every-first-in-tree? is-optimizable? tree))
+
+(struct opt-codegen (oper [truth-case #:mutable] [false-case #:mutable]
+                          [branch-instr #:mutable]))
+
+; TODO: Change this, name is too similar to set-optimization.
+(define (set-optimize! key value)
+  (when (*opt-mode*)
+        (cond
+         [(eq? key 'branch-instr)
+            (set-opt-codegen-branch-instr! (*opt-mode*) value)]
+         [else (error (format "Don't know how to set-optimize! ~a" key))])))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Main processor.
@@ -1006,10 +1018,7 @@
 
 (define (boolean? obj)
   (if (list? obj)
-      (cond
-       [(eq? (car obj) '<) #t]
-       [(eq? (car obj) 'bool) #t]
-       [else #f])
+      (member (car obj) '(< >= eq? bool not))
       #f))
 
 (define (all-boolean-args args)
@@ -1154,8 +1163,6 @@
                  (set! optimizer (opt-codegen 'if
                                               (generate-label "truth_case")
                                               any-false-label
-                                              #f
-                                              'cmp-a
                                               'bne))
                  (parameterize [(*opt-mode* optimizer)]
                    (process-argument context-test)
@@ -1525,62 +1532,56 @@
     ; Pop scope.
     (sym-label-pop-scope)))
 
-(define (is-optimizable? symbol)
-  (or (eq? symbol '<) (eq? symbol 'and)))
-
-(define (can-optimize-tree? tree)
-  (every-first-in-tree? is-optimizable? tree))
-
-(struct opt-codegen (oper [truth-case #:mutable] [false-case #:mutable]
-                          [done-case #:mutable] more-work
-                          [branch-instr #:mutable]))
-
 (define (process-if context-condition context-truth context-false)
   (let ((truth-label (generate-label "truth_case"))
         (false-label (generate-label "false_case"))
         (done-label (generate-label "if_done"))
+        (long-label #f)
         (if-cond (syntax->datum context-condition))
         (branch-instr 'bne)
         (optimizer #f))
     (emit-context)
     ; Enable optimizer, if possible.
     (when (and (optimization-enabled? 'if) (can-optimize-tree? if-cond))
-          (set! optimizer (opt-codegen 'if truth-label false-label done-label
-                                       'cmp-a branch-instr)))
+      (set! long-label (generate-label "long_jump"))
+      (set! optimizer (opt-codegen 'if truth-label long-label branch-instr)))
     (parameterize [(*opt-mode* optimizer)]
       ; Evaluate the conditional.
       (process-argument context-condition #:skip-context #t)
       ;
       (when (*opt-mode*)
          (set! truth-label (opt-codegen-truth-case (*opt-mode*)))
-         (set! false-label (opt-codegen-false-case (*opt-mode*)))
-         (set! done-label  (opt-codegen-done-case (*opt-mode*)))
+         (set! long-label  (opt-codegen-false-case (*opt-mode*)))
          (set! branch-instr (opt-codegen-branch-instr (*opt-mode*))))
-      (when (not (eq? branch-instr 'fall-through-to-true))
-         (emit branch-instr truth-label)
-         (emit 'jmp false-label))
-      ; Truth case.
-      (emit-label truth-label)
-      (process-argument context-truth #:skip-context #t)
-      (emit 'jmp done-label)
-      ; False case.
-      (emit-label false-label)
-      (process-argument context-false #:skip-context #t)
-      (emit-label done-label))))
-
-(define (set-optimize! key value)
-  (when (*opt-mode*)
-        (cond
-         [(eq? key 'branch-instr)
-            (set-opt-codegen-branch-instr! (*opt-mode*) value)]
-         [else (error (format "Don't know how to set-optimize! ~a" key))])))
+      (cond
+       ; TODO: An intelligent assembly could "know" the length of jumps, and
+       ; emit proper control instructions to both be efficient and avoid
+       ; branch overflows.
+       [(and (eq? branch-instr 'fall-through-to-true) long-label)
+          (emit 'jmp truth-label)
+          (emit-label long-label)
+          (emit 'jmp false-label)]
+       [(and (eq? branch-instr 'fall-through-to-false) long-label)
+          (emit 'jmp false-label)
+          (emit-label long-label)
+          (emit 'jmp truth-label)]
+       [(not (eq? branch-instr 'fall-through-to-true))
+          (emit branch-instr truth-label)
+          (when long-label
+            (emit-label long-label))
+          (emit 'jmp false-label)]))
+    ; Truth case.
+    (emit-label truth-label)
+    (process-argument context-truth #:skip-context #t)
+    (emit 'jmp done-label)
+    ; False case.
+    (emit-label false-label)
+    (process-argument context-false #:skip-context #t)
+    (emit-label done-label)))
 
 (define (process-cond context-cond branches)
   (when (not (maybe-process-cond-jump-table context-cond branches))
         (process-cond-as-ifs context-cond branches)))
-
-(define (num-like? arg)
-  (or (number? arg) (const? arg) (metavar? arg)))
 
 (define (maybe-process-cond-jump-table context-cond branches)
   (let ((min #f) (max #f) (source #f) (complete #f))
@@ -1728,17 +1729,19 @@
                   (emit 'adc (arg->str rhs)))]
       [(-) (begin (emit 'sec)
                   (emit 'sbc (arg->str rhs)))]
-      [(eq?) (let ((is-label (generate-label "is_eq"))
-                   (done-label (generate-label "done_eq")))
-               (emit 'cmp (arg->str rhs))
-               (emit 'beq is-label)
-               ; not equal
-               (emit 'lda "#0")
-               (emit 'jmp done-label)
-               ; is equal
-               (emit-label is-label)
-               (emit 'lda "#$ff")
-               (emit-label done-label))]
+      [(eq?) (emit 'cmp (arg->str rhs))
+             (if (*opt-mode*)
+                 (set-optimize! 'branch-instr 'beq)
+                 (let ((is-label (generate-label "is_eq"))
+                       (done-label (generate-label "done_eq")))
+                   (emit 'beq is-label)
+                   ; Not less-than
+                   (emit 'lda "#0")
+                   (emit 'jmp done-label)
+                   ; Is less-than
+                   (emit-label is-label)
+                   (emit 'lda "#$ff")
+                   (emit-label done-label)))]
       [(>) (let ((not-label (generate-label "not_gt"))
                  (is-label (generate-label "is_gt"))
                  (done-label (generate-label "done_gt")))
@@ -1791,19 +1794,19 @@
               (emit-label is-label)
               (emit 'lda "#$ff")
               (emit-label done-label))]
-      [(>=) (let ((not-label (generate-label "not_gt"))
-                 (is-label (generate-label "is_gt"))
-                 (done-label (generate-label "done_gt")))
-             (emit 'cmp (arg->str rhs))
-             (emit 'bcs is-label)
-             ; not gt
-             (emit-label not-label)
-             (emit 'lda "#0")
-             (emit 'jmp done-label)
-             ; is gt
-             (emit-label is-label)
-             (emit 'lda "#$ff")
-             (emit-label done-label))]
+      [(>=) (emit 'cmp (arg->str rhs))
+            (if (*opt-mode*)
+                (set-optimize! 'branch-instr 'bcs)
+                (let ((is-label (generate-label "is_gt"))
+                      (done-label (generate-label "done_gt")))
+                  (emit 'bcs is-label)
+                  ; Not greater-than
+                  (emit 'lda "#0")
+                  (emit 'jmp done-label)
+                  ; Is greater-than
+                  (emit-label is-label)
+                  (emit 'lda "#$ff")
+                  (emit-label done-label)))]
       [(<=) (let ((is-label (generate-label "is_lt"))
                   (done-label (generate-label "done_lt")))
               (emit 'cmp (arg->str rhs))
@@ -1838,10 +1841,20 @@
 (define (process-not operator context-arg)
   (assert operator symbol?)
   (assert context-arg syntax?)
-  (process-argument context-arg)
-  (emit 'cmp "#1")
-  (emit 'lda "#$ff")
-  (emit 'adc "#0"))
+  (if (*opt-mode*)
+      (begin (process-argument context-arg)
+             (let ((branch-instr #f)
+                   (fail-instr #f))
+               (set! branch-instr (opt-codegen-branch-instr (*opt-mode*)))
+               (if (eq? branch-instr 'fall-through-to-true)
+                   (set-optimize! 'branch-instr 'fall-through-to-false)
+                   (begin
+                     (set! fail-instr (invert-condition branch-instr))
+                     (set-optimize! 'branch-instr fail-instr)))))
+      (begin (process-argument context-arg)
+             (emit 'cmp "#1")
+             (emit 'lda "#$ff")
+             (emit 'adc "#0"))))
 
 (define (process-peek context-address context-index)
   (let ((address (syntax->datum context-address))
