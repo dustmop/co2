@@ -120,6 +120,18 @@
 (define (clear-data-segment)
   (set! *data-segment* '()))
 
+(define *resource-bank* (make-gvector))
+
+(define (add-resource filename label)
+  (let ((id #f))
+    (set! id (format "_imported_resource_~x"
+                     (gvector-count *resource-bank*)))
+    (gvector-add! *resource-bank* (list filename label))
+    id))
+
+(define (get-all-resources)
+  (gvector->list *resource-bank*))
+
 (struct sym-label (sym name address kind))
 
 (define (make-variable! sym #:label [label #f] #:global [global #f])
@@ -391,11 +403,22 @@
 (define (process-set-pointer! context-place context-value)
   (emit-context)
   (let ((place (syntax->datum context-place))
-        (value (syntax->datum context-value)))
-   (emit 'lda (format "#<~a" (normalize-name value)))
-   (emit 'sta (normalize-name place))
-   (emit 'lda (format "#>~a" (normalize-name value)))
-   (emit 'sta (format "~a+1" (normalize-name place)))))
+        (value (syntax->datum context-value))
+        (ptr-name #f))
+   (cond
+    [(symbol? value)
+       (emit 'lda (format "#<~a" (normalize-name value)))
+       (emit 'sta (format "~a+0" (normalize-name place)))
+       (emit 'lda (format "#>~a" (normalize-name value)))
+       (emit 'sta (format "~a+1" (normalize-name place)))]
+    [(and (list? value) (eq? (car value) 'resource-address))
+       (set! ptr-name (cadr value))
+       (emit 'lda (format "~a+1" (normalize-name ptr-name)))
+       (emit 'sta (format "~a+0" (normalize-name place)))
+       (emit 'lda (format "~a+2" (normalize-name ptr-name)))
+       (emit 'sta (format "~a+1" (normalize-name place)))]
+    [else
+       (add-error "Could not set-pointer! from" value)])))
 
 (define (process-load-pointer context-pointer context-index)
   (emit-context)
@@ -450,31 +473,42 @@
     (emit 'sta "REG_PPU_ADDR")
     (cond
      [(and (number? address) (< num #x100))
-      (begin (emit 'lda (arg->str address))
-             (emit 'ldy (format "#~a" (- #x100 num)))
-             (emit 'ldx "#1")
-             (emit 'jsr "_ppu_load_by_val"))]
+        (emit 'lda (arg->str address))
+        (emit 'ldy (format "#~a" (- #x100 num)))
+        (emit 'ldx "#1")
+        (emit 'jsr "_ppu_load_by_val")]
      [(number? address)
-      (begin (emit 'lda (arg->str address))
-             (emit 'ldy "#0")
-             (emit 'ldx (format "#>~a" (arg->str num)))
-             (emit 'jsr "_ppu_load_by_val"))]
+        (emit 'lda (arg->str address))
+        (emit 'ldy "#0")
+        (emit 'ldx (format "#>~a" (arg->str num)))
+        (emit 'jsr "_ppu_load_by_val")]
+     [(and (list? address) (eq? (car address) 'resource-address))
+        (emit 'lda (format "~a+1" (arg->str (cadr address))))
+        (emit 'sec)
+        (emit 'sbc (arg->str (- #x100 num)))
+        (emit 'sta "_pointer+0")
+        (emit 'lda (format "~a+2" (arg->str (cadr address))))
+        (emit 'sbc (arg->str 0))
+        (emit 'sta "_pointer+1")
+        (emit 'ldy (format "#~a" (- #x100 num)))
+        (emit 'ldx "#1")
+        (emit 'jsr "_ppu_load_by_pointer")]
      [(< num #x100)
-      (begin (emit 'lda (format "#<(~a+~a)" (arg->str address) num))
-             (emit 'sta "_pointer+0")
-             (emit 'lda (format "#>(~a+~a-$100)" (arg->str address) num))
-             (emit 'sta "_pointer+1")
-             (emit 'ldy (format "#~a" (- #x100 num)))
-             (emit 'ldx "#1")
-             (emit 'jsr "_ppu_load_by_pointer"))]
+        (emit 'lda (format "#<(~a+~a)" (arg->str address) num))
+        (emit 'sta "_pointer+0")
+        (emit 'lda (format "#>(~a+~a-$100)" (arg->str address) num))
+        (emit 'sta "_pointer+1")
+        (emit 'ldy (format "#~a" (- #x100 num)))
+        (emit 'ldx "#1")
+        (emit 'jsr "_ppu_load_by_pointer")]
      [else
-      (begin (emit 'lda (format "#<~a" (arg->str address)))
-             (emit 'sta "_pointer+0")
-             (emit 'lda (format "#>~a" (arg->str address)))
-             (emit 'sta "_pointer+1")
-             (emit 'ldy "#0")
-             (emit 'ldx (format "#>~a" (arg->str num)))
-             (emit 'jsr "_ppu_load_by_pointer"))])))
+        (emit 'lda (format "#<~a" (arg->str address)))
+        (emit 'sta "_pointer+0")
+        (emit 'lda (format "#>~a" (arg->str address)))
+        (emit 'sta "_pointer+1")
+        (emit 'ldy "#0")
+        (emit 'ldx (format "#>~a" (arg->str num)))
+        (emit 'jsr "_ppu_load_by_pointer")])))
 
 (define (process-ppu-memset context-ppu-base context-dest-high
                             context-dest-low context-length context-value)
@@ -710,10 +744,17 @@
     (emit 'asl "a")
     (emit 'rol "_tmp")
     (emit 'clc)
-    (emit 'adc (format "#<~a" (normalize-name base)))
-    (emit 'tay)
-    (emit 'lda "_tmp")
-    (emit 'adc (format "#>~a" (normalize-name base)))))
+    (cond
+     [(symbol? base)
+        (emit 'adc (format "#<~a" (normalize-name base)))
+        (emit 'tay)
+        (emit 'lda "_tmp")
+        (emit 'adc (format "#>~a" (normalize-name base)))]
+     [(and (list? base) (eq? (car base) 'resource-address))
+        (emit 'adc (format "~a+1" (normalize-name (cadr base))))
+        (emit 'tay)
+        (emit 'lda "_tmp")
+        (emit 'adc (format "~a+2" (normalize-name (cadr base))))])))
 
 ;; add two 8 bit numbers to a 16 bit one
 (define (process-add16 context-place context-high context-low)
@@ -845,6 +886,19 @@
 (define (string-last text)
   (substring text (- (string-length text) 1)))
 
+(define (string-startswith subject find)
+  (and (>= (string-length subject) (string-length find))
+       (string=? (substring subject 0 (string-length find)) find)))
+
+(define (string-endswith subject find)
+  (and (>= (string-length subject) (string-length find))
+       (string=? (substring subject (- (string-length subject)
+                                       (string-length find)))
+                 find)))
+
+(define (dollar-hex->number text)
+  (string->number (substring text 1) 16))
+
 (define (register? text)
   (when (symbol? text)
         (set! text (symbol->string text)))
@@ -897,6 +951,8 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Built-in functions
 
+(define *num-prg-banks* #f)
+
 (define (built-in-nes-header num-prg num-chr mapper mirroring)
   (let* ((mbit (cond
                 [(eq? mirroring #f) 0]
@@ -907,6 +963,7 @@
                 [else
                  (begin (add-error "Unknown mirroring" mirroring) 0)]))
          (third-byte (+ (* mapper #x10) mbit)))
+    (set! *num-prg-banks* num-prg)
     (emit-context)
     (emit ".byte \"NES\",$1a")
     (emit (format ".byte $~x" (or num-prg 1)))
@@ -1082,6 +1139,10 @@
     (emit-blank)
     (emit-context)
     (emit (format "~a = $~a" def (left-pad (number->string addr 16) #\0 2)))))
+
+(define (process-defresource context-name resource-filename)
+  (let ((name (syntax->datum context-name)))
+    (add-resource (syntax->datum resource-filename) (normalize-name name))))
 
 (define (process-program-begin context-address)
   (let* ((address (syntax->datum context-address)))
@@ -1394,6 +1455,10 @@
     (if size
         (emit (format ".incbin \"~a\",0,$~x" path size))
         (emit (format ".incbin \"~a\"" path)))))
+
+(define (process-resource-bank context-resource)
+  (let ((res (syntax->datum context-resource)))
+    (emit 'lda (format "~a+0" (normalize-name res)))))
 
 (define (process-loop-down context-reg context-start body)
   (assert context-reg syntax?)
@@ -2055,6 +2120,7 @@
             [(defvector) (process-proc 'vector (car rest) (cdr rest))]
             [(deflabel) (process-deflabel (car rest))]
             [(defbuffer) (apply process-defbuffer (unwrap-args rest 2 0))]
+            [(defresource) (process-defresource (car rest) (cadr rest))]
             [(program-begin) (process-program-begin (lref rest 0))]
             [(program-complete) (process-program-complete)]
             [(push pull) (process-stack symbol (unwrap-args rest 0 3))]
@@ -2066,6 +2132,7 @@
                                                       (lref rest 1)
                                                       (lref rest 2)
                                                       (lref rest 3))]
+            [(resource-bank) (process-resource-bank (lref rest 0))]
             [(loop-down-from) (process-loop-down (car rest) (cadr rest)
                                                  (cddr rest))]
             [(loop-up-to loop) (process-loop-up (car rest) (cadr rest)
@@ -2197,6 +2264,11 @@
          (length (syntax->datum context-length)))
     (make-buffer! name length)))
 
+(define (analyze-defresource context-name context-resource-filename)
+  (assert context-name syntax?)
+  (let* ((name (syntax->datum context-name)))
+    (make-address! name 0)))
+
 (define (analyze-include context-filename)
   (assert context-filename syntax?)
   (when (not *include-base*)
@@ -2227,6 +2299,7 @@
             [(defconst) (analyze-defconst (car rest) (cadr rest))]
             [(defaddr) (analyze-defaddr (car rest) (cadr rest))]
             [(defbuffer) (analyze-defbuffer (car rest) (cadr rest))]
+            [(defresource) (analyze-defresource (car rest) (cadr rest))]
             [(include) (analyze-include (car rest))]
             [(include-binary) (analyze-deflabel (car rest))]
             [(program-begin) (analyze-program-begin)]
@@ -2322,6 +2395,10 @@
                   (emit (format "  .byte ~a" (list->byte-string value)))
                   (emit (format "~a_length = ~a" label (length value)))
                   (emit ""))))
+    ;; Resources.
+    (let ((fout (open-output-file *res-out-file* #:exists 'replace)))
+      (append-resources (get-all-resources) (- *num-prg-banks* 2) fout)
+      (close-output-port fout))
     (emit ".pad $fffa")
     ; Output the vectors, entry points defined by hardware.
     (let ((build '()))
@@ -2358,25 +2435,84 @@
   (process-file filename)
   (generate-suffix))
 
+(define (read-assembly-bytes fin)
+  (let ((line #f)
+        (data #f)
+        (result (make-vector 0)))
+    (define (loop)
+      (set! line (read-line fin))
+      (when (not (eof-object? line))
+            (when (string-startswith line ".byte ")
+                  (set! data (substring line 6))
+                  (set! data (string-split data ","))
+                  (set! data (map dollar-hex->number data))
+                  (set! data (list->vector data))
+                  (set! result (vector-append result data)))
+            (loop)))
+    (loop)
+    result))
+
+(define (read-resource-bytes filename)
+  (let ((f (open-input-file filename)))
+    (if (string-endswith filename ".asm")
+        (read-assembly-bytes f)
+        (list->vector (bytes->list (port->bytes f))))))
+
+(define (flush-resource-file data fout)
+  (let ((padding (make-vector (- #x4000 (vector-length data)) 0)))
+    (write-bytes (list->bytes (vector->list data)) fout)
+    (write-bytes (list->bytes (vector->list padding)) fout)))
+
+(define (append-resources resources number-of-banks fout)
+  (let ((bank-num 0)
+        (avail #x4000)
+        (res-label #f)
+        (res-filename #f)
+        (bytes #f)
+        (bank-data (make-vector 0)))
+    (emit "resource_segment:")
+    (for [(res resources)]
+         (set! res-filename (car res))
+         (set! res-label (cadr res))
+         (set! bytes (read-resource-bytes res-filename))
+         (when (> (vector-length bytes) avail)
+               ; Flush the current bank.
+               (flush-resource-file bank-data fout)
+               (set! bank-num (+ bank-num 1))
+               (set! bank-data (make-vector 0))
+               (set! avail #x4000))
+         (emit (format "~a:" res-label))
+         (emit (format ".byte ~a" bank-num))
+         (emit (format ".word $~x" (+ #x8000 (vector-length bank-data))))
+         (emit "")
+         (set! bank-data (vector-append bank-data bytes))
+         (set! avail (- avail (vector-length bytes))))
+    (flush-resource-file bank-data fout)
+    (set! bank-num (+ bank-num 1))
+    (for [(i (in-range (- number-of-banks bank-num)))]
+         (flush-resource-file (make-vector 0) fout))))
+
 (define *include-base* #f)
+(define *res-out-file* #f)
 
 (define (assign-include-base! filename)
   (set! *include-base* (path->string (path-only filename))))
 
 (define (compile-co2 fname out-filename)
   (set-optimization! #t)
+  (set! *res-out-file* (string-replace out-filename ".asm" ".res"))
   (assign-include-base! (string->path fname))
   (analyze-file fname)
   (generate-assembly fname)
   (generate-func-memory-addresses (casla->allocations))
+  (when (has-errors?)
+        (display-errors)
+        (exit 1))
   (let ((f (open-output-file out-filename #:exists 'replace)))
     (for [(line *result*)]
          (write-string line f)
          (newline f))
-    (close-output-port f))
-  (when (has-errors?)
-        (display-errors)
-        (exit 1)))
+    (close-output-port f)))
 
 (provide compile-co2)
 (provide process-form)

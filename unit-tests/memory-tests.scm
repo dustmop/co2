@@ -39,7 +39,7 @@
 
 (check-equal? (compile-code '(set-pointer! ptr addr))
               '("  lda #<addr"
-                "  sta ptr"
+                "  sta ptr+0"
                 "  lda #>addr"
                 "  sta ptr+1"))
 
