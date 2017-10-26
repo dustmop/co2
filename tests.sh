@@ -14,3 +14,4 @@ racket unit-tests/mutator-tests.scm
 racket unit-tests/opcode-tests.scm
 racket unit-tests/proc-tests.scm
 racket unit-tests/simple-tests.scm
+racket unit-tests/word-tests.scm

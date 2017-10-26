@@ -71,3 +71,17 @@
                 "  cmp #1"
                 "  lda #$ff"
                 "  adc #0"))
+
+(check-equal? (compile-code '(+ 1 2 3)) '("  lda #$1"
+                                          "  clc"
+                                          "  adc #$2"
+                                          "  clc"
+                                          "  adc #$3"))
+
+(check-equal? (compile-code '(+ 1 2 3 4)) '("  lda #$1"
+                                            "  clc"
+                                            "  adc #$2"
+                                            "  clc"
+                                            "  adc #$3"
+                                            "  clc"
+                                            "  adc #$4"))

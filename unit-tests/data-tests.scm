@@ -12,6 +12,8 @@
   (make-const! 'd 10)
   (analyze-form (datum->syntax #f code))
   (process-form (datum->syntax #f code))
+  (when (has-errors?)
+        (printf "--------------------------------\n~a\n" (first-error)))
   (fetch-result))
 
 (define (compile-code-first-error code)
@@ -55,6 +57,12 @@
                 "s = $10"
                 ""
                 "t = $20"))
+
+(check-equal? (compile-code '(do (defword s) (defword t)))
+              '(""
+                "s = $10"
+                ""
+                "t = $12"))
 
 (check-equal? (compile-code '(include-binary graphics "gfx.dat"))
               '(""

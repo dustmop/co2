@@ -68,7 +68,8 @@
     (PPU-MASK-SHOW-BG            #x08)
     (PPU-MASK-NOCLIP-SPR         #x04)
     (PPU-MASK-NOCLIP-BG          #x02)
-    (PPU-MASK-GREYSCALE          #x01)))
+    (PPU-MASK-GREYSCALE          #x01)
+    (PPU-MASK-NO-SHOW-SPR        #xef)))
 
 (define reserved-zero-page
   '((ppu-ctrl                    #x00)
@@ -129,6 +130,9 @@
     (gvector-add! *resource-bank* (list filename label))
     id))
 
+(define (has-resources)
+  (> (gvector-count *resource-bank*) 0))
+
 (define (get-all-resources)
   (gvector->list *resource-bank*))
 
@@ -155,6 +159,13 @@
 (define (make-local! sym scope)
   (let ((label (format "_~a__~a" (normalize-name scope) (normalize-name sym))))
     (make-variable! sym #:label label)))
+
+(define (make-word! sym)
+  (let ((name (normalize-name sym))
+        (n var-allocation))
+    (hash-set! (car sym-label-defs) sym (sym-label sym name n 'word))
+    (set! var-allocation (+ 2 var-allocation))
+    (hash-ref (car sym-label-defs) sym)))
 
 (define (make-local-gensym! scope)
   (set! *gen-id* (+ *gen-id* 1))
@@ -210,6 +221,10 @@
 (define (variable? sym)
   (let ((lookup (sym-label-lookup sym)))
     (and lookup (eq? (sym-label-kind lookup) 'var))))
+
+(define (word? sym)
+  (let ((lookup (sym-label-lookup sym)))
+    (and lookup (eq? (sym-label-kind lookup) 'word))))
 
 (define (address? sym)
   (let ((lookup (sym-label-lookup sym)))
@@ -368,33 +383,76 @@
 (define (arg->str arg)
   (cond
    [(string? arg) arg]
-   [(symbol? arg) (let ((lookup (sym-label-lookup arg)))
-                    (if (not lookup)
-                        (begin (add-error "Variable not found" arg)
-                               (format ";Not found: ~a" arg))
-                        (if (eq? (sym-label-kind lookup) 'const)
-                            (format "#~a" (sym-label-name lookup))
-                            (if (eq? (sym-label-kind lookup) 'metavar)
-                                (format "#~a" (sym-label-address lookup))
-                                (sym-label-name lookup)))))]
-   [(number? arg) (format "#$~x" (->unsigned arg))]
+   [(symbol? arg) (let* ((lookup (sym-label-lookup arg))
+                         (kind (if lookup (sym-label-kind lookup) #f)))
+                    (cond
+                     [(not lookup) (add-error "Variable not found" arg)
+                                   (format ";Not found: ~a" arg)]
+                     [(eq? kind 'const)
+                        (format "#~a" (sym-label-name lookup))]
+                     [(eq? kind 'metavar)
+                        (format "#~a" (sym-label-address lookup))]
+                     [(eq? kind 'var)
+                        (sym-label-name lookup)]
+                     [(eq? kind 'word)
+                        (sym-label-name lookup)]
+                     [(eq? kind 'addr)
+                        (sym-label-name lookup)]
+                     [(eq? kind 'pointer)
+                        (sym-label-name lookup)]
+                     [(eq? kind 'data)
+                        (sym-label-name lookup)]
+                     [else
+                        (add-error (format "Unknown arg type for ~a" arg) kind)
+                        (format ";type ~s" kind)]))]
+   [(number? arg)
+      (if (< arg #x100)
+          (format "#$~x" (->unsigned arg))
+          (begin (add-error "Overflow " arg)
+                 (format ";overflow ~s" arg)))]
    [(char? arg) (format "#$~x" (->unsigned (char->integer arg)))]
    [(eq? arg #f) "#$00"]
    [(eq? arg #t) "#$ff"]
    [(literal-address? arg) (format "$~x" (literal-address-number arg))]
    [else (error (format "ERROR arg->str: ~a" arg))]))
 
+(define (arg16->str arg)
+  (cond
+   [(string? arg) (string-split arg "!")]
+   [(symbol? arg) (let* ((lookup (sym-label-lookup arg))
+                         (kind (if lookup (sym-label-kind lookup) #f)))
+                    (cond
+                     [(not lookup) (add-error "Variable not found" arg)
+                                   (list (format ";Not found: ~a" arg)
+                                         (format ";Not found: ~a" arg))]
+                     [(eq? kind 'var)
+                        (list (sym-label-name lookup) "#0")]
+                     [(eq? kind 'word)
+                        (list (sym-label-name lookup)
+                              (format "~a+1" (sym-label-name lookup)))]
+                     [else
+                        (add-error "Unknown arg type" arg)
+                        (list (format ";type ~s" kind)
+                              (format ";type ~s" kind))]))]
+   [(number? arg)
+      (list (format "#~a" (modulo arg #x100))
+            (format "#~a" (quotient arg #x100)))]
+   [else (error (format "ERROR arg16->str: ~s" arg))]))
+
 (define (resolve-arg arg #:even-const [even-const #f])
   (cond
    [(number? arg) arg]
-   [(symbol? arg) (let ((lookup (sym-label-lookup arg)))
+   [(symbol? arg) (let* ((lookup (sym-label-lookup arg))
+                         (kind (if lookup (sym-label-kind lookup) #f)))
                     (cond
-                     [(eq? (sym-label-kind lookup) 'const)
+                     [(eq? kind 'const)
                         (if even-const
                             (sym-label-address lookup)
                             (normalize-name arg))]
-                     [(eq? (sym-label-kind lookup) 'metavar)
+                     [(eq? kind 'metavar)
                         (sym-label-address lookup)]
+                     [(eq? kind 'addr)
+                        (sym-label-name lookup)]
                      [else (error (format "ERROR resolve-arg: ~a" arg))]))]
    [else (error (format "ERROR resolve-arg: ~a" arg))]))
 
@@ -467,9 +525,9 @@
     (set! *need-ppu-load-functions* #t)
     (emit-context)
     (emit 'bit "REG_PPU_STATUS")
-    (emit 'lda (format "#>~a" (arg->str ppu-addr)))
+    (emit 'lda (format "#$~x" (quotient (resolve-arg ppu-addr) #x100)))
     (emit 'sta "REG_PPU_ADDR")
-    (emit 'lda (format "#<~a" (arg->str ppu-addr)))
+    (emit 'lda (format "#$~x" (modulo (resolve-arg ppu-addr) #x100)))
     (emit 'sta "REG_PPU_ADDR")
     (cond
      [(and (number? address) (< num #x100))
@@ -480,7 +538,8 @@
      [(number? address)
         (emit 'lda (arg->str address))
         (emit 'ldy "#0")
-        (emit 'ldx (format "#>~a" (arg->str num)))
+        ; Only using div, not also mod. This seems like a bug.
+        (emit 'ldx (format "#~a" (quotient (resolve-arg num) #x100)))
         (emit 'jsr "_ppu_load_by_val")]
      [(and (list? address) (eq? (car address) 'resource-address))
         (emit 'lda (format "~a+1" (arg->str (cadr address))))
@@ -507,7 +566,8 @@
         (emit 'lda (format "#>~a" (arg->str address)))
         (emit 'sta "_pointer+1")
         (emit 'ldy "#0")
-        (emit 'ldx (format "#>~a" (arg->str num)))
+        ; Only using div, not also mod. This seems like a bug.
+        (emit 'ldx (format "#~a" (quotient (resolve-arg num) #x100)))
         (emit 'jsr "_ppu_load_by_pointer")])))
 
 (define (process-ppu-memset context-ppu-base context-dest-high
@@ -1090,13 +1150,25 @@
   ; Created by analyze-defvar, get the sym-label.
   (let* ((def (normalize-name name))
          (sym-label (sym-label-lookup name))
-         (addr (sym-label-address sym-label)))
+         (addr #f))
+    (when (not sym-label)
+          (set! sym-label (make-variable! name #:global #t)))
+    (set! addr (sym-label-address sym-label))
     (emit-blank)
     (emit-context)
     (emit (format "~a = $~a" def (left-pad (number->string addr 16) #\0 2)))
     (when (not (= value 0))
           (emit 'lda (format "#$~x" value))
           (emit 'sta def))))
+
+(define (process-defword name)
+  ; Created by analyze-defword, get the sym-label.
+  (let* ((def (normalize-name name))
+         (sym-label (sym-label-lookup name))
+         (addr (sym-label-address sym-label)))
+    (emit-blank)
+    (emit-context)
+    (emit (format "~a = $~a" def (left-pad (number->string addr 16) #\0 2)))))
 
 (define (process-defpointer name)
   ; Created by analyze-defpointer, get the sym-label.
@@ -1197,15 +1269,35 @@
             (vars (gvector->list (*local-vars*))))
         (make-func-node! name (append args vars) calls)))))
 
+(define *bit-size* (make-parameter #f))
+
+(define (curr-bit-size)
+  (if (and (*bit-size*) (eq? (vector-ref (*bit-size*) 0) 16)) 16 8))
+
+(define (process-form-as-16-bit form)
+  (parameterize [(*bit-size* (vector 16))]
+    (process-form form)))
+
 (define (process-set-bang target expr)
   (assert target syntax?)
   (assert expr syntax?)
   (let ((place (syntax->datum target)))
-    (if (immediate? place)
-        (add-error "Cannot assign to" place)
-        (begin
-          (process-argument expr)
-          (emit 'sta (arg->str place))))))
+    (cond
+     [(immediate? place)
+        (add-error "Cannot assign to" place)]
+     [(variable? place)
+        (process-argument expr)
+        (emit 'sta (arg->str place))]
+     [(address? place)
+        (process-argument expr)
+        (emit 'sta (arg->str place))]
+     [(word? place)
+        (parameterize [(*bit-size* (vector 16))]
+          (process-argument expr #:bit-16 #t)
+          (emit 'sta (car (arg16->str place)))
+          (emit 'stx (cadr (arg16->str place))))]
+     [else
+        (error (format "Don't know how to set! ~a to ~a" place expr))])))
 
 (define (process-cond-or-expression instr args)
   (if (or (not (*opt-mode*)) (not (all-boolean-args args)))
@@ -1327,10 +1419,11 @@
 ; defaults to the accumulator. Preserve registers to the stack if needed.
 ; Output context if loading an atomic value, unless context should be skipped.
 (define (process-argument context-arg #:preserve [preserve #f] #:as [as #f]
-                          #:skip-context [skip-context #f])
+                          #:skip-context [skip-context #f] #:bit-16 [bit-16 #f])
   (let ((ret "a")
         (arg (syntax->datum context-arg)))
-    (if (list? arg)
+    (cond
+     [(list? arg)
         ; Evaluate the expression, preserving registers if needed.
         (parameterize [(*co2-source-context* (vector context-arg #t))]
           (when preserve
@@ -1339,19 +1432,40 @@
           (when preserve
                 (set! ret "_tmp")
                 (emit 'sta ret)
-                (process-stack 'pull preserve #:skip-context #t)))
-        ; Load an atomic value.
+                (process-stack 'pull preserve #:skip-context #t)))]
+     [(not bit-16)
+        ; Load an atomic value in 8-bit mode.
         (let ((val (arg->str arg)))
           (when (and (not skip-context) (vector-ref (*co2-source-context*) 1))
                 (emit-context)
                 (vector-set! (*co2-source-context*) 1 #f))
           (cond
-           [(not as) (emit 'lda val)]
-           [(eq? as 'rhs) (set! ret val)]
-           [(eq? as 16) (begin (emit 'ldy (format "#<~a" val))
-                               (emit 'lda (format "#>~a" val)))]
-           [else (begin (emit as val)
-                        (set! ret (string-last (symbol->string as))))])))
+           [(not as)
+              (emit 'lda val)]
+           [(eq? as 'rhs)
+              (set! ret val)]
+           [(eq? as 16)
+              (emit 'ldy (format "#<~a" val))
+              (emit 'lda (format "#>~a" val))]
+           [else
+              (emit as val)
+              (set! ret (string-last (symbol->string as)))]))]
+     [bit-16
+        ;
+        (let* ((pair (arg16->str arg))
+               (low-val  (car pair))
+               (high-val (cadr pair)))
+          (when (and (not skip-context) (vector-ref (*co2-source-context*) 1))
+                (emit-context)
+                (vector-set! (*co2-source-context*) 1 #f))
+          (cond
+           [(not as)
+              (emit 'lda low-val)
+              (emit 'ldx high-val)]
+           [(eq? as 'rhs)
+              (set! ret (format "~a!~a" low-val high-val))]
+           [else
+              (emit (format "; Dunno ~a ~a" low-val high-val))]))])
     (when (and (not skip-context) (vector-ref (*co2-source-context*) 1))
           (emit-context)
           (vector-set! (*co2-source-context*) 1 #f))
@@ -1781,6 +1895,43 @@
     (emit 'jmp start-label)
     (emit-label done-label)))
 
+(define (process-arithmetic operator context-args)
+  (let* ((context-left (car context-args))
+         (bit-16 #f)
+         (arg #f))
+    (set! context-args (cdr context-args))
+    (if (eq? (curr-bit-size) 8)
+        ; 8 bit mode
+        (let ((lhs (process-argument context-left)))
+          (for [(context-arg context-args)]
+               (set! arg (process-argument context-arg #:preserve '(a) #:as 'rhs
+                                           #:skip-context #t))
+               (cond
+                [(+) (emit 'clc)
+                     (emit 'adc (arg->str arg))]
+                [(-) (emit 'sec)
+                     (emit 'sbc (arg->str arg))])))
+        ; 16 bit mode
+        (let ((lhs (process-argument context-left #:bit-16 #t)))
+          (for [(context-arg context-args)]
+               (set! arg (process-argument context-arg #:preserve '(a) #:as 'rhs
+                                           #:skip-context #t #:bit-16 #t))
+               (cond
+                [(+) (emit 'clc)
+                     (emit 'adc (car (arg16->str arg)))
+                     (emit 'sta "_low_byte")
+                     (emit 'txa)
+                     (emit 'adc (cadr (arg16->str arg)))
+                     (emit 'tax)
+                     (emit 'lda "_low_byte")]
+                [(-) (emit 'sec)
+                     (emit 'sbc (car (arg16->str arg)))
+                     (emit 'sta "_low_byte")
+                     (emit 'txa)
+                     (emit 'sbc (cadr (arg16->str arg)))
+                     (emit 'tax)
+                     (emit 'lda "_low_byte")]))))))
+
 (define (process-math operator context-left context-right)
   (assert operator symbol?)
   (assert context-left syntax?)
@@ -1790,10 +1941,6 @@
                                 #:skip-context #t))
          (right (syntax->datum context-right)))
     (case operator
-      [(+) (begin (emit 'clc)
-                  (emit 'adc (arg->str rhs)))]
-      [(-) (begin (emit 'sec)
-                  (emit 'sbc (arg->str rhs)))]
       [(eq?) (emit 'cmp (arg->str rhs))
              (if (*opt-mode*)
                  (set-optimize! 'branch-instr 'beq)
@@ -2115,6 +2262,7 @@
             [(defconst) (apply process-defconst (unwrap-args rest 2 0))]
             [(defaddr) (apply process-defaddr (unwrap-args rest 2 0))]
             [(defvar) (apply process-defvar (unwrap-args rest 1 1))]
+            [(defword) (apply process-defword (unwrap-args rest 1 1))]
             [(defpointer) (apply process-defpointer (unwrap-args rest 1 0))]
             [(defsub) (process-proc 'sub (car rest) (cdr rest))]
             [(defvector) (process-proc 'vector (car rest) (cdr rest))]
@@ -2204,7 +2352,9 @@
             [(tax tay tsx txa txs tya)
              (process-instruction-implied symbol)]
             [(asm jsr) (process-raw symbol rest)]
-            [(+ - eq? > < >> << <s >= <= >s <=s)
+            [(+ -)
+             (process-arithmetic symbol rest)]
+            [(eq? > < >> << <s >= <= >s <=s)
              (process-math symbol (lref rest 0) (lref rest 1))]
             [(*)
              (process-mul (lref rest 0) (lref rest 1))]
@@ -2245,6 +2395,11 @@
   (assert context-name syntax?)
   (let* ((name (syntax->datum context-name)))
     (make-variable! name #:global #t)))
+
+(define (analyze-defword context-name)
+  (assert context-name syntax?)
+  (let* ((name (syntax->datum context-name)))
+    (make-word! name)))
 
 (define (analyze-defconst context-name context-value)
   (assert context-name syntax?)
@@ -2295,6 +2450,7 @@
             [(defvector) (analyze-proc (car rest) (cdr rest))]
             [(defvar) (analyze-defvar (car rest))]
             [(defpointer) (analyze-defpointer (car rest))]
+            [(defword) (analyze-defword (car rest))]
             [(deflabel) (analyze-deflabel (car rest))]
             [(defconst) (analyze-defconst (car rest) (cadr rest))]
             [(defaddr) (analyze-defaddr (car rest) (cadr rest))]
@@ -2396,9 +2552,10 @@
                   (emit (format "~a_length = ~a" label (length value)))
                   (emit ""))))
     ;; Resources.
-    (let ((fout (open-output-file *res-out-file* #:exists 'replace)))
-      (append-resources (get-all-resources) (- *num-prg-banks* 2) fout)
-      (close-output-port fout))
+    (when (and (has-resources) *num-prg-banks*)
+      (let ((fout (open-output-file *res-out-file* #:exists 'replace)))
+        (append-resources (get-all-resources) (- *num-prg-banks* 2) fout)
+       (close-output-port fout)))
     (emit ".pad $fffa")
     ; Output the vectors, entry points defined by hardware.
     (let ((build '()))
@@ -2516,6 +2673,7 @@
 
 (provide compile-co2)
 (provide process-form)
+(provide process-form-as-16-bit)
 (provide analyze-form)
 (provide assign-include-base!)
 (provide clear-result)
@@ -2525,6 +2683,7 @@
 (provide fetch-result)
 (provide make-variable!)
 (provide make-pointer!)
+(provide make-word!)
 (provide make-function!)
 (provide make-address!)
 (provide make-const!)
