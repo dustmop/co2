@@ -1906,7 +1906,7 @@
           (for [(context-arg context-args)]
                (set! arg (process-argument context-arg #:preserve '(a) #:as 'rhs
                                            #:skip-context #t))
-               (cond
+               (case operator
                 [(+) (emit 'clc)
                      (emit 'adc (arg->str arg))]
                 [(-) (emit 'sec)
@@ -1916,7 +1916,7 @@
           (for [(context-arg context-args)]
                (set! arg (process-argument context-arg #:preserve '(a) #:as 'rhs
                                            #:skip-context #t #:bit-16 #t))
-               (cond
+               (case operator
                 [(+) (emit 'clc)
                      (emit 'adc (car (arg16->str arg)))
                      (emit 'sta "_low_byte")

@@ -12,6 +12,10 @@
                                         "  clc"
                                         "  adc #$2"))
 
+(check-equal? (compile-code '(- 1 2)) '("  lda #$1"
+                                        "  sec"
+                                        "  sbc #$2"))
+
 (check-equal? (compile-code '(<< 1 2)) '("  lda #$1"
                                          "  asl a"
                                          "  asl a"))

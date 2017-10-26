@@ -54,3 +54,14 @@
                 "  adc n+1"
                 "  tax"
                 "  lda _low_byte"))
+
+(check-equal? (compile-code-as-16-bit '(- m n))
+              '("  lda m"
+                "  ldx m+1"
+                "  sec"
+                "  sbc n"
+                "  sta _low_byte"
+                "  txa"
+                "  sbc n+1"
+                "  tax"
+                "  lda _low_byte"))
