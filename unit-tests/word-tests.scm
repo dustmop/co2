@@ -65,3 +65,55 @@
                 "  sbc n+1"
                 "  tax"
                 "  lda _low_byte"))
+
+(check-equal? (compile-code-as-16-bit '(<< m 3))
+              '("  lda m"
+                "  ldx m+1"
+                "  stx _high_byte"
+                "  asl a"
+                "  rol _high_byte"
+                "  asl a"
+                "  rol _high_byte"
+                "  asl a"
+                "  rol _high_byte"
+                "  ldx _high_byte"))
+
+(check-equal? (compile-code-as-16-bit '(>> m 3))
+              '("  lda m"
+                "  ldx m+1"
+                "  stx _high_byte"
+                "  lsr _high_byte"
+                "  ror a"
+                "  lsr _high_byte"
+                "  ror a"
+                "  lsr _high_byte"
+                "  ror a"
+                "  ldx _high_byte"))
+
+(check-equal? (compile-code-as-16-bit '(* m 16))
+              '("  lda m"
+                "  ldx m+1"
+                "  stx _high_byte"
+                "  asl a"
+                "  rol _high_byte"
+                "  asl a"
+                "  rol _high_byte"
+                "  asl a"
+                "  rol _high_byte"
+                "  asl a"
+                "  rol _high_byte"
+                "  ldx _high_byte"))
+
+(check-equal? (compile-code-as-16-bit '(/ m 16))
+              '("  lda m"
+                "  ldx m+1"
+                "  stx _high_byte"
+                "  lsr _high_byte"
+                "  ror a"
+                "  lsr _high_byte"
+                "  ror a"
+                "  lsr _high_byte"
+                "  ror a"
+                "  lsr _high_byte"
+                "  ror a"
+                "  ldx _high_byte"))

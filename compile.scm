@@ -730,14 +730,28 @@
   (emit 'adc "_count"))
 
 (define (process-mul-left-shift context-left num-right)
-  (process-argument context-left)
-  (for [(n num-right)]
-       (emit 'asl "a")))
+  (if (eq? (curr-bit-size) 8)
+      (begin (process-argument context-left)
+             (for [(n num-right)]
+                  (emit 'asl "a")))
+      (begin (process-argument context-left #:bit-16 #t)
+             (emit 'stx "_high_byte")
+             (for [(i (in-range num-right))]
+                  (emit 'asl "a")
+                  (emit 'rol "_high_byte"))
+             (emit 'ldx "_high_byte"))))
 
 (define (process-div-right-shift context-left num-right)
-  (process-argument context-left)
-  (for [(n num-right)]
-       (emit 'lsr "a")))
+  (if (eq? (curr-bit-size) 8)
+      (begin (process-argument context-left)
+             (for [(n num-right)]
+                  (emit 'lsr "a")))
+      (begin (process-argument context-left #:bit-16 #t)
+             (emit 'stx "_high_byte")
+             (for [(i (in-range num-right))]
+                  (emit 'lsr "_high_byte")
+                  (emit 'ror "a"))
+             (emit 'ldx "_high_byte"))))
 
 (define (process-mod-bitmask context-left num-right)
   (process-argument context-left)
@@ -1910,7 +1924,15 @@
                 [(+) (emit 'clc)
                      (emit 'adc (arg->str arg))]
                 [(-) (emit 'sec)
-                     (emit 'sbc (arg->str arg))])))
+                     (emit 'sbc (arg->str arg))]
+                [(>>) (let ((right (syntax->datum (car context-args))))
+                        (assert right number?)
+                        (for [(i (in-range right))]
+                             (emit 'lsr "a")))]
+                [(<<) (let ((right (syntax->datum (car context-args))))
+                        (assert right number?)
+                        (for [(i (in-range right))]
+                             (emit 'asl "a")))])))
         ; 16 bit mode
         (let ((lhs (process-argument context-left #:bit-16 #t)))
           (for [(context-arg context-args)]
@@ -1930,7 +1952,21 @@
                      (emit 'txa)
                      (emit 'sbc (cadr (arg16->str arg)))
                      (emit 'tax)
-                     (emit 'lda "_low_byte")]))))))
+                     (emit 'lda "_low_byte")]
+                [(>>) (let ((right (syntax->datum (car context-args))))
+                        (assert right number?)
+                        (emit 'stx "_high_byte")
+                        (for [(i (in-range right))]
+                             (emit 'lsr "_high_byte")
+                             (emit 'ror "a"))
+                        (emit 'ldx "_high_byte"))]
+                [(<<) (let ((right (syntax->datum (car context-args))))
+                        (assert right number?)
+                        (emit 'stx "_high_byte")
+                        (for [(i (in-range right))]
+                             (emit 'asl "a")
+                             (emit 'rol "_high_byte"))
+                        (emit 'ldx "_high_byte"))]))))))
 
 (define (process-math operator context-left context-right)
   (assert operator symbol?)
@@ -2042,13 +2078,7 @@
                ; is lt
                (emit-label is-label)
                (emit 'lda "#$ff")
-               (emit-label done-label))]
-      [(>>) (begin (assert right number?)
-                   (for [(i (in-range right))]
-                        (emit 'lsr "a")))]
-      [(<<) (begin (assert right number?)
-                   (for [(i (in-range right))]
-                        (emit 'asl "a")))])))
+               (emit-label done-label))])))
 
 (define (process-not operator context-arg)
   (assert operator symbol?)
@@ -2352,9 +2382,9 @@
             [(tax tay tsx txa txs tya)
              (process-instruction-implied symbol)]
             [(asm jsr) (process-raw symbol rest)]
-            [(+ -)
+            [(+ - << >>)
              (process-arithmetic symbol rest)]
-            [(eq? > < >> << <s >= <= >s <=s)
+            [(eq? > < <s >= <= >s <=s)
              (process-math symbol (lref rest 0) (lref rest 1))]
             [(*)
              (process-mul (lref rest 0) (lref rest 1))]
