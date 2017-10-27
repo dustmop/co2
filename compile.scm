@@ -418,7 +418,11 @@
 
 (define (arg16->str arg)
   (cond
-   [(string? arg) (string-split arg "!")]
+   [(string? arg)
+      (let ((parts (string-split arg "!")))
+        (when (< (length parts) 2)
+              (set! parts (list (car parts) "#0")))
+        parts)]
    [(symbol? arg) (let* ((lookup (sym-label-lookup arg))
                          (kind (if lookup (sym-label-kind lookup) #f)))
                     (cond

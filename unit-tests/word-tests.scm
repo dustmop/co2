@@ -7,7 +7,8 @@
   (make-word! 'm)
   (make-word! 'n)
   (make-word! 'p)
-  (make-variable! 's)
+  (make-variable! 'h)
+  (make-variable! 'v)
   (process-form (datum->syntax #f code))
   (fetch-result))
 
@@ -38,8 +39,8 @@
                 "  sta p"
                 "  stx p+1"))
 
-(check-equal? (compile-code '(set! n s))
-              '("  lda s"
+(check-equal? (compile-code '(set! n v))
+              '("  lda v"
                 "  ldx #0"
                 "  sta n"
                 "  stx n+1"))
@@ -117,3 +118,58 @@
                 "  lsr _high_byte"
                 "  ror a"
                 "  ldx _high_byte"))
+
+(check-equal? (compile-code '(set! p (+ (* v #x20) h)))
+              '("  lda v"
+                "  ldx #0"
+                "  stx _high_byte"
+                "  asl a"
+                "  rol _high_byte"
+                "  asl a"
+                "  rol _high_byte"
+                "  asl a"
+                "  rol _high_byte"
+                "  asl a"
+                "  rol _high_byte"
+                "  asl a"
+                "  rol _high_byte"
+                "  ldx _high_byte"
+                "  clc"
+                "  adc h"
+                "  sta _low_byte"
+                "  txa"
+                "  adc #0"
+                "  tax"
+                "  lda _low_byte"
+                "  sta p"
+                "  stx p+1"))
+
+(check-equal? (compile-code '(set! p (+ h (* v #x20))))
+              '("  lda h"
+                "  ldx #0"
+                "  pha"
+                "  lda v"
+                "  ldx #0"
+                "  stx _high_byte"
+                "  asl a"
+                "  rol _high_byte"
+                "  asl a"
+                "  rol _high_byte"
+                "  asl a"
+                "  rol _high_byte"
+                "  asl a"
+                "  rol _high_byte"
+                "  asl a"
+                "  rol _high_byte"
+                "  ldx _high_byte"
+                "  sta _tmp"
+                "  pla"
+                "  clc"
+                "  adc _tmp"
+                "  sta _low_byte"
+                "  txa"
+                "  adc #0"
+                "  tax"
+                "  lda _low_byte"
+                "  sta p"
+                "  stx p+1"))
