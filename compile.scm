@@ -130,6 +130,9 @@
     (gvector-add! *resource-bank* (list filename label))
     id))
 
+(define (count-resources)
+  (gvector-count *resource-bank*))
+
 (define (has-resources)
   (> (gvector-count *resource-bank*) 0))
 
@@ -1232,6 +1235,8 @@
 
 (define (process-defresource context-name resource-filename)
   (let ((name (syntax->datum context-name)))
+    (make-const! (string->symbol (format "res-~a" name)) (count-resources))
+    (emit (format "res_~a = $~x" (normalize-name name) (count-resources)))
     (add-resource (syntax->datum resource-filename) (normalize-name name))))
 
 (define (process-program-begin context-address)
