@@ -1609,7 +1609,7 @@
 (require "assemble.scm")
 
 (define (process-resource-bank-complete)
-  (let ((out-filename #f) (rom-filename #f) (lst-filename #f)
+  (let ((out-filename #f) (rom-filename #f) (lst-filename #f) (dat-filename #f)
         (lines #f) (inner #f) (address #f) (label #f))
     ; TODO: Refactor
     (when (has-errors?)
@@ -1618,6 +1618,7 @@
     (set! out-filename (format "~a~a.asm" *res-out-file* *result-target-bank*))
     (set! rom-filename (format "~a~a.nes" *res-out-file* *result-target-bank*))
     (set! lst-filename (format "~a~a.lst" *res-out-file* *result-target-bank*))
+    (set! dat-filename (format "~a~a"     *res-out-file* *result-target-bank*))
     ; Output inner results to a file.
     (let ((f (open-output-file out-filename #:exists 'replace)))
       (write-string ".org $8000" f)
@@ -1627,6 +1628,16 @@
       (close-output-port f))
     ; Assemble file.
     (assemble out-filename rom-filename)
+    ; Pad out the bank.
+    (let ((fin  (open-input-file rom-filename))
+          (fout (open-output-file dat-filename #:exists 'replace))
+          (data #f))
+      (set! data (read-bytes #x4000 fin))
+      (write-bytes data fout)
+      (set! data (make-bytes (- #x4000 (bytes-length data)) 0))
+      (write-bytes data fout)
+      (close-input-port fin)
+      (close-output-port fout))
     ; Process listing file.
     (set! inner (make-gvector))
     (set! lines (file->lines lst-filename))
