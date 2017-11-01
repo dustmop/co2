@@ -288,6 +288,10 @@
 
 (define *result* (make-gvector))
 
+(define *result-stack* (make-gvector))
+
+(define *result-target-bank* #f)
+
 (define (clear-result)
   (set! *result* (make-gvector)))
 
@@ -1597,6 +1601,53 @@
   (let ((res (syntax->datum context-resource)))
     (emit 'lda (format "~a+0" (normalize-name res)))))
 
+(define (process-resource-bank-begin context-target-bank)
+  (gvector-add! *result-stack* *result*)
+  (set! *result* (make-gvector))
+  (set! *result-target-bank* (syntax->datum context-target-bank)))
+
+(require "assemble.scm")
+
+(define (process-resource-bank-complete)
+  (let ((out-filename #f) (rom-filename #f) (lst-filename #f)
+        (lines #f) (inner #f) (address #f) (label #f))
+    ; TODO: Refactor
+    (when (has-errors?)
+          (display-errors)
+          (exit 1))
+    (set! out-filename (format "~a~a.asm" *res-out-file* *result-target-bank*))
+    (set! rom-filename (format "~a~a.nes" *res-out-file* *result-target-bank*))
+    (set! lst-filename (format "~a~a.lst" *res-out-file* *result-target-bank*))
+    ; Output inner results to a file.
+    (let ((f (open-output-file out-filename #:exists 'replace)))
+      (write-string ".org $8000" f)
+      (for [(line *result*)]
+           (write-string line f)
+           (newline f))
+      (close-output-port f))
+    ; Assemble file.
+    (assemble out-filename rom-filename)
+    ; Process listing file.
+    (set! inner (make-gvector))
+    (set! lines (file->lines lst-filename))
+    (for ([line lines])
+         (set! address #f)
+         (set! label #f)
+         (when (has-label? line)
+               (set! address (substring line 1 5))
+               (set! label (get-label line))
+               (gvector-add! inner (format "~a = $~a" label address))))
+    (set! *result* (gvector-remove-last! *result-stack*))
+    (set! *result* (list->gvector (append (gvector->list *result*)
+                                          (gvector->list inner))))))
+
+(define (has-label? line)
+  (and (> (string-length line) 32)
+       (regexp-match #px"^[\\w]+:" (substring line 32))))
+
+(define (get-label line)
+  (cadr (regexp-match #px"^([\\w]+):" (substring line 32))))
+
 (define (process-loop-down context-reg context-start body)
   (assert context-reg syntax?)
   (assert context-start syntax?)
@@ -2320,6 +2371,8 @@
                                                       (lref rest 2)
                                                       (lref rest 3))]
             [(resource-bank) (process-resource-bank (lref rest 0))]
+            [(resource-bank-begin) (process-resource-bank-begin (lref rest 0))]
+            [(resource-bank-complete) (process-resource-bank-complete)]
             [(loop-down-from) (process-loop-down (car rest) (cadr rest)
                                                  (cddr rest))]
             [(loop-up-to loop) (process-loop-up (car rest) (cadr rest)
