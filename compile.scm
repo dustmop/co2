@@ -995,6 +995,9 @@
            (let ((lookup (sym-label-lookup obj)))
              (and lookup (eq? (sym-label-kind lookup) 'const))))))
 
+(define (undefined? obj)
+  (and (symbol? obj) (not (sym-label-lookup obj))))
+
 (define (pointer? obj)
   (and (symbol? obj)
        (let ((lookup (sym-label-lookup obj)))
@@ -1310,6 +1313,8 @@
   (assert expr syntax?)
   (let ((place (syntax->datum target)))
     (cond
+     [(undefined? place)
+        (add-error "Undefined var" place)]
      [(immediate? place)
         (add-error "Cannot assign to" place)]
      [(variable? place)
