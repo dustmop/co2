@@ -200,9 +200,20 @@
 (check-equal? (compile-code '(peek data some-field))
               '("  lda data+some_field"))
 
+(check-equal? (compile-code '(peek data (+ some-field 2)))
+              '("  lda data+some_field+2"))
+
+(check-equal? (compile-code '(peek data (+ some-field n)))
+              '("  ldy n"
+                "  lda data+some_field,y"))
+
 (check-equal? (compile-code '(repeat (i 2) (peek data i)))
               '("  lda data+0"
                 "  lda data+1"))
+
+(check-equal? (compile-code '(repeat (i 2) (peek data (+ some-field i))))
+              '("  lda data+some_field+0"
+                "  lda data+some_field+1"))
 
 (check-equal? (compile-code '(poke! array #x10 4))
               '("  lda #$4"
@@ -223,13 +234,27 @@
 
 (check-equal? (compile-code '(poke! array (+ n 1) 8))
               '("  lda #$8"
+                "  ldy n"
+                "  sta array+1,y"))
+
+(check-equal? (compile-code '(poke! array (+ n m) 8))
+              '("  lda #$8"
                 "  sta __global___gen_0001"
                 "  lda n"
                 "  clc"
-                "  adc #$1"
+                "  adc m"
                 "  tay"
                 "  lda __global___gen_0001"
                 "  sta array,y"))
+
+(check-equal? (compile-code '(poke! array (+ n some-field) 8))
+              '("  lda #$8"
+                "  ldy n"
+                "  sta array+some_field,y"))
+
+(check-equal? (compile-code '(poke! array (+ 1 some-field) 8))
+              '("  lda #$8"
+                "  sta array+1+some_field"))
 
 (check-equal? (compile-code '(poke! ptr 9))
               '("  lda #$9"

@@ -2174,6 +2174,30 @@
              (emit 'lda "#$ff")
              (emit 'adc "#0"))))
 
+(define (mem-optimize-index index)
+  (if (and (list? index) (eq? (length index) 3) (eq? (car index) '+))
+      (let ((first (cadr index))
+            (second (caddr index))
+            (resolved #f)
+            (var #f)
+            (pass 0))
+        (if (or (number? first) (const? first) (metavar? first))
+            (begin (set! pass (+ pass 1))
+                   (set! first (resolve-arg first))
+                   (set! resolved first))
+            (set! var first))
+        (if (or (number? second) (const? second) (metavar? second))
+            (begin (set! pass (+ pass 1))
+                   (set! second (resolve-arg second))
+                   (if resolved
+                       (set! resolved (format "~a+~a" resolved second))
+                       (set! resolved second)))
+            (set! var second))
+        (if (>= pass 1)
+            (list resolved var)
+            #f))
+      #f))
+
 (define (process-peek context-address context-index)
   (let ((address (syntax->datum context-address))
         (index (if context-index (syntax->datum context-index) #f)))
@@ -2195,6 +2219,16 @@
                                               (resolve-arg index)))]
          [(eq? index 'x) (emit 'lda (format "~a,x" (arg->str address)))]
          [(eq? index 'y) (emit 'lda (format "~a,y" (arg->str address)))]
+         [(mem-optimize-index index)
+            (let* ((result (mem-optimize-index index))
+                   (resolved (car result))
+                   (var      (cadr result)))
+              (if var
+                  (begin (emit 'ldy (arg->str var))
+                         (emit 'lda (format "~a+~a,y" (arg->str address)
+                                            resolved)))
+                  (begin (emit 'lda (format "~a+~a" (arg->str address)
+                                            resolved)))))]
          [else (when (string=? (process-argument context-index #:skip-context #t
                                                  #:as 'ldy) "a")
                      (emit 'tay))
@@ -2239,6 +2273,16 @@
                                                (arg->str address) index))]
            [(eq? index 'x) (emit 'sta (format "~a,x" (arg->str address)))]
            [(eq? index 'y) (emit 'sta (format "~a,y" (arg->str address)))]
+           [(mem-optimize-index index)
+              (let* ((result (mem-optimize-index index))
+                     (resolved (car result))
+                     (var      (cadr result)))
+                (if var
+                    (begin (emit 'ldy (arg->str var))
+                           (emit 'sta (format "~a+~a,y" (arg->str address)
+                                              resolved)))
+                    (begin (emit 'sta (format "~a+~a" (arg->str address)
+                                              resolved)))))]
            [(not (list? index))
               (when (string=? (process-argument context-index
                                                 #:skip-context #t
