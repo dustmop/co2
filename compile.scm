@@ -486,6 +486,14 @@
        (emit 'sta (format "~a+0" (normalize-name place)))
        (emit 'lda (format "~a+2" (normalize-name ptr-name)))
        (emit 'sta (format "~a+1" (normalize-name place)))]
+    [(and (list? value) (eq? (car value) 'addr))
+       (set! ptr-name (cadr value))
+       (emit 'lda (format "#$~x" (modulo (resolve-arg ptr-name) #x100)))
+       (emit 'sta (format "~a+0" (normalize-name place)))
+       (emit 'lda (format "#$~x" (quotient (resolve-arg ptr-name) #x100)))
+       (emit 'sta (format "~a+1" (normalize-name place)))]
+    [(number? value)
+       (add-error "set-pointer! needs (addr ...)" value)]
     [else
        (add-error "Could not set-pointer! from" value)])))
 

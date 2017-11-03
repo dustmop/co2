@@ -43,6 +43,12 @@
                 "  lda #>addr"
                 "  sta ptr+1"))
 
+(check-equal? (compile-code '(set-pointer! ptr (addr #x1234)))
+              '("  lda #$34"
+                "  sta ptr+0"
+                "  lda #$12"
+                "  sta ptr+1"))
+
 (check-equal? (compile-code '(peek ptr))
               '("  ldy #0"
                 "  lda (ptr),y"))
