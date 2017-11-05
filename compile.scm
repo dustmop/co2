@@ -1634,7 +1634,7 @@
     (set! dat-filename (format "~a~a"     *res-out-file* *result-target-bank*))
     ; Output inner results to a file.
     (let ((f (open-output-file out-filename #:exists 'replace)))
-      (write-string ".org $8000" f)
+      (write-string ".org $8000\n" f)
       (for [(line *result*)]
            (write-string line f)
            (newline f))
