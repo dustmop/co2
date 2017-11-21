@@ -1857,7 +1857,7 @@
     (emit-label done-label)))
 
 (define (process-cond context-cond branches)
-  (when (not (maybe-process-cond-jump-table context-cond branches))
+  (when (not (maybe-process-cond-as-table context-cond branches))
         (process-cond-as-ifs context-cond branches)))
 
 (define (unpack-cond-body elem count single)
@@ -1922,42 +1922,49 @@
                          (cons 'branches branches)))
         #f)))
 
-(define (maybe-process-cond-jump-table context-cond branches)
-  (let ((answer-table #f) (jumps '()) (cases '())
-        (min #f) (max #f) (key #f))
+(define (maybe-process-cond-as-table context-cond branches)
+  (let ((answer-table #f) (lookup '()) (jumps '()) (cases '())
+        (min #f) (max #f) (key #f) (action #f) (place #f))
     ; Observe each branch, figure out how possible a jump table is.
     (set! answer-table (build-answer-table
                         (datum->syntax context-cond branches)))
-    (cond
-     [(not answer-table) #f]
-     [(or (not (hash-ref answer-table 'action))
-          ; TODO: For other actions, use lookup table instead of jump table.
-          (hash-ref answer-table 'action))
-        ; Yes, build list of jumps and list of other branch cases.
-        (set! branches (hash-ref answer-table 'branches))
-        (set! min (hash-ref answer-table 'min))
-        (set! max (hash-ref answer-table 'max))
-        (set! key (hash-ref answer-table 'key))
-        (for [(branch branches)]
-             (let ((source       (lref branch 0))
-                   (unused-rhs   (lref branch 1))
-                   (context-cond (lref branch 2))
-                   (context-body (lref branch 3))
-                   (the-case #f))
-               (set! the-case (datum->syntax context-cond
+    (if (not answer-table)
+        #f
+        (begin
+          ; Yes, build list of jumps/lookups and list of other branch cases.
+          (set! branches (hash-ref answer-table 'branches))
+          (set! min (hash-ref answer-table 'min))
+          (set! max (hash-ref answer-table 'max))
+          (set! key (hash-ref answer-table 'key))
+          (set! action (hash-ref answer-table 'action))
+          (set! place (hash-ref answer-table 'place))
+          (for [(branch branches)]
+               (let ((source       (lref branch 0))
+                     (val          (lref branch 1))
+                     (context-cond (lref branch 2))
+                     (context-body (lref branch 3))
+                     (a-case #f))
+                 (set! a-case (datum->syntax context-cond
                                              (list context-cond context-body)))
-               (if (and source (>= source min) (<= source max))
-                   (set! jumps (append jumps (list context-body)))
-                   (set! cases (append cases (list the-case))))))
-        (process-cond-jump-table context-cond jumps cases min max key)
-        #t]
-     [else
-        ; No, use the normal version.
-        #f])))
+                 (cond
+                  [(or (not source) (< source min) (> source max))
+                     ; Source value doens't fit in the table, regular `if`.
+                     (set! cases (append cases (list a-case)))]
+                  [(and action val)
+                     ; Have an action to execute directly on the value.
+                     (set! lookup (append lookup (list val)))]
+                  [else
+                     ; Code body to put in jump table.
+                     (set! jumps (append jumps (list context-body)))])))
+          (if action
+              (process-cond-lookup-table context-cond lookup cases min max key
+                                         action place)
+              (process-cond-jump-table context-cond jumps cases min max key))
+          #t))))
 
 (define (process-cond-jump-table context-cond jumps cases min max source)
-  (let ((lookup-low-label (generate-label "cond_lookup_low"))
-        (lookup-high-label (generate-label "cond_lookup_high"))
+  (let ((jump-low-label (generate-label "cond_jump_low"))
+        (jump-high-label (generate-label "cond_jump_high"))
         (not-jump-label (generate-label "cond_not_jump"))
         (cases-label (generate-label "cond_cases"))
         (done-label (generate-label "cond_done")))
@@ -1970,9 +1977,9 @@
     (emit 'cpy (arg->str (+ max 1)))
     (emit 'bcs not-jump-label)
     ; Load jump address from table, push to the stack.
-    (emit 'lda (format "~a,y" lookup-high-label))
+    (emit 'lda (format "~a,y" jump-high-label))
     (emit 'pha)
-    (emit 'lda (format "~a,y" lookup-low-label))
+    (emit 'lda (format "~a,y" jump-low-label))
     (emit 'pha)
     (emit 'rts)
     ; Trampoline to non-jump cases.
@@ -1987,18 +1994,52 @@
              (process-form jump-branch)
              (emit 'jmp done-label)))
       ; Add jump table.
-      (let ((lookup-low-data (format "~a_data" lookup-low-label))
-            (lookup-high-data (format "~a_data" lookup-high-label)))
+      (let ((jump-low-data (format "~a_data" jump-low-label))
+            (jump-high-data (format "~a_data" jump-high-label)))
         ; Low bytes.
-        (emit-label lookup-low-data)
+        (emit-label jump-low-data)
         (for [(dat data-table)]
              (emit (format ".byte <(~a - 1)" dat)))
-        (emit (format "~a = ~a - ~a" lookup-low-label lookup-low-data min))
+        (emit (format "~a = ~a - ~a" jump-low-label jump-low-data min))
         ; High bytes.
-        (emit-label lookup-high-data)
+        (emit-label jump-high-data)
         (for [(dat data-table)]
              (emit (format ".byte >(~a - 1)" dat)))
-        (emit (format "~a = ~a - ~a" lookup-high-label lookup-high-data min))))
+        (emit (format "~a = ~a - ~a" jump-high-label jump-high-data min))))
+    ; Other cases not handled by jump table.
+    (emit-label cases-label)
+    (process-cond-as-ifs context-cond cases)
+    (emit-label done-label)))
+
+(define (process-cond-lookup-table context-cond table cases min max
+                                   source action place)
+  (let ((lookup-label (generate-label "cond_lookup_val"))
+        (cases-label (generate-label "cond_cases"))
+        (done-label (generate-label "cond_done")))
+    ; Check if index is in range of jump table.
+    (emit-context)
+    (emit 'ldy (arg->str source))
+    (when (not (eq? min 0))
+          (emit 'cpy (arg->str min))
+          (emit 'bcc cases-label))
+    (emit 'cpy (arg->str (+ max 1)))
+    (emit 'bcs cases-label)
+    ; Load jump address from table, push to the stack.
+    (emit 'lda (format "~a,y" lookup-label))
+    (when (eq? action 'set!)
+          (emit 'sta (arg->str place)))
+    (emit 'jmp done-label)
+    ; Jumps to branches reachable by jump table.
+    (let ((data-table (make-gvector)))
+      (for [(value-branch table)]
+           (gvector-add! data-table value-branch))
+      ; Actual looup table.
+      (let ((lookup-data (format "~a_data" lookup-label)))
+        ; Value bytes.
+        (emit-label lookup-data)
+        (for [(dat data-table)]
+             (emit (format ".byte ~a" dat)))
+        (emit (format "~a = ~a - ~a" lookup-label lookup-data min))))
     ; Other cases not handled by jump table.
     (emit-label cases-label)
     (process-cond-as-ifs context-cond cases)
