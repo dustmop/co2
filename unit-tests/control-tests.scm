@@ -481,6 +481,11 @@
                           (5 55 (eq? n 5) (do (func m 55))))
                 (key . n)))
 
+(check-equal? (compile-answer-table
+               '([(and (>= val lower-a) (<= val upper-a)) 2]
+                 [(and (>= val lower-b) (<= val lower-b)) 4]))
+              #f)
+
 (check-equal? (compile-code '(cond
                               ((eq? n 10) (set! m 1) 15)
                               ((eq? n 20) (set! m 2) 200)

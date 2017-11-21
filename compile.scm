@@ -1874,7 +1874,7 @@
 
 (define (build-answer-table context-branches)
   (let ((min #f) (max #f) (key #f) (done #f) (action #f) (place #f)
-        (branches #f) (unit #f))
+        (branches '()) (unit #f))
     (when (eq? (syntax->datum context-branches) #f)
           (set! context-branches (datum->syntax context-branches '())))
     (set! action '())
@@ -1904,8 +1904,7 @@
                    (set! this-val (unpack-cond-body body 2 'immed))
                    (cond
                     [(null? action) (set! action this-action)
-                                    (set! place this-place)
-                                    (set! branches '())]
+                                    (set! place this-place)]
                     [(not (eq? action this-action)) (set! action #f)]
                     [(not (eq? place this-place)) (set! action #f)])
                    (set! unit (list rhs this-val
@@ -1913,7 +1912,7 @@
                    (set! branches (append branches (list unit)))))
                (begin
                  (set! done #t)
-                 (set! unit (list #f #F context-condition context-body))
+                 (set! unit (list #f #f context-condition context-body))
                  (set! branches (append branches (list unit)))))))
     ; Only allowed actions.
     (when (not (member action '(lda set!)))
@@ -2041,7 +2040,7 @@
         ; Value bytes.
         (emit-label lookup-data)
         (for [(dat data-table)]
-             (emit (format ".byte ~a" dat)))
+             (emit (format ".byte ~a" (resolve-arg dat))))
         (emit (format "~a = ~a - ~a" lookup-label lookup-data min))))
     ; Other cases not handled by jump table.
     (emit-label cases-label)
