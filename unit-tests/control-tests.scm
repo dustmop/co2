@@ -26,6 +26,22 @@
         (printf "--------------------------------\n~a\n" (first-error)))
   (fetch-result))
 
+(define (cond-body-unwrap branch)
+  (let ((a (car branch))
+        (b (cadr branch))
+        (c (caddr branch))
+        (d (cadddr branch)))
+    (set! c (syntax->datum c))
+    (set! d (syntax->datum d))
+    (append (list a b c d))))
+
+(define (compile-answer-table branches)
+  (let ((a (build-answer-table (datum->syntax #f branches))))
+    (if a
+        (begin (hash-update! a 'branches (lambda (x) (map cond-body-unwrap x)))
+               (hash->list a))
+        #f)))
+
 (check-equal? (compile-code '(rts)) '("  rts"))
 
 (check-equal? (compile-code '(jsr "abc")) '("  jsr abc"))
@@ -402,11 +418,50 @@
                 "  lda #$2"
                 "_if_done_0003:"))
 
+(check-equal? (compile-answer-table '(((eq? n 10) (set! m 1) 15)
+                                      ((eq? n 20) (set! m 2) 200)
+                                      (else       (set! m 3) 33)))
+              #f)
+
+(check-equal? (compile-answer-table '(((eq? n 2) (set! m 22) 200)
+                                      ((eq? n 3) (set! m 35) 33)
+                                      ((eq? n 4) (set! m 42) 104)
+                                      ((eq? n 9) (set! m 99) 199)
+                                      (else      (set! m #xfe) #xff)))
+              '((min . 2) (max . 4) (action . #f) (place . #f)
+                (branches (2  #f (eq? n 2) (do (set! m 22)   200))
+                          (3  #f (eq? n 3) (do (set! m 35)   33))
+                          (4  #f (eq? n 4) (do (set! m 42)   104))
+                          (9  #f (eq? n 9) (do (set! m 99)   199))
+                          (#f #f else      (do (set! m #xfe) #xff)))
+                (key . n)))
+
+(check-equal? (compile-answer-table '(((eq? n 2) 200)
+                                      ((eq? n 3) 33)
+                                      ((eq? n 4) 104)
+                                      ((eq? n 5) 155)))
+              '((min . 2) (max . 5) (action . lda) (place . #f)
+                (branches (2 200 (eq? n 2) (do 200))
+                          (3  33 (eq? n 3) (do 33))
+                          (4 104 (eq? n 4) (do 104))
+                          (5 155 (eq? n 5) (do 155)))
+                (key . n)))
+
+(check-equal? (compile-answer-table '(((eq? n 2) (set! m 22))
+                                      ((eq? n 3) (set! m 35))
+                                      ((eq? n 4) (set! m 42))
+                                      ((eq? n 5) (set! m 55))))
+              '((min . 2) (max . 5) (action . set!) (place . m)
+                (branches (2 22 (eq? n 2) (do (set! m 22)))
+                          (3 35 (eq? n 3) (do (set! m 35)))
+                          (4 42 (eq? n 4) (do (set! m 42)))
+                          (5 55 (eq? n 5) (do (set! m 55))))
+                (key . n)))
+
 (check-equal? (compile-code '(cond
                               ((eq? n 10) (set! m 1) 15)
                               ((eq? n 20) (set! m 2) 200)
                               (else       (set! m 3) 33)))
-
               '("  lda n"
                 "  cmp #$a"
                 "  beq _is_eq_0004"
@@ -510,6 +565,55 @@
                 "  sta m"
                 "  lda #$ff"
                 "_if_done_000b:"
+                "_cond_done_0005:"))
+
+(check-equal? (compile-code '(cond
+                              ((eq? n 2) (set! m 22))
+                              ((eq? n 3) (set! m 35))
+                              ((eq? n 4) (set! m 104))
+                              ((eq? n 5) (set! m 155))))
+              '("  ldy n"
+                "  cpy #$2"
+                "  bcc _cond_not_jump_0003"
+                "  cpy #$6"
+                "  bcs _cond_not_jump_0003"
+                "  lda _cond_lookup_high_0002,y"
+                "  pha"
+                "  lda _cond_lookup_low_0001,y"
+                "  pha"
+                "  rts"
+                "_cond_not_jump_0003:"
+                "  jmp _cond_cases_0004"
+                "_cond_jump_0006:"
+                "  lda #$16"
+                "  sta m"
+                "  jmp _cond_done_0005"
+                "_cond_jump_0007:"
+                "  lda #$23"
+                "  sta m"
+                "  jmp _cond_done_0005"
+                "_cond_jump_0008:"
+                "  lda #$68"
+                "  sta m"
+                "  jmp _cond_done_0005"
+                "_cond_jump_0009:"
+                "  lda #$9b"
+                "  sta m"
+                "  jmp _cond_done_0005"
+                "_cond_lookup_low_0001_data:"
+                ".byte <(_cond_jump_0006 - 1)"
+                ".byte <(_cond_jump_0007 - 1)"
+                ".byte <(_cond_jump_0008 - 1)"
+                ".byte <(_cond_jump_0009 - 1)"
+                "_cond_lookup_low_0001 = _cond_lookup_low_0001_data - 2"
+                "_cond_lookup_high_0002_data:"
+                ".byte >(_cond_jump_0006 - 1)"
+                ".byte >(_cond_jump_0007 - 1)"
+                ".byte >(_cond_jump_0008 - 1)"
+                ".byte >(_cond_jump_0009 - 1)"
+                "_cond_lookup_high_0002 = _cond_lookup_high_0002_data - 2"
+                "_cond_cases_0004:"
+                "  lda #$0"
                 "_cond_done_0005:"))
 
 (check-equal? (compile-code '(if (or n m) 1 2))

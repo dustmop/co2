@@ -1860,52 +1860,100 @@
   (when (not (maybe-process-cond-jump-table context-cond branches))
         (process-cond-as-ifs context-cond branches)))
 
-(define (maybe-process-cond-jump-table context-cond branches)
-  (let ((min #f) (max #f) (source #f) (complete #f))
-    ; Observe each branch, figure out how possible a jump table is.
-    (for [(context-branch branches)]
+(define (unpack-cond-body elem count single)
+  (set! elem (map syntax->datum elem))
+  (if (not (= (length elem) 1))
+      #f
+      (let ((inner (car elem)))
+        (cond
+         [(not (list? inner)) (if (eq? single 'immed)
+                                  inner
+                                  single)]
+         [(< count (length inner)) (lref inner count)]
+         [else #f]))))
+
+(define (build-answer-table context-branches)
+  (let ((min #f) (max #f) (key #f) (done #f) (action #f) (place #f)
+        (branches #f) (unit #f))
+    (when (eq? (syntax->datum context-branches) #f)
+          (set! context-branches (datum->syntax context-branches '())))
+    (set! action '())
+    (for [(context-branch (syntax-e context-branches))]
          (let* ((context-condition (car (syntax-e context-branch)))
                 (condition (syntax->datum context-condition))
-                (rest (cdr (syntax-e context-branch)))
                 (op (lref condition 0))
                 (lhs (lref condition 1))
-                (rhs (lref condition 2)))
-           (if (not (and (eq? op 'eq?) (symbol? lhs) (num-like? rhs)))
-               (set! complete #t)
-               (begin (set! rhs (resolve-arg rhs #:even-const #t))
-                      (cond
-                       [(not min) (set! source lhs)
-                                  (set! min rhs)
-                                  (set! max rhs)]
-                       [(not (eq? lhs source)) (set! complete #t)]
-                       [(not (eq? (+ max 1) rhs)) (set! complete #t)]
-                       [(eq? (+ max 1) rhs) (set! max rhs)])))))
+                (rhs (lref condition 2))
+                (body (cdr (syntax-e context-branch)))
+                (context-body (datum->syntax context-branch (cons (datum->syntax context-branch 'do) body))))
+           (if (and (eq? op 'eq?) (symbol? lhs) (num-like? rhs) (not done))
+               (begin
+                 (set! rhs (resolve-arg rhs #:even-const #t))
+                 ; Match the value in the condition.
+                 (cond
+                  [(not min) (set! key lhs)
+                             (set! min rhs)
+                             (set! max rhs)]
+                  [(not (eq? lhs key)) (set! done #t)]
+                  [(not (eq? (+ max 1) rhs)) (set! done #t)]
+                  [(eq? (+ max 1) rhs) (set! max rhs)])
+                 ; Match the type of action on the rhs branch.
+                 (let ((this-action #f) (this-place #f) (this-val #f))
+                   (set! this-action (unpack-cond-body body 0 'lda))
+                   (set! this-place (unpack-cond-body body 1 #f))
+                   (set! this-val (unpack-cond-body body 2 'immed))
+                   (cond
+                    [(null? action) (set! action this-action)
+                                    (set! place this-place)
+                                    (set! branches '())]
+                    [(not (eq? action this-action)) (set! action #f)]
+                    [(not (eq? place this-place)) (set! action #f)])
+                   (set! unit (list rhs this-val
+                                    context-condition context-body))
+                   (set! branches (append branches (list unit)))))
+               (begin
+                 (set! done #t)
+                 (set! unit (list #f #F context-condition context-body))
+                 (set! branches (append branches (list unit)))))))
     ; Determine if a jump table should be used.
     (if (and min (>= (- (+ max 1) min) 3))
-        ; Yes, build list of jumps and list of other branch cases.
-        (let ((jumps '()) (cases '()))
-          (for [(context-branch branches)]
-               (let* ((context-condition (car (syntax-e context-branch)))
-                      (condition (syntax->datum context-condition))
-                      (body (cdr (syntax-e context-branch)))
-                      (op (lref condition 0))
-                      (lhs (lref condition 1))
-                      (rhs (lref condition 2))
-                      (val (if (num-like? rhs) (resolve-arg rhs #:even-const #t)
-                               #f)))
-                 (set! body (datum->syntax context-branch
-                                           (cons (datum->syntax context-branch
-                                                                'do) body)))
-                 (if (and (eq? op 'eq?) (eq? lhs source) val
-                          (>= val min) (<= val max))
-                     (set! jumps (cons (list val body) jumps))
-                     (set! cases (cons context-branch cases)))))
-          (set! jumps (sort jumps < #:key car))
-          (set! cases (reverse cases))
-          (process-cond-jump-table context-cond jumps cases min max source)
-          #t)
-        ; No, use the normal version.
+        (make-hash (list (cons 'key key) (cons 'min min) (cons 'max max)
+                         (cons 'action action) (cons 'place place)
+                         (cons 'branches branches)))
         #f)))
+
+(define (maybe-process-cond-jump-table context-cond branches)
+  (let ((answer-table #f) (jumps '()) (cases '())
+        (min #f) (max #f) (key #f))
+    ; Observe each branch, figure out how possible a jump table is.
+    (set! answer-table (build-answer-table
+                        (datum->syntax context-cond branches)))
+    (cond
+     [(not answer-table) #f]
+     [(or (not (hash-ref answer-table 'action))
+          ; TODO: For other actions, use lookup table instead of jump table.
+          (hash-ref answer-table 'action))
+        ; Yes, build list of jumps and list of other branch cases.
+        (set! branches (hash-ref answer-table 'branches))
+        (set! min (hash-ref answer-table 'min))
+        (set! max (hash-ref answer-table 'max))
+        (set! key (hash-ref answer-table 'key))
+        (for [(branch branches)]
+             (let ((source       (lref branch 0))
+                   (unused-rhs   (lref branch 1))
+                   (context-cond (lref branch 2))
+                   (context-body (lref branch 3))
+                   (the-case #f))
+               (set! the-case (datum->syntax context-cond
+                                             (list context-cond context-body)))
+               (if (and source (>= source min) (<= source max))
+                   (set! jumps (append jumps (list context-body)))
+                   (set! cases (append cases (list the-case))))))
+        (process-cond-jump-table context-cond jumps cases min max key)
+        #t]
+     [else
+        ; No, use the normal version.
+        #f])))
 
 (define (process-cond-jump-table context-cond jumps cases min max source)
   (let ((lookup-low-label (generate-label "cond_lookup_low"))
@@ -1936,7 +1984,7 @@
            (let ((jump-label (generate-label "cond_jump")))
              (gvector-add! data-table jump-label)
              (emit-label jump-label)
-             (process-form (cadr jump-branch))
+             (process-form jump-branch)
              (emit 'jmp done-label)))
       ; Add jump table.
       (let ((lookup-low-data (format "~a_data" lookup-low-label))
@@ -1956,8 +2004,8 @@
     (process-cond-as-ifs context-cond cases)
     (emit-label done-label)))
 
-(define (process-cond-as-ifs context-cond branches)
-  (let ((accum (datum->syntax context-cond 0)))
+(define (process-cond-as-ifs context-root branches)
+  (let ((accum (datum->syntax context-root 0)))
     (for [(context-branch (reverse branches))]
          (let* ((context-condition (car (syntax-e context-branch)))
                 (true-case (cons (datum->syntax context-branch 'do)
@@ -2853,3 +2901,4 @@
 (provide set-optimization!)
 (provide generate-func-memory-addresses)
 (provide get-data-segment)
+(provide build-answer-table)
