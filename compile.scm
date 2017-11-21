@@ -1915,6 +1915,9 @@
                  (set! done #t)
                  (set! unit (list #f #F context-condition context-body))
                  (set! branches (append branches (list unit)))))))
+    ; Only allowed actions.
+    (when (not (member action '(lda set!)))
+          (set! action #f))
     ; Determine if a jump table should be used.
     (if (and min (>= (- (+ max 1) min) 3))
         (make-hash (list (cons 'key key) (cons 'min min) (cons 'max max)

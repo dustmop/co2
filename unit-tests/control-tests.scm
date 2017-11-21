@@ -458,6 +458,29 @@
                           (5 55 (eq? n 5) (do (set! m 55))))
                 (key . n)))
 
+; TODO: handle set-pointer! action
+(check-equal? (compile-answer-table '(((eq? n 2) (set-pointer! p data-a))
+                                      ((eq? n 3) (set-pointer! p data-b))
+                                      ((eq? n 4) (set-pointer! p data-c))
+                                      ((eq? n 5) (set-pointer! p data-d))))
+              '((min . 2) (max . 5) (action . #f) (place . p)
+                (branches (2 data-a (eq? n 2) (do (set-pointer! p data-a)))
+                          (3 data-b (eq? n 3) (do (set-pointer! p data-b)))
+                          (4 data-c (eq? n 4) (do (set-pointer! p data-c)))
+                          (5 data-d (eq? n 5) (do (set-pointer! p data-d))))
+                (key . n)))
+
+(check-equal? (compile-answer-table '(((eq? n 2) (func m 22))
+                                      ((eq? n 3) (func m 35))
+                                      ((eq? n 4) (func m 42))
+                                      ((eq? n 5) (func m 55))))
+              '((min . 2) (max . 5) (action . #f) (place . m)
+                (branches (2 22 (eq? n 2) (do (func m 22)))
+                          (3 35 (eq? n 3) (do (func m 35)))
+                          (4 42 (eq? n 4) (do (func m 42)))
+                          (5 55 (eq? n 5) (do (func m 55))))
+                (key . n)))
+
 (check-equal? (compile-code '(cond
                               ((eq? n 10) (set! m 1) 15)
                               ((eq? n 20) (set! m 2) 200)
@@ -588,6 +611,65 @@
                 "_cond_lookup_val_0001 = _cond_lookup_val_0001_data - 2"
                 "_cond_cases_0002:"
                 "  lda #$0"
+                "_cond_done_0003:"))
+
+(check-equal? (compile-code '(cond
+                              ((eq? n 2) 200)
+                              ((eq? n 3) 33)
+                              ((eq? n 4) 104)
+                              ((eq? n 5) 55)))
+              '("  ldy n"
+                "  cpy #$2"
+                "  bcc _cond_cases_0002"
+                "  cpy #$6"
+                "  bcs _cond_cases_0002"
+                "  lda _cond_lookup_val_0001,y"
+                "  jmp _cond_done_0003"
+                "_cond_lookup_val_0001_data:"
+                ".byte 200"
+                ".byte 33"
+                ".byte 104"
+                ".byte 55"
+                "_cond_lookup_val_0001 = _cond_lookup_val_0001_data - 2"
+                "_cond_cases_0002:"
+                "  lda #$0"
+                "_cond_done_0003:"))
+
+(check-equal? (compile-code '(cond
+                              ((eq? n 2) 200)
+                              ((eq? n 3) 33)
+                              ((eq? n 4) 104)
+                              ((eq? n 9) 199)
+                              (else      #xff)))
+              '("  ldy n"
+                "  cpy #$2"
+                "  bcc _cond_cases_0002"
+                "  cpy #$5"
+                "  bcs _cond_cases_0002"
+                "  lda _cond_lookup_val_0001,y"
+                "  jmp _cond_done_0003"
+                "_cond_lookup_val_0001_data:"
+                ".byte 200"
+                ".byte 33"
+                ".byte 104"
+                "_cond_lookup_val_0001 = _cond_lookup_val_0001_data - 2"
+                "_cond_cases_0002:"
+                "  lda n"
+                "  cmp #$9"
+                "  beq _is_eq_0007"
+                "  lda #0"
+                "  jmp _done_eq_0008"
+                "_is_eq_0007:"
+                "  lda #$ff"
+                "_done_eq_0008:"
+                "  bne _truth_case_0004"
+                "  jmp _false_case_0005"
+                "_truth_case_0004:"
+                "  lda #$c7"
+                "  jmp _if_done_0006"
+                "_false_case_0005:"
+                "  lda #$ff"
+                "_if_done_0006:"
                 "_cond_done_0003:"))
 
 (check-equal? (compile-code '(if (or n m) 1 2))
