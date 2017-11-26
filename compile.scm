@@ -1339,6 +1339,39 @@
      [else
         (error (format "Don't know how to set! ~a to ~a" place expr))])))
 
+(define (ensure-place place)
+  (cond
+   [(undefined? place)
+      (add-error "Undefined var" place)
+      "_"]
+   [(immediate? place)
+      (add-error "Cannot assign to" place)
+      "_"]
+   [(variable? place)
+      place]
+   [(address? place)
+      place]
+   [else
+      (error (format "Don't know how to set! ~a" place))]))
+
+(define (process-set-multiple context-one context-two context-three
+                              context-four)
+  (let ((context-expr #f) (place #f))
+    (cond
+     [context-four  (set! context-expr context-four)
+                    (set! context-four #f)]
+     [context-three (set! context-expr context-three)
+                    (set! context-three #f)]
+     [context-two   (set! context-expr context-two)
+                    (set! context-two #f)])
+    (process-argument context-expr)
+    (when context-one
+          (emit 'sta (arg->str (ensure-place (syntax->datum context-one)))))
+    (when context-two
+          (emit 'stx (arg->str (ensure-place (syntax->datum context-two)))))
+    (when context-three
+          (emit 'sty (arg->str (ensure-place (syntax->datum context-three)))))))
+
 (define (process-cond-or-expression instr args)
   (if (or (not (*opt-mode*)) (not (all-boolean-args args)))
       ; Not in a conditional, process as a normal instruction.
@@ -2084,6 +2117,15 @@
     (emit 'jmp start-label)
     (emit-label done-label)))
 
+(define (process-return context-one context-two context-three)
+  (when context-one
+        (process-argument context-one))
+  (when context-two
+        (process-argument context-two #:preserve '(a) #:as 'ldx))
+  (when context-three
+        (process-argument context-three #:preserve '(a x) #:as 'ldy))
+  (emit 'rts))
+
 (define (process-arithmetic operator context-args)
   (let* ((context-left (car context-args))
          (bit-16 #f)
@@ -2522,6 +2564,9 @@
             [(program-complete) (process-program-complete)]
             [(push pull) (process-stack symbol (unwrap-args rest 0 3))]
             [(set!) (process-with-args process-set-bang rest 2)]
+            [(set-multiple!) (process-set-multiple (lref rest 0) (lref rest 1)
+                                                   (lref rest 2) (lref rest 3))]
+            [(set-pointer!) (process-set-pointer! (lref rest 0) (lref rest 1))]
             [(block) (process-block (car rest) (cdr rest))]
             [(bytes) (process-bytes rest)]
             [(include) (process-include (lref rest 0))]
@@ -2543,6 +2588,8 @@
             [(while) (process-while (car rest) (cdr rest))]
             [(do) (for [(elem rest)]
                        (process-form elem))]
+            [(return) (process-return (lref rest 0) (lref rest 1)
+                                      (lref rest 2))]
             [(peek) (process-peek (lref rest 0) (lref rest 1))]
             [(poke!) (process-poke! (lref rest 0) (lref rest 1) (lref rest 2))]
             [(ppu-load) (process-ppu-load (lref rest 0) (lref rest 1)
@@ -2566,7 +2613,6 @@
                                       (lref rest 2))]
             [(scale16) (process-scale16 (lref rest 0) (lref rest 1)
                                         (lref rest 2))]
-            [(set-pointer!) (process-set-pointer! (lref rest 0) (lref rest 1))]
             [(or-sprites-attr!)
              (process-sprites-apply-to-field! (lref rest 0) (lref rest 1)
                                               (lref rest 2) 2 'eor)]

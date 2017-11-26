@@ -6,6 +6,11 @@
   (clear-result)
   (make-function! 'f)
   (make-variable! 'n)
+  (make-variable! 'm)
+  (make-variable! 'p)
+  (make-variable! 'q)
+  (make-variable! 'r)
+  (make-variable! 's)
   (process-form (datum->syntax #f code))
   (fetch-result))
 
@@ -48,3 +53,33 @@
                                                        "  pla"
                                                        "  lda _tmp"
                                                        "  sta n"))
+
+(check-equal? (compile-code '(return)) '("  rts"))
+
+(check-equal? (compile-code '(return 3)) '("  lda #$3"
+                                           "  rts"))
+
+(check-equal? (compile-code '(return n)) '("  lda n"
+                                           "  rts"))
+
+(check-equal? (compile-code '(return n m p)) '("  lda n"
+                                               "  ldx m"
+                                               "  ldy p"
+                                               "  rts"))
+
+(check-equal? (compile-code '(return (f n))) '("  lda n"
+                                               "  jsr f"
+                                               "  rts"))
+
+
+(check-equal? (compile-code '(set-multiple! q (f))) '("  jsr f"
+                                                      "  sta q"))
+
+(check-equal? (compile-code '(set-multiple! q r (f))) '("  jsr f"
+                                                        "  sta q"
+                                                        "  stx r"))
+
+(check-equal? (compile-code '(set-multiple! q r s (f))) '("  jsr f"
+                                                          "  sta q"
+                                                          "  stx r"
+                                                          "  sty s"))
