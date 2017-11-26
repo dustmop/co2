@@ -141,3 +141,41 @@
                 "  lda #$0"
                 "_if_done_000a:"
                 "_SomeLabel_0002:"))
+
+(check-equal? (compile-code '(block SomeLabel
+                                    (when (eq? m 3)
+                                          )
+                                    (when (eq? n 4)
+                                          (inc f))))
+              '("_SomeLabel_0001:"
+                "  lda m"
+                "  cmp #$3"
+                "  beq _is_eq_0006"
+                "  lda #0"
+                "  jmp _done_eq_0007"
+                "_is_eq_0006:"
+                "  lda #$ff"
+                "_done_eq_0007:"
+                "  bne _truth_case_0003"
+                "  jmp _false_case_0004"
+                "_truth_case_0003:"
+                "  jmp _if_done_0005"
+                "_false_case_0004:"
+                "_if_done_0005:"
+                "  lda n"
+                "  cmp #$4"
+                "  beq _is_eq_000b"
+                "  lda #0"
+                "  jmp _done_eq_000c"
+                "_is_eq_000b:"
+                "  lda #$ff"
+                "_done_eq_000c:"
+                "  bne _truth_case_0008"
+                "  jmp _false_case_0009"
+                "_truth_case_0008:"
+                "  inc f"
+                "  jmp _if_done_000a"
+                "_false_case_0009:"
+                "  lda #$0"
+                "_if_done_000a:"
+                "_SomeLabel_0002:"))

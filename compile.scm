@@ -331,8 +331,7 @@
 
 (define (add-error msg value)
   (let ((c (co2-source-err-context)))
-    (gvector-add! *errors* (format "ERROR @ ~a: ~a `~a`" c msg value))
-    #f))
+    (gvector-add! *errors* (format "ERROR @ ~a: ~a `~a`" c msg value))))
 
 (define (has-errors?)
   (> (gvector-count *errors*) 0))
@@ -1590,7 +1589,7 @@
   (let* ((label (syntax->datum context-label))
          (start-label (generate-label (symbol->string label)))
          (break-label (generate-label (symbol->string label)))
-         (final (last body)))
+         (final (if (null? body) #f (last body))))
     ; Label for the start of the block.
     (emit-label start-label)
     ; Push scope for local label.
@@ -2610,7 +2609,7 @@
                                     (lref rest 2)))]
             [(cond) (process-cond form rest)]
             [(while) (process-while (car rest) (cdr rest))]
-            [(do) (let ((final (last rest)))
+            [(do) (let ((final (if (null? rest) #f (last rest))))
                     (for [(stmt rest)]
                          (if (eq? stmt final)
                            (parameterize [(*opt-no-retval-form* #f)]
