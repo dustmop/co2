@@ -34,12 +34,10 @@
               "ERROR @ #f: Cannot assign to `10`")
 
 (check-equal? (compile-code-first-error '(if))
-              "ERROR @ #f: Need 3 arguments, only got 0, for `process-if`")
+              "ERROR @ #f: Need 3 arguments, only got 0, for `if`")
 
 (check-equal? (compile-code-first-error '(if 1))
-              "ERROR @ #f: Need 3 arguments, only got 1, for `process-if`")
+              "ERROR @ #f: Need 3 arguments, only got 1, for `if`")
 
 (check-equal? (compile-code-first-error '(if 1 n))
-              "ERROR @ #f: Need 3 arguments, only got 2, for `process-if`")
-
-
+              "ERROR @ #f: Need 3 arguments, only got 2, for `if`")

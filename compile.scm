@@ -331,7 +331,8 @@
 
 (define (add-error msg value)
   (let ((c (co2-source-err-context)))
-    (gvector-add! *errors* (format "ERROR @ ~a: ~a `~a`" c msg value))))
+    (gvector-add! *errors* (format "ERROR @ ~a: ~a `~a`" c msg value))
+    #f))
 
 (define (has-errors?)
   (> (gvector-count *errors*) 0))
@@ -1515,6 +1516,8 @@
           (cond
            [(not as)
               (emit 'lda val)]
+           [(eq? as 'none)
+              #f]
            [(eq? as 'rhs)
               (set! ret val)]
            [(eq? as 16)
@@ -1524,7 +1527,7 @@
               (emit as val)
               (set! ret (string-last (symbol->string as)))]))]
      [bit-16
-        ;
+        ; Load a 16-bit value into A:X
         (let* ((pair (arg16->str arg))
                (low-val  (car pair))
                (high-val (cadr pair)))
@@ -1579,12 +1582,15 @@
   (emit-context)
   (emit instr))
 
+(define *opt-no-retval-form* (make-parameter #f))
+
 (define (process-block context-label body)
   (assert context-label syntax?)
   (assert body list?)
   (let* ((label (syntax->datum context-label))
          (start-label (generate-label (symbol->string label)))
-         (break-label (generate-label (symbol->string label))))
+         (break-label (generate-label (symbol->string label)))
+         (final (last body)))
     ; Label for the start of the block.
     (emit-label start-label)
     ; Push scope for local label.
@@ -1593,7 +1599,11 @@
     (make-label! '#:break break-label)
     ; Process body.
     (for [(stmt body)]
-         (process-form stmt))
+         (if (eq? stmt final)
+             (parameterize [(*opt-no-retval-form* #f)]
+                           (process-form stmt))
+             (parameterize [(*opt-no-retval-form* stmt)]
+                           (process-form stmt))))
     ; Pop scope.
     (sym-label-pop-scope)
     ; Label that #:break goes to.
@@ -1842,7 +1852,7 @@
     ; Pop scope.
     (sym-label-pop-scope)))
 
-(define (process-if context-condition context-truth context-false)
+(define (process-if context-root context-condition context-truth context-false)
   (let ((truth-label (generate-label "truth_case"))
         (false-label (generate-label "false_case"))
         (done-label (generate-label "if_done"))
@@ -1886,7 +1896,9 @@
     (emit 'jmp done-label)
     ; False case.
     (emit-label false-label)
-    (process-argument context-false #:skip-context #t)
+    (if (eq? (*opt-no-retval-form*) context-root)
+        (process-argument context-false #:skip-context #t #:as 'none)
+        (process-argument context-false #:skip-context #t))
     (emit-label done-label)))
 
 (define (process-cond context-cond branches)
@@ -2515,13 +2527,23 @@
                            (wrapped (datum->syntax context-original
                                                    expanded
                                                    context-original)))
-                      (process-form wrapped))]))
+                      (if (eq? (*opt-no-retval-form*) context-original)
+                          (parameterize [(*opt-no-retval-form* wrapped)]
+                                        (process-form wrapped))
+                          (process-form wrapped)))]))
 
 (define (process-with-args func args num-needed)
   (if (< (length args) num-needed)
       (add-error (format "Need ~a arguments, only got ~a, for"
                          num-needed (length args)) (object-name func))
       (apply func args)))
+
+(define (ensure-num-args func args num-needed)
+  (if (< (length args) num-needed)
+      (begin (add-error (format "Need ~a arguments, only got ~a, for"
+                                num-needed (length args)) func)
+             #f)
+      #t))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Syntax tree walker
@@ -2583,11 +2605,18 @@
                                                 (caddr rest) (cdddr rest))]
             [(repeat) (process-repeat (car rest) (cdr rest))]
             [(let) (process-let (car rest) (cdr rest))]
-            [(if) (process-with-args process-if rest 3)]
+            [(if) (when (ensure-num-args 'if rest 3)
+                        (process-if form (lref rest 0) (lref rest 1)
+                                    (lref rest 2)))]
             [(cond) (process-cond form rest)]
             [(while) (process-while (car rest) (cdr rest))]
-            [(do) (for [(elem rest)]
-                       (process-form elem))]
+            [(do) (let ((final (last rest)))
+                    (for [(stmt rest)]
+                         (if (eq? stmt final)
+                           (parameterize [(*opt-no-retval-form* #f)]
+                                         (process-form stmt))
+                           (parameterize [(*opt-no-retval-form* stmt)]
+                                         (process-form stmt)))))]
             [(return) (process-return (lref rest 0) (lref rest 1)
                                       (lref rest 2))]
             [(peek) (process-peek (lref rest 0) (lref rest 1))]
