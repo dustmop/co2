@@ -62,9 +62,9 @@
 (check-equal? (compile-code '(return n)) '("  lda n"
                                            "  rts"))
 
-(check-equal? (compile-code '(return n m p)) '("  lda n"
+(check-equal? (compile-code '(return n m p)) '("  ldy p"
                                                "  ldx m"
-                                               "  ldy p"
+                                               "  lda n"
                                                "  rts"))
 
 (check-equal? (compile-code '(return (f n))) '("  lda n"

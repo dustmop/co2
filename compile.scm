@@ -2129,12 +2129,12 @@
     (emit-label done-label)))
 
 (define (process-return context-one context-two context-three)
+  (when context-three
+        (process-argument context-three #:preserve '(y) #:as 'ldy))
+  (when context-two
+        (process-argument context-two #:preserve '(x y) #:as 'ldx))
   (when context-one
         (process-argument context-one))
-  (when context-two
-        (process-argument context-two #:preserve '(a) #:as 'ldx))
-  (when context-three
-        (process-argument context-three #:preserve '(a x) #:as 'ldy))
   (emit 'rts))
 
 (define (process-arithmetic operator context-args)
