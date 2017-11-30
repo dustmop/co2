@@ -8,6 +8,11 @@
   (make-variable! 'n)
   (make-variable! 'm)
   (make-variable! 'p)
+  (make-pointer! 'q)
+  (make-address! 'b 1)
+  (make-address! 'c 2)
+  (make-address! 'd 3)
+  (make-address! 'e 4)
   (set-optimization! #f)
   (process-form (datum->syntax #f code))
   (when (has-errors?)
@@ -458,12 +463,11 @@
                           (5 55 (eq? n 5) (do (set! m 55))))
                 (key . n)))
 
-; TODO: handle set-pointer! action
 (check-equal? (compile-answer-table '(((eq? n 2) (set-pointer! p data-a))
                                       ((eq? n 3) (set-pointer! p data-b))
                                       ((eq? n 4) (set-pointer! p data-c))
                                       ((eq? n 5) (set-pointer! p data-d))))
-              '((min . 2) (max . 5) (action . #f) (place . p)
+              '((min . 2) (max . 5) (action . set-pointer!) (place . p)
                 (branches (2 data-a (eq? n 2) (do (set-pointer! p data-a)))
                           (3 data-b (eq? n 3) (do (set-pointer! p data-b)))
                           (4 data-c (eq? n 4) (do (set-pointer! p data-c)))
@@ -636,6 +640,37 @@
                 ".byte 104"
                 ".byte 55"
                 "_cond_lookup_val_0001 = _cond_lookup_val_0001_data - 2"
+                "_cond_cases_0002:"
+                "  lda #$0"
+                "_cond_done_0003:"))
+
+(check-equal? (compile-code '(cond
+                              ((eq? n 2) (set-pointer! m b))
+                              ((eq? n 3) (set-pointer! m c))
+                              ((eq? n 4) (set-pointer! m d))
+                              ((eq? n 5) (set-pointer! m e))))
+              '("  ldy n"
+                "  cpy #$2"
+                "  bcc _cond_cases_0002"
+                "  cpy #$6"
+                "  bcs _cond_cases_0002"
+                "  lda _cond_lookup_val_0001,y"
+                "  sta m"
+                "  lda _cond_lookup_hi_val_0004,y"
+                "  sta m+1"
+                "  jmp _cond_done_0003"
+                "_cond_lookup_val_0001_data:"
+                ".byte <b"
+                ".byte <c"
+                ".byte <d"
+                ".byte <e"
+                "_cond_lookup_val_0001 = _cond_lookup_val_0001_data - 2"
+                "_cond_lookup_hi_val_0004_data:"
+                ".byte >b"
+                ".byte >c"
+                ".byte >d"
+                ".byte >e"
+                "_cond_lookup_hi_val_0004 = _cond_lookup_hi_val_0004_data - 2"
                 "_cond_cases_0002:"
                 "  lda #$0"
                 "_cond_done_0003:"))

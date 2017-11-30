@@ -1959,7 +1959,7 @@
                  (set! unit (list #f #f context-condition context-body))
                  (set! branches (append branches (list unit)))))))
     ; Only allowed actions.
-    (when (not (member action '(lda set!)))
+    (when (not (member action '(lda set! set-pointer!)))
           (set! action #f))
     ; Determine if a jump table should be used.
     (if (and min (>= (- (+ max 1) min) 3))
@@ -2060,8 +2060,10 @@
 (define (process-cond-lookup-table context-cond table cases min max
                                    source action place)
   (let ((lookup-label (generate-label "cond_lookup_val"))
+        (lookup-hi-label #f)
         (cases-label (generate-label "cond_cases"))
-        (done-label (generate-label "cond_done")))
+        (done-label (generate-label "cond_done"))
+        (word-size #f))
     ; Check if index is in range of jump table.
     (emit-context)
     (emit 'ldy (arg->str source))
@@ -2072,20 +2074,41 @@
     (emit 'bcs cases-label)
     ; Load jump address from table, push to the stack.
     (emit 'lda (format "~a,y" lookup-label))
-    (when (eq? action 'set!)
-          (emit 'sta (arg->str place)))
+    (cond
+     [(eq? action 'lda)
+        #f]
+     [(eq? action 'set!)
+        (emit 'sta (arg->str place))]
+     [(eq? action 'set-pointer!)
+        (set! word-size #t)
+        (set! lookup-hi-label (generate-label "cond_lookup_hi_val"))
+        (emit 'sta (arg->str place))
+        (emit 'lda (format "~a,y" lookup-hi-label))
+        (emit 'sta (format "~a+1" (arg->str place)))]
+     [else
+        (error (format "Unknown lookup table action ~a" action))])
     (emit 'jmp done-label)
     ; Jumps to branches reachable by jump table.
     (let ((data-table (make-gvector)))
       (for [(value-branch table)]
            (gvector-add! data-table value-branch))
-      ; Actual looup table.
+      ; Actual lookup table.
       (let ((lookup-data (format "~a_data" lookup-label)))
         ; Value bytes.
         (emit-label lookup-data)
         (for [(dat data-table)]
-             (emit (format ".byte ~a" (resolve-arg dat))))
-        (emit (format "~a = ~a - ~a" lookup-label lookup-data min))))
+             (if (not word-size)
+                 (emit (format ".byte ~a" (resolve-arg dat)))
+                 (emit (format ".byte <~a" (resolve-arg dat)))))
+        (emit (format "~a = ~a - ~a" lookup-label lookup-data min)))
+      ; High bytes, if it exists.
+      (when lookup-hi-label
+        (let ((lookup-hi-data (format "~a_data" lookup-hi-label)))
+          ; Value bytes.
+          (emit-label lookup-hi-data)
+          (for [(dat data-table)]
+               (emit (format ".byte >~a" (resolve-arg dat))))
+          (emit (format "~a = ~a - ~a" lookup-hi-label lookup-hi-data min)))))
     ; Other cases not handled by jump table.
     (emit-label cases-label)
     (process-cond-as-ifs context-cond cases)
