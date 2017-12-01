@@ -1665,7 +1665,7 @@
 
 (define (process-resource-bank-complete)
   (let ((out-filename #f) (rom-filename #f) (lst-filename #f) (dat-filename #f)
-        (lines #f) (inner #f) (address #f) (label #f))
+        (lines #f) (inner #f) (address #f) (label #f) (m #f))
     ; TODO: Refactor
     (when (has-errors?)
           (display-errors)
@@ -1699,10 +1699,15 @@
     (for ([line lines])
          (set! address #f)
          (set! label #f)
-         (when (has-label? line)
-               (set! address (substring line 1 5))
-               (set! label (get-label line))
-               (gvector-add! inner (format "~a = $~a" label address))))
+         (if (has-label? line)
+             (begin (set! address (substring line 1 5))
+                    (set! label (get-label line))
+                    (gvector-add! inner (format "~a = $~a" label address)))
+             (begin (set! m (match-equ line))
+                    (when m
+                      (set! label (list-ref m 1))
+                      (set! address (list-ref m 2))
+                      (gvector-add! inner (format "~a = $~a" label address))))))
     (set! *result* (gvector-remove-last! *result-stack*))
     (set! *result* (list->gvector (append (gvector->list *result*)
                                           (gvector->list inner))))))
@@ -1710,6 +1715,11 @@
 (define (has-label? line)
   (and (> (string-length line) 32)
        (regexp-match #px"^[\\w]+:" (substring line 32))))
+
+(define (match-equ line)
+  (if (> (string-length line) 32)
+      (regexp-match #px"^([\\w]+) = \\$([\\w]+)$" (substring line 32))
+      #f))
 
 (define (get-label line)
   (cadr (regexp-match #px"^([\\w]+):" (substring line 32))))
