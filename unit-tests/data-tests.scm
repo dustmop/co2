@@ -27,8 +27,11 @@
 (check-equal? (compile-code '(bytes "abc"))
               '(".byte \"abc\""))
 
-(check-equal? (compile-code '(bytes "test" #x10))
-              '(".byte \"test\",$10"))
+(check-equal? (compile-code '(bytes "test" #\newline))
+              '(".byte \"test\",10"))
+
+(check-equal? (compile-code '(bytes "a" #x42 67))
+              '(".byte \"a\",$42,$43"))
 
 (check-equal? (compile-code '(bytes d))
               '(".byte d"))

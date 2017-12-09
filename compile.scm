@@ -1031,9 +1031,11 @@
          (fname (syntax-source form))
          (line-num (syntax-line form))
          (source (->string (syntax->datum form)))
-         (len (min 40 (string-length source))))
+         (len (min 40 (string-length source)))
+         (orig-code (substring source 0 len)))
+    (set! orig-code (string-replace orig-code "\n" "#\\newline"))
     (if fname
-        (format ";~a:~a ~a" fname line-num (substring source 0 len))
+        (format ";~a:~a ~a" fname line-num orig-code)
         #f)))
 
 (define (co2-source-err-context)
@@ -1614,11 +1616,14 @@
       (cond
        [(number? elem) (gvector-add! build (format "$~x" elem))]
        [(string? elem) (gvector-add! build (format "~s" elem))]
+       [(char? elem)   (gvector-add! build (format "~s" (char->integer elem)))]
        [(symbol? elem)
         (let ((lookup (sym-label-lookup elem))
               (normal (normalize-name elem)))
           (cond
            [(const? elem) (gvector-add! build normal)]
+           [(metavar? elem) (gvector-add! build
+                                          (format "$~x" (resolve-arg elem)))]
            [(address? elem) (begin
                               (gvector-add! build (format "<~a" normal))
                               (gvector-add! build (format ">~a" normal)))]
