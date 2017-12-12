@@ -1627,6 +1627,9 @@
            [(address? elem) (begin
                               (gvector-add! build (format "<~a" normal))
                               (gvector-add! build (format ">~a" normal)))]
+           [(function? elem) (begin
+                               (gvector-add! build (format "<~a" normal))
+                               (gvector-add! build (format ">~a" normal)))]
            [else (add-error "Cannot output bytes" elem)]))]
        [(list? elem) (for [(item elem)]
                           (add-elem-to-vector item))]

@@ -9,6 +9,7 @@
   (clear-data-segment)
   (make-address! 'out #x8000)
   (make-address! 'data 0)
+  (make-function! 'f)
   (make-const! 'd 10)
   (analyze-form (datum->syntax #f code))
   (process-form (datum->syntax #f code))
@@ -38,6 +39,9 @@
 
 (check-equal? (compile-code '(bytes data))
               '(".byte <data,>data"))
+
+(check-equal? (compile-code '(bytes f))
+              '(".byte <f,>f"))
 
 (check-equal? (compile-code '(bytes (1 2)))
               '(".byte $1,$2"))
