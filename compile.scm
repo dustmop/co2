@@ -292,6 +292,8 @@
 
 (define *result-target-bank* #f)
 
+(define *result-base-addr* 0)
+
 (define (clear-result)
   (set! *result* (make-gvector)))
 
@@ -1667,6 +1669,7 @@
 (define (process-resource-bank-begin context-target-bank)
   (gvector-add! *result-stack* *result*)
   (set! *result* (make-gvector))
+  (set! *result-base-addr* #f)
   (set! *result-target-bank* (syntax->datum context-target-bank)))
 
 (require "assemble.scm")
@@ -1684,7 +1687,9 @@
     (set! dat-filename (format "~a~a"     *res-out-file* *result-target-bank*))
     ; Output inner results to a file.
     (let ((f (open-output-file out-filename #:exists 'replace)))
-      (write-string ".org $8000\n" f)
+      (when (not *result-base-addr*)
+        (set! *result-base-addr* #x8000))
+      (write-string (format ".org $~x\n" *result-base-addr*) f)
       (for [(line *result*)]
            (write-string line f)
            (newline f))
@@ -1718,7 +1723,11 @@
                       (gvector-add! inner (format "~a = $~a" label address))))))
     (set! *result* (gvector-remove-last! *result-stack*))
     (set! *result* (list->gvector (append (gvector->list *result*)
-                                          (gvector->list inner))))))
+                                          (gvector->list inner))))
+    (set! *result-base-addr* #f)))
+
+(define (process-resource-base-address addr)
+  (set! *result-base-addr* (syntax->datum addr)))
 
 (define (has-label? line)
   (and (> (string-length line) 32)
@@ -2639,6 +2648,8 @@
             [(resource-bank) (process-resource-bank (lref rest 0))]
             [(resource-bank-begin) (process-resource-bank-begin (lref rest 0))]
             [(resource-bank-complete) (process-resource-bank-complete)]
+            [(resource-base-address) (process-resource-base-address
+                                       (lref rest 0))]
             [(loop-down-from) (process-loop-down (car rest) (cadr rest)
                                                  (cddr rest))]
             [(loop-up-to loop) (process-loop-up (car rest) (cadr rest)
