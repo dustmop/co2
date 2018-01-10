@@ -1304,8 +1304,13 @@
       ; Set scope name.
       (parameterize [(*scope-name* name)]
         ; Process body.
-        (for [(stmt body)]
-             (process-form stmt)))
+        (let ((final (if (null? body) #f (last body))))
+          (for [(stmt body)]
+               (if (eq? stmt final)
+                   (parameterize [(*opt-no-retval-form* #f)]
+                                 (process-form stmt))
+                   (parameterize [(*opt-no-retval-form* stmt)]
+                                 (process-form stmt))))))
       ; Pop scope.
       (sym-label-pop-scope)
       ; Return from function.
@@ -2718,8 +2723,9 @@
                                     (lref rest 2)))]
             [(cond) (process-cond form rest)]
             [(while) (process-while (car rest) (cdr rest))]
-            [(do) (let ((final (if (null? rest) #f (last rest))))
-                    (for [(stmt rest)]
+            [(do) (let* ((body rest)
+                         (final (if (null? body) #f (last body))))
+                    (for [(stmt body)]
                          (if (eq? stmt final)
                            (parameterize [(*opt-no-retval-form* #f)]
                                          (process-form stmt))
