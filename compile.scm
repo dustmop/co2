@@ -15,6 +15,7 @@
 ;; along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 (require data/gvector)
+(require racket/hash)
 (require "casla.scm")
 
 ;; internal compiler register on zero page
@@ -291,8 +292,11 @@
 (define *result-stack* (make-gvector))
 
 (define *result-target-bank* #f)
+(define *result-seen-banks* #f)
 
-(define *result-base-addr* 0)
+(define *result-bank-base-addr* 0)
+(define *result-bank-depend-sym* #f)
+(define *result-bank-defined-here* #f)
 
 (define (clear-result)
   (set! *result* (make-gvector)))
@@ -1242,7 +1246,9 @@
          (def (normalize-name name)))
     (emit-blank)
     (emit-context)
-    (emit (format "~a:" def))))
+    (emit (format "~a:" def))
+    (when *result-bank-defined-here*
+          (hash-set! *result-bank-defined-here* name #t))))
 
 (define (process-defbuffer name length)
   (let* ((def (normalize-name name))
@@ -1613,7 +1619,8 @@
     (emit-label break-label)))
 
 (define (process-bytes args)
-  (let ((build (make-gvector)))
+  (let ((build (make-gvector))
+        (depend (make-hash)))
     (define (add-elem-to-vector elem)
       (cond
        [(number? elem) (gvector-add! build (format "$~x" elem))]
@@ -1622,6 +1629,7 @@
        [(symbol? elem)
         (let ((lookup (sym-label-lookup elem))
               (normal (normalize-name elem)))
+          (hash-set! depend elem #t)
           (cond
            [(const? elem) (gvector-add! build normal)]
            [(metavar? elem) (gvector-add! build
@@ -1639,7 +1647,11 @@
     (for [(context-elem args)]
          (let ((elem (syntax->datum context-elem)))
            (add-elem-to-vector elem)))
-    (emit (string-append ".byte " (string-join (gvector->list build) ",")))))
+    (emit (string-append ".byte " (string-join (gvector->list build) ",")))
+    ; Add symbols in `depend` into the list of those the resource bank needs.
+    (when *result-bank-depend-sym*
+      (hash-union! *result-bank-depend-sym* depend
+                   #:combine/key (lambda (k v1 v2) v1)))))
 
 (define (process-include context-filename)
   (when (not *include-base*)
@@ -1669,14 +1681,47 @@
 (define (process-resource-bank-begin context-target-bank)
   (gvector-add! *result-stack* *result*)
   (set! *result* (make-gvector))
-  (set! *result-base-addr* #f)
+  (set! *result-bank-base-addr* #f)
+  (set! *result-bank-depend-sym* (make-hash))
+  (set! *result-bank-defined-here* (make-hash))
   (set! *result-target-bank* (syntax->datum context-target-bank)))
 
 (require "assemble.scm")
 
+(define (read-listing-file filename)
+  (let ((result (make-gvector))
+        (lines #f) (address #f) (label #f) (m #f))
+    (set! lines (file->lines filename))
+    (for ([line lines])
+         (set! address #f)
+         (set! label #f)
+         (if (has-label? line)
+             (begin (set! address (substring line 1 5))
+                    (set! label (get-label line))
+                    (gvector-add! result (list label address)))
+             (begin (set! m (match-equ line))
+                    (when m
+                      (set! label (list-ref m 1))
+                      (set! address (list-ref m 2))
+                      (gvector-add! result (list label address))))))
+    (gvector->list result)))
+
+(define (read-extern-labels)
+  (let ((lst-filename #f)
+        (result (make-hash))
+        (inner #f))
+    (when *result-seen-banks*
+          (for [(num *result-seen-banks*)]
+               (set! lst-filename (format "~a~a.lst" *res-out-file* num))
+               (set! inner (read-listing-file lst-filename))
+               (for [(pair inner)]
+                    (hash-set! result (first pair)
+                               (format "$~a" (second pair))))))
+    result))
+
 (define (process-resource-bank-complete)
   (let ((out-filename #f) (rom-filename #f) (lst-filename #f) (dat-filename #f)
-        (lines #f) (inner #f) (address #f) (label #f) (m #f))
+        (lines #f) (inner #f) (address #f) (label #f) (m #f) (extern-labels #f))
     ; TODO: Refactor
     (when (has-errors?)
           (display-errors)
@@ -1687,12 +1732,30 @@
     (set! dat-filename (format "~a~a"     *res-out-file* *result-target-bank*))
     ; Output inner results to a file.
     (let ((f (open-output-file out-filename #:exists 'replace)))
-      (when (not *result-base-addr*)
-        (set! *result-base-addr* #x8000))
-      (write-string (format ".org $~x\n" *result-base-addr*) f)
+      (when (not *result-bank-base-addr*)
+        (set! *result-bank-base-addr* #x8000))
+      (write-string (format ".org $~x\n" *result-bank-base-addr*) f)
       (for [(line *result*)]
            (write-string line f)
            (newline f))
+      ; Handled depended symbols.
+      (for [(sym (hash-keys *result-bank-depend-sym*))]
+           (let ((lookup (sym-label-lookup sym))
+                 (norm (normalize-name sym))
+                 (val #f))
+             (cond
+              [(const? sym) (set! val (sym-label-address lookup))]
+              [(metavar? sym) (set! val (sym-label-address lookup))]
+              [(address? sym) (when (not extern-labels)
+                                    (set! extern-labels (read-extern-labels)))
+                              (if (hash-has-key? extern-labels norm)
+                                  (set! val (hash-ref extern-labels norm))
+                                  (set! val "$0000"))]
+              [else (error (format "Don't know how to output ~a" sym))])
+             (when (hash-has-key? *result-bank-defined-here* sym)
+                   (set! val #f))
+             (when val
+                   (write-string (format "~a = ~a\n" norm val) f))))
       (close-output-port f))
     ; Assemble file.
     (assemble out-filename rom-filename)
@@ -1707,27 +1770,18 @@
       (close-input-port fin)
       (close-output-port fout))
     ; Process listing file.
-    (set! inner (make-gvector))
-    (set! lines (file->lines lst-filename))
-    (for ([line lines])
-         (set! address #f)
-         (set! label #f)
-         (if (has-label? line)
-             (begin (set! address (substring line 1 5))
-                    (set! label (get-label line))
-                    (gvector-add! inner (format "~a = $~a" label address)))
-             (begin (set! m (match-equ line))
-                    (when m
-                      (set! label (list-ref m 1))
-                      (set! address (list-ref m 2))
-                      (gvector-add! inner (format "~a = $~a" label address))))))
+    (set! inner (read-listing-file lst-filename))
+    (when (not *result-seen-banks*) (set! *result-seen-banks* (list)))
+    (set! *result-seen-banks* (cons *result-target-bank* *result-seen-banks*))
     (set! *result* (gvector-remove-last! *result-stack*))
     (set! *result* (list->gvector (append (gvector->list *result*)
-                                          (gvector->list inner))))
-    (set! *result-base-addr* #f)))
+                                          (map pair-to-equ inner))))
+    (set! *result-bank-base-addr* #f)
+    (set! *result-bank-depend-sym* #f)
+    (set! *result-bank-defined-here* #f)))
 
 (define (process-resource-base-address addr)
-  (set! *result-base-addr* (syntax->datum addr)))
+  (set! *result-bank-base-addr* (syntax->datum addr)))
 
 (define (has-label? line)
   (and (> (string-length line) 32)
@@ -1740,6 +1794,9 @@
 
 (define (get-label line)
   (cadr (regexp-match #px"^([\\w]+):" (substring line 32))))
+
+(define (pair-to-equ pair)
+  (format "~a = $~a" (first pair) (second pair)))
 
 (define (process-loop-down context-reg context-start body)
   (assert context-reg syntax?)
