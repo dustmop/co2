@@ -1303,14 +1303,7 @@
                    (emit 'sta (arg->str p)))))
       ; Set scope name.
       (parameterize [(*scope-name* name)]
-        ; Process body.
-        (let ((final (if (null? body) #f (last body))))
-          (for [(stmt body)]
-               (if (eq? stmt final)
-                   (parameterize [(*opt-no-retval-form* #f)]
-                                 (process-form stmt))
-                   (parameterize [(*opt-no-retval-form* stmt)]
-                                 (process-form stmt))))))
+        (process-body-statements body))
       ; Pop scope.
       (sym-label-pop-scope)
       ; Return from function.
@@ -1603,8 +1596,7 @@
   (assert body list?)
   (let* ((label (syntax->datum context-label))
          (start-label (generate-label (symbol->string label)))
-         (break-label (generate-label (symbol->string label)))
-         (final (if (null? body) #f (last body))))
+         (break-label (generate-label (symbol->string label))))
     ; Label for the start of the block.
     (emit-label start-label)
     ; Push scope for local label.
@@ -1612,12 +1604,7 @@
     (make-label! label start-label)
     (make-label! '#:break break-label)
     ; Process body.
-    (for [(stmt body)]
-         (if (eq? stmt final)
-             (parameterize [(*opt-no-retval-form* #f)]
-                           (process-form stmt))
-             (parameterize [(*opt-no-retval-form* stmt)]
-                           (process-form stmt))))
+    (process-body-statements body)
     ; Pop scope.
     (sym-label-pop-scope)
     ; Label that #:break goes to.
@@ -1837,8 +1824,7 @@
     (let ((loop-label (generate-label "loop_down_from")))
       (emit-label loop-label)
       ; TODO: Disallow `reg` changes within `body`
-      (for [(stmt body)]
-           (process-form stmt))
+      (process-body-statements body)
       (emit-context)
       (if (register? iter)
           (emit (format "  de~a" iter))
@@ -1880,8 +1866,7 @@
                (emit 'sta (arg->str iter))))
     (emit-label loop-label)
     ; TODO: Disallow `reg` changes within `body`
-    (for [(stmt body)]
-         (process-form stmt))
+    (process-body-statements body)
     (emit-context)
     ; Increment and compare to sentinal value.
     (if inclusive
@@ -1942,8 +1927,7 @@
             [else
                (add-error "NOT IMPLEMENTED: bind" value)])))
     ; Process body.
-    (for [(stmt body)]
-         (process-form stmt))
+    (process-body-statements body)
     ; Pop scope.
     (sym-label-pop-scope)))
 
@@ -2242,8 +2226,7 @@
     (emit 'jmp done-label)
     ; Truth case of the `while`.
     (emit-label body-label)
-    (for [(stmt body)]
-         (process-form stmt))
+    (process-body-statements body)
     (emit 'jmp start-label)
     (emit-label done-label)))
 
@@ -2650,6 +2633,15 @@
                                         (process-form wrapped))
                           (process-form wrapped)))]))
 
+(define (process-body-statements body)
+  (let ((final (if (null? body) #f (last body))))
+    (for [(stmt body)]
+         (if (eq? stmt final)
+             (parameterize [(*opt-no-retval-form* #f)]
+                           (process-form stmt))
+             (parameterize [(*opt-no-retval-form* stmt)]
+                           (process-form stmt))))))
+
 (define (process-with-args func args num-needed)
   (if (< (length args) num-needed)
       (add-error (format "Need ~a arguments, only got ~a, for"
@@ -2730,14 +2722,7 @@
                                     (lref rest 2)))]
             [(cond) (process-cond form rest)]
             [(while) (process-while (car rest) (cdr rest))]
-            [(do) (let* ((body rest)
-                         (final (if (null? body) #f (last body))))
-                    (for [(stmt body)]
-                         (if (eq? stmt final)
-                           (parameterize [(*opt-no-retval-form* #f)]
-                                         (process-form stmt))
-                           (parameterize [(*opt-no-retval-form* stmt)]
-                                         (process-form stmt)))))]
+            [(do) (process-body-statements rest)]
             [(return) (process-return (lref rest 0) (lref rest 1)
                                       (lref rest 2))]
             [(peek) (process-peek (lref rest 0) (lref rest 1))]
