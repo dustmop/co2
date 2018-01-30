@@ -1239,7 +1239,22 @@
          (value (sym-label-address sym-label)))
     (emit-blank)
     (emit-context)
-    (emit (format "~a = $~a" def (left-pad (number->string value 16) #\0 2)))))
+    (cond
+     [(number? value)
+        (let ((repr #f))
+          (set! repr (left-pad (number->string value 16) #\0 2))
+          (emit (format "~a = $~a" def repr)))]
+     [(and (list? value) (eq? (first value) '+))
+        (let ((left #f) (right #f))
+          ; TOOD: Error handling.
+          (set! left (resolve-arg (second value) #:even-const #t))
+          (set! right (resolve-arg (third value) #:even-const #t))
+          (set! value (+ left right))
+          ; Override the old value.
+          (make-const! name value)
+          (emit (format "~a = ~a" def value)))]
+     [else
+        (error (format "Cannot define constant using ~a" value))])))
 
 (define (process-deflabel context-name)
   (let* ((name (syntax->datum context-name))
