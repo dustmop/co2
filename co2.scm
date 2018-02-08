@@ -7,17 +7,20 @@
 
 
 (define set-out (make-parameter #f))
-(define set-asm (make-parameter #f))
+(define set-aout (make-parameter #f))
+(define set-assembler (make-parameter #f))
 
 
 (let* ((in-file (command-line
                  #:program "co2"
                  #:once-each
                  [("-o" "--output") out "output ROM filename" (set-out out)]
-                 [("-a" "--assembly") asm "assembly generated" (set-asm asm)]
+                 [("-a" "--assembly") aout "assembly generated" (set-aout aout)]
+                 [("--asm") asm "assembly generated" (set-assembler asm)]
                  #:args (input) input))
-       (asm-file (set-asm))
+       (asm-file (set-aout))
        (out-file (set-out))
+       (assembler (set-assembler))
        (lst-file #f)
        (nl-file #f))
   (when (not out-file)
@@ -35,7 +38,9 @@
   (compile-co2 in-file asm-file)
   ; Assemble
   (printf "co2: assemble ~a => ~a\n" asm-file out-file)
-  (assemble asm-file out-file)
+  (if assembler
+      (assemble asm-file out-file #:assembler assembler)
+      (assemble asm-file out-file))
   ; Generate nl file
   (printf "co2: gen-nl ~a => ~a\n" lst-file nl-file)
   (generate-nl lst-file nl-file)
