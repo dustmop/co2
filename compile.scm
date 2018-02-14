@@ -1246,7 +1246,7 @@
           (emit (format "~a = $~a" def repr)))]
      [(and (list? value) (eq? (first value) '+))
         (let ((left #f) (right #f))
-          ; TOOD: Error handling.
+          ; TODO: Error handling.
           (set! left (resolve-arg (second value) #:even-const #t))
           (set! right (resolve-arg (third value) #:even-const #t))
           (set! value (+ left right))
@@ -1255,6 +1255,15 @@
           (emit (format "~a = ~a" def value)))]
      [else
         (error (format "Cannot define constant using ~a" value))])))
+
+(define (process-defenum context-name syms)
+  (let ((name (syntax->datum context-name)))
+    (for [(context-sym syms) (i (in-naturals))]
+         (let* ((name (syntax->datum context-sym))
+                (def (normalize-name name))
+                (repr (left-pad (number->string i 16) #\0 2)))
+           (make-const! name i)
+           (emit (format "~a = $~a" def repr))))))
 
 (define (process-deflabel context-name)
   (let* ((name (syntax->datum context-name))
@@ -2698,6 +2707,7 @@
                                                       #:mapper #:mirroring)))]
             [(init-system) (built-in-init-system)]
             [(defconst) (apply process-defconst (unwrap-args rest 2 0))]
+            [(defenum) (process-defenum (car rest) (cdr rest))]
             [(defaddr) (apply process-defaddr (unwrap-args rest 2 0))]
             [(defvar) (apply process-defvar (unwrap-args rest 1 1))]
             [(defword) (apply process-defword (unwrap-args rest 1 1))]
@@ -2854,6 +2864,13 @@
          (value (syntax->datum context-value)))
     (make-const! name value)))
 
+(define (analyze-defenum context-name rest)
+  (assert context-name syntax?)
+  (let* ((name (syntax->datum context-name)))
+    (for [(context-sym rest) (i (in-naturals))]
+         (let* ((sym (syntax->datum context-sym)))
+           (make-const! sym i)))))
+
 (define (analyze-defaddr context-name context-value)
   (assert context-name syntax?)
   (let* ((name (syntax->datum context-name))
@@ -2900,6 +2917,7 @@
             [(defword) (analyze-defword (car rest))]
             [(deflabel) (analyze-deflabel (car rest))]
             [(defconst) (analyze-defconst (car rest) (cadr rest))]
+            [(defenum) (analyze-defenum (car rest) (cdr rest))]
             [(defaddr) (analyze-defaddr (car rest) (cadr rest))]
             [(defbuffer) (analyze-defbuffer (car rest) (cadr rest))]
             [(defresource) (analyze-defresource (car rest) (cadr rest))]
