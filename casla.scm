@@ -73,5 +73,21 @@
                 (gvector-add! result (list name l (+ k i))))))
     (gvector->list result)))
 
+
+(define (show-call-graph func-name indent)
+  (printf "~a~a" (make-string indent #\Space) func-name)
+  (let* ((f (hash-ref *func-nodes* func-name))
+         (name (func-node-name f))
+         (locals (func-node-locals f))
+         (calls (func-node-calls f))
+         (memory (func-node-memory f)))
+    (if (> (length calls) 4)
+        (printf " -> (~a ~a ~a ~a ...)\n" (list-ref calls 0) (list-ref calls 1)
+                (list-ref calls 2) (list-ref calls 3))
+        (printf " -> ~a\n" calls))
+    (for [(fcall calls)]
+         (show-call-graph fcall (+ indent 1)))))
+
 (provide make-func-node!)
 (provide casla->allocations)
+(provide show-call-graph)

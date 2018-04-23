@@ -4,11 +4,13 @@
 (require "compile.scm")
 (require "assemble.scm")
 (require "generate-nl.scm")
+(require "casla.scm")
 
 
 (define set-out (make-parameter #f))
 (define set-aout (make-parameter #f))
 (define set-assembler (make-parameter #f))
+(define set-call-graph (make-parameter #f))
 
 
 (let* ((in-file (command-line
@@ -17,10 +19,12 @@
                  [("-o" "--output") out "output ROM filename" (set-out out)]
                  [("-a" "--assembly") aout "assembly generated" (set-aout aout)]
                  [("--asm") asm "assembly generated" (set-assembler asm)]
+                 [("--call-graph") "call graph" (set-call-graph #t)]
                  #:args (input) input))
        (asm-file (set-aout))
        (out-file (set-out))
        (assembler (set-assembler))
+       (show-cg (set-call-graph))
        (lst-file #f)
        (nl-file #f))
   (when (not out-file)
@@ -36,6 +40,11 @@
   ; Compile
   (printf "co2: compile ~a => ~a\n" in-file asm-file)
   (compile-co2 in-file asm-file)
+  ; Maybe show the call graph, then exit.
+  (when show-cg
+        (printf "========================================\n")
+        (show-call-graph 'reset 0)
+        (exit 1))
   ; Assemble
   (printf "co2: assemble ~a => ~a\n" asm-file out-file)
   (if assembler
