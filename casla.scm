@@ -28,12 +28,13 @@
 
 (define *func-nodes* (make-hash))
 
-(struct func-node (name locals calls [memory #:mutable]))
+(struct func-node (name locals calls [memory #:mutable]
+                        [in-call #:mutable] [under-call #:mutable]))
 
 ; Keep track of function name, its locals and parameters, and its callees.
 ; Called by compiler after it finishes processing each function body.
 (define (make-func-node! name locals calls)
-  (hash-set! *func-nodes* name (func-node name locals calls #f)))
+  (hash-set! *func-nodes* name (func-node name locals calls #f 0 #f)))
 
 ; Recursively resolve each function and its callees. Implicitly builds a total
 ; call graph of the entire program.
@@ -73,7 +74,6 @@
                 (gvector-add! result (list name l (+ k i))))))
     (gvector->list result)))
 
-
 (define (show-call-graph func-name indent)
   (printf "~a~a" (make-string indent #\Space) func-name)
   (let* ((f (hash-ref *func-nodes* func-name))
@@ -88,6 +88,54 @@
     (for [(fcall calls)]
          (show-call-graph fcall (+ indent 1)))))
 
+; Count number of calls to each function
+; Count cummulative calls for each function (sum of children)
+; size in bytes? (no way to do this right now)
+; data-dependency needs to be considered
+
+(define (analyze-call-graph)
+  (calc-in-calls 'reset (make-hash))
+  (calc-under-calls 'reset)
+  (show-analyzed 'reset 0 (make-hash)))
+
+;
+(define (calc-in-calls func-name seen)
+  (when (not (hash-has-key? seen func-name))
+    (hash-set! seen func-name #t)
+    (let* ((f (hash-ref *func-nodes* func-name))
+           (calls (func-node-calls f))
+           (child #f))
+      (for [(fcall calls)]
+           (set! child (hash-ref *func-nodes* fcall))
+           (set-func-node-in-call! child (+ 1 (func-node-in-call child)))
+           (calc-in-calls fcall seen)))))
+
+;
+(define (calc-under-calls func-name)
+  (let* ((f (hash-ref *func-nodes* func-name))
+         (calls (func-node-calls f))
+         (total (func-node-under-call f)))
+    (when (not total)
+      (set! total 0)
+      (for [(fcall calls)]
+           (set! total (+ total (calc-under-calls fcall))))
+      (set! total (+ total (length calls)))
+      (set-func-node-under-call! f total))
+    total))
+
+;
+(define (show-analyzed func-name indent seen)
+  (when (not (hash-has-key? seen func-name))
+    (hash-set! seen func-name #t)
+    (let* ((f (hash-ref *func-nodes* func-name))
+           (calls (func-node-calls f))
+           (in-call (func-node-in-call f))
+           (under-call (func-node-under-call f)))
+      (printf "in: ~a under: ~a ~a\n" in-call under-call func-name)
+      (for [(fcall calls)]
+           (show-analyzed fcall (+ indent 1) seen)))))
+
 (provide make-func-node!)
 (provide casla->allocations)
 (provide show-call-graph)
+(provide analyze-call-graph)

@@ -11,7 +11,7 @@
 (define set-aout (make-parameter #f))
 (define set-assembler (make-parameter #f))
 (define set-call-graph (make-parameter #f))
-
+(define set-analyze-calls (make-parameter #f))
 
 (let* ((in-file (command-line
                  #:program "co2"
@@ -20,11 +20,13 @@
                  [("-a" "--assembly") aout "assembly generated" (set-aout aout)]
                  [("--asm") asm "assembly generated" (set-assembler asm)]
                  [("--call-graph") "call graph" (set-call-graph #t)]
+                 [("--analyze-calls") "analyze calls" (set-analyze-calls #t)]
                  #:args (input) input))
        (asm-file (set-aout))
        (out-file (set-out))
        (assembler (set-assembler))
        (show-cg (set-call-graph))
+       (analyze-calls (set-analyze-calls))
        (lst-file #f)
        (nl-file #f))
   (when (not out-file)
@@ -45,6 +47,11 @@
         (printf "========================================\n")
         (show-call-graph 'reset 0)
         (exit 1))
+  ; Maybe analyze the call graph.
+  (when analyze-calls
+        (printf "========================================\n")
+        (analyze-call-graph)
+        (exit 1))
   ; Assemble
   (printf "co2: assemble ~a => ~a\n" asm-file out-file)
   (if assembler
@@ -54,4 +61,3 @@
   (printf "co2: gen-nl ~a => ~a\n" lst-file nl-file)
   (generate-nl lst-file nl-file)
   (printf "co2 done\n"))
-
