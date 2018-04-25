@@ -29,12 +29,13 @@
 (define *func-nodes* (make-hash))
 
 (struct func-node (name locals calls [memory #:mutable]
-                        [in-call #:mutable] [under-call #:mutable]))
+                        [in-call #:mutable] [under-call #:mutable]
+                        [data-dep #:mutable]))
 
 ; Keep track of function name, its locals and parameters, and its callees.
 ; Called by compiler after it finishes processing each function body.
 (define (make-func-node! name locals calls)
-  (hash-set! *func-nodes* name (func-node name locals calls #f 0 #f)))
+  (hash-set! *func-nodes* name (func-node name locals calls #f 0 #f #f)))
 
 ; Recursively resolve each function and its callees. Implicitly builds a total
 ; call graph of the entire program.
@@ -96,6 +97,7 @@
 (define (analyze-call-graph)
   (calc-in-calls 'reset (make-hash))
   (calc-under-calls 'reset)
+  (calc-data-dep 'reset (make-hash))
   (show-analyzed 'reset 0 (make-hash)))
 
 ;
@@ -123,6 +125,28 @@
       (set-func-node-under-call! f total))
     total))
 
+(define (calc-data-dep func-name seen)
+  (when (not (hash-has-key? seen func-name))
+    (hash-set! seen func-name #t)
+    (let* ((f (hash-ref *func-nodes* func-name))
+           (calls (func-node-calls f))
+           (child #f)
+           (depends-on-data #f)
+           (depends-load-far-pointer #f))
+      (for [(fcall calls)]
+           (calc-data-dep fcall seen)
+           (when (eq? fcall 'load-far-pointer)
+                 (set! depends-load-far-pointer #t))
+           (when (eq? fcall 'mmc1-prg-bank)
+                 (set! depends-on-data #t))
+           (set! child (hash-ref *func-nodes* fcall))
+           ;(when (eq? (func-node-data-dep child) 1)
+           ;      (set! depends-on-data #t))
+           )
+      (when depends-load-far-pointer
+            (set! depends-on-data #f))
+      (set-func-node-data-dep! f (if depends-on-data 1 0)))))
+
 ;
 (define (show-analyzed func-name indent seen)
   (when (not (hash-has-key? seen func-name))
@@ -130,8 +154,10 @@
     (let* ((f (hash-ref *func-nodes* func-name))
            (calls (func-node-calls f))
            (in-call (func-node-in-call f))
-           (under-call (func-node-under-call f)))
-      (printf "in: ~a under: ~a ~a\n" in-call under-call func-name)
+           (under-call (func-node-under-call f))
+           (data-dep (func-node-data-dep f)))
+      (printf "~a in: ~a under: ~a~a\n" func-name in-call
+              under-call (if (eq? data-dep 1) " DEPENDS-ON-DATA" ""))
       (for [(fcall calls)]
            (show-analyzed fcall (+ indent 1) seen)))))
 
