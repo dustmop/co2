@@ -2453,6 +2453,8 @@
              (emit 'adc "#0"))))
 
 (define (mem-optimize-index index)
+  ; TODO: Add comments to this function explaining what it's doing.
+  ; TODO: Add more tests.
   (if (and (list? index) (eq? (length index) 3) (eq? (car index) '+))
       (let ((first (cadr index))
             (second (caddr index))
@@ -2471,6 +2473,8 @@
                        (set! resolved (format "~a+~a" resolved second))
                        (set! resolved second)))
             (set! var second))
+        (when (and (list? second) (eq? (car second) 'and))
+          (set! pass 0))
         (if (>= pass 1)
             (list resolved var)
             #f))
