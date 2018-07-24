@@ -1178,6 +1178,8 @@
    [(eq? instr 'beq) 'bne]
    [(eq? instr 'bcc) 'bcs]
    [(eq? instr 'bcs) 'bcc]
+   [(eq? instr 'bmi) 'bpl]
+   [(eq? instr 'bpl) 'bmi]
    [else (error (format "Don't know how to invert condition ~a" instr))]))
 
 (define (boolean? obj)
