@@ -2370,19 +2370,21 @@
              (emit-label is-label)
              (emit 'lda "#$ff")
              (emit-label done-label))]
-      [(<) (emit 'cmp (arg->str rhs))
-           (if (*opt-mode*)
-               (set-optimize! 'branch-instr 'bcc)
-               (let ((is-label (generate-label "is_lt"))
-                     (done-label (generate-label "done_lt")))
-                 (emit 'bcc is-label)
-                 ; Not less-than
-                 (emit 'lda "#0")
-                 (emit 'jmp done-label)
-                 ; Is less-than
-                 (emit-label is-label)
-                 (emit 'lda "#$ff")
-                 (emit-label done-label)))]
+      [(<) (if (and (*opt-mode*) (eq? right #x80))
+               (set-optimize! 'branch-instr 'bpl)
+               (begin (emit 'cmp (arg->str rhs))
+                      (if (*opt-mode*)
+                          (set-optimize! 'branch-instr 'bcc)
+                          (let ((is-label (generate-label "is_lt"))
+                                (done-label (generate-label "done_lt")))
+                            (emit 'bcc is-label)
+                            ; Not less-than
+                            (emit 'lda "#0")
+                            (emit 'jmp done-label)
+                            ; Is less-than
+                            (emit-label is-label)
+                            (emit 'lda "#$ff")
+                            (emit-label done-label)))))]
       [(>s) (let ((not-label (generate-label "not_gt"))
                   (is-label (generate-label "is_gt"))
                   (done-label (generate-label "done_gt")))
@@ -2408,19 +2410,21 @@
               (emit-label is-label)
               (emit 'lda "#$ff")
               (emit-label done-label))]
-      [(>=) (emit 'cmp (arg->str rhs))
-            (if (*opt-mode*)
-                (set-optimize! 'branch-instr 'bcs)
-                (let ((is-label (generate-label "is_gt"))
-                      (done-label (generate-label "done_gt")))
-                  (emit 'bcs is-label)
-                  ; Not greater-than
-                  (emit 'lda "#0")
-                  (emit 'jmp done-label)
-                  ; Is greater-than
-                  (emit-label is-label)
-                  (emit 'lda "#$ff")
-                  (emit-label done-label)))]
+      [(>=) (if (and (*opt-mode*) (eq? right #x80))
+                (set-optimize! 'branch-instr 'bmi)
+                (begin (emit 'cmp (arg->str rhs))
+                       (if (*opt-mode*)
+                           (set-optimize! 'branch-instr 'bcs)
+                           (let ((is-label (generate-label "is_gt"))
+                                 (done-label (generate-label "done_gt")))
+                             (emit 'bcs is-label)
+                             ; Not greater-than
+                             (emit 'lda "#0")
+                             (emit 'jmp done-label)
+                             ; Is greater-than
+                             (emit-label is-label)
+                             (emit 'lda "#$ff")
+                             (emit-label done-label)))))]
       [(<=) (let ((is-label (generate-label "is_lt"))
                   (done-label (generate-label "done_lt")))
               (emit 'cmp (arg->str rhs))

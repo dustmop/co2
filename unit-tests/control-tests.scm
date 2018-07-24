@@ -1063,3 +1063,63 @@
                 "  lda #$ff"
                 "_done_lt_0008:"
                 "_if_done_0003:"))
+
+(check-equal? (compile-code '(if (< n #x80) 1 2))
+              '("  lda n"
+                "  cmp #$80"
+                "  bcc _is_lt_0004"
+                "  lda #0"
+                "  jmp _done_lt_0005"
+                "_is_lt_0004:"
+                "  lda #$ff"
+                "_done_lt_0005:"
+                "  bne _truth_case_0001"
+                "  jmp _false_case_0002"
+                "_truth_case_0001:"
+                "  lda #$1"
+                "  jmp _if_done_0003"
+                "_false_case_0002:"
+                "  lda #$2"
+                "_if_done_0003:"))
+
+(check-equal? (compile-code-with-optimizations '(if (< n #x80) 1 2))
+              '("  lda n"
+                "  bpl _truth_case_0001"
+                "_long_jump_0004:"
+                "  jmp _false_case_0002"
+                "_truth_case_0001:"
+                "  lda #$1"
+                "  jmp _if_done_0003"
+                "_false_case_0002:"
+                "  lda #$2"
+                "_if_done_0003:"))
+
+(check-equal? (compile-code '(if (>= n #x80) 1 2))
+              '("  lda n"
+                "  cmp #$80"
+                "  bcs _is_gt_0004"
+                "  lda #0"
+                "  jmp _done_gt_0005"
+                "_is_gt_0004:"
+                "  lda #$ff"
+                "_done_gt_0005:"
+                "  bne _truth_case_0001"
+                "  jmp _false_case_0002"
+                "_truth_case_0001:"
+                "  lda #$1"
+                "  jmp _if_done_0003"
+                "_false_case_0002:"
+                "  lda #$2"
+                "_if_done_0003:"))
+
+(check-equal? (compile-code-with-optimizations '(if (>= n #x80) 1 2))
+              '("  lda n"
+                "  bmi _truth_case_0001"
+                "_long_jump_0004:"
+                "  jmp _false_case_0002"
+                "_truth_case_0001:"
+                "  lda #$1"
+                "  jmp _if_done_0003"
+                "_false_case_0002:"
+                "  lda #$2"
+                "_if_done_0003:"))
