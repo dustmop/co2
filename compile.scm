@@ -142,7 +142,8 @@
 
 (struct sym-label (sym name address kind))
 
-(define (make-variable! sym #:label [label #f] #:global [global #f])
+(define (make-variable! sym #:label [label #f] #:global [global #f]
+                            #:addr [addr #f])
   (let* ((name (normalize-name sym))
          (n var-allocation)
          (table (car sym-label-defs)))
@@ -154,10 +155,12 @@
           (set! table (get-global sym-label-defs)))
     (when label
           (set! name label))
-    (when (not (hash-has-key? table sym))
-          (hash-set! table sym (sym-label sym name n 'var))
-          (when (not label)
-            (set! var-allocation (+ 1 var-allocation))))
+    (if addr
+        (hash-set! table sym (sym-label sym name addr 'var))
+        (when (not (hash-has-key? table sym))
+              (hash-set! table sym (sym-label sym name n 'var))
+              (when (not label)
+                    (set! var-allocation (+ 1 var-allocation)))))
     (hash-ref table sym)))
 
 (define (make-local! sym scope)
@@ -1204,6 +1207,15 @@
     (when (not (= value 0))
           (emit 'lda (format "#$~x" value))
           (emit 'sta def))))
+
+(define (process-defvarmem name addr)
+  ; Created by analyze-defvarmem, get the sym-label.
+  (let* ((def (normalize-name name))
+         (sym-label (sym-label-lookup name))
+         (addr (sym-label-address sym-label)))
+    (emit-blank)
+    (emit-context)
+    (emit (format "~a = $~a" def (left-pad (number->string addr 16) #\0 2)))))
 
 (define (process-defword name)
   ; Created by analyze-defword, get the sym-label.
@@ -2714,6 +2726,7 @@
             [(defenum) (process-defenum (car rest) (cdr rest))]
             [(defaddr) (apply process-defaddr (unwrap-args rest 2 0))]
             [(defvar) (apply process-defvar (unwrap-args rest 1 1))]
+            [(defvarmem) (apply process-defvarmem (unwrap-args rest 2 0))]
             [(defword) (apply process-defword (unwrap-args rest 1 1))]
             [(defpointer) (apply process-defpointer (unwrap-args rest 1 0))]
             [(defsub) (process-proc 'sub (car rest) (cdr rest))]
@@ -2857,6 +2870,13 @@
   (let* ((name (syntax->datum context-name)))
     (make-variable! name #:global #t)))
 
+(define (analyze-defvarmem context-name context-addr)
+  (assert context-name syntax?)
+  (assert context-addr syntax?)
+  (let* ((name (syntax->datum context-name))
+         (addr (syntax->datum context-addr)))
+    (make-variable! name #:addr addr)))
+
 (define (analyze-defword context-name)
   (assert context-name syntax?)
   (let* ((name (syntax->datum context-name)))
@@ -2917,6 +2937,7 @@
             [(defsub) (analyze-proc (car rest) (cdr rest))]
             [(defvector) (analyze-proc (car rest) (cdr rest))]
             [(defvar) (analyze-defvar (car rest))]
+            [(defvarmem) (analyze-defvarmem (car rest) (cadr rest))]
             [(defpointer) (analyze-defpointer (car rest))]
             [(defword) (analyze-defword (car rest))]
             [(deflabel) (analyze-deflabel (car rest))]
