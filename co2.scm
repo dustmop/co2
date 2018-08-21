@@ -38,7 +38,7 @@
         (when (not (directory-exists? ".b"))
               (make-directory ".b")))
   (set! lst-file (string-replace asm-file ".asm" ".lst"))
-  (set! nl-file (string-replace out-file ".nes" ".nes.0.nl"))
+  (set! nl-file (string-replace out-file ".nes" ".nes.%d.nl"))
   ; Compile
   (printf "co2: compile ~a => ~a\n" in-file asm-file)
   (compile-co2 in-file asm-file)
