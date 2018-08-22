@@ -3106,10 +3106,12 @@
     result))
 
 (define (read-resource-bytes filename)
-  (let ((f (open-input-file filename)))
-    (if (string-endswith filename ".asm")
-        (read-assembly-bytes f)
-        (list->vector (bytes->list (port->bytes f))))))
+  (let ((f (open-input-file filename)) (result #f))
+    (set! result (if (string-endswith filename ".asm")
+                     (read-assembly-bytes f)
+                     (list->vector (bytes->list (port->bytes f)))))
+    (close-input-port f)
+    result))
 
 (define (flush-resource-file data fout)
   (let ((padding (make-vector (- #x4000 (vector-length data)) 0)))
