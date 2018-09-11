@@ -1078,10 +1078,7 @@
     (emit (format ".byte $~x" third-byte))
     (emit (format ".byte ~a"
                   (string-join (build-list 9 (lambda (x) "$0")) ",")))
-    (emit "")
-    (when (not *user-specified-org*)
-      (emit ".org $c000")
-      (emit ""))))
+    (emit "")))
 
 (define (built-in-init-system)
   ;; disable interrupts while we set stuff up
@@ -1995,21 +1992,34 @@
        ; emit proper control instructions to both be efficient and avoid
        ; branch overflows.
        [(and (eq? branch-instr 'fall-through-to-true) long-label)
+          ; This case is used when the condition is an `and` clause of boolean
+          ; expressions that compiled as short-circuited tests. Such as:
+          ; (if (and (>= n 10) (< n 20)) ...)
           (emit 'jmp truth-label)
           (emit-label long-label)
           (emit 'jmp false-label)]
        [(and (eq? branch-instr 'fall-through-to-false) long-label)
+          ; This case is used when the condition is a `not` command wrapping
+          ; the type of condition described above. For example:
+          ; (if (not (and (>= n 10) (< n 20))) ...)
           (emit 'jmp false-label)
           (emit-label long-label)
           (emit 'jmp truth-label)]
        [(not (eq? branch-instr 'fall-through-to-true))
-          (emit branch-instr truth-label)
-          (when long-label
-            (emit-label long-label))
-          (emit 'jmp false-label)]))
+          ; This case is used most of the time.
+          ; Estimate the size of the truth-case, and see if a short branch
+          ; can be used to skip the truth-case.
+          (if (can-use-short-branch-to-false context-truth)
+              (emit (invert-condition branch-instr) false-label)
+              (begin (emit branch-instr truth-label)
+                     (when long-label
+                           (emit-label long-label))
+                     (emit 'jmp false-label)))]))
     ; Truth case.
     (emit-label truth-label)
     (process-argument context-truth #:skip-context #t)
+    ; TODO: If the argument can return how it ended, use that for a branch
+    ; instead of a jump.
     (emit 'jmp done-label)
     ; False case.
     (emit-label false-label)
@@ -2033,6 +2043,22 @@
                                   single)]
          [(< count (length inner)) (lref inner count)]
          [else #f]))))
+
+(define (can-use-short-branch-to-false context-body)
+  (if (optimization-enabled? 'if)
+      (let ((body (syntax->datum context-body)))
+        (let ((size (estimate-size body)))
+          (< size 5)))
+      #f))
+
+(define (estimate-size body)
+  (if (null? body)
+      0
+      (if (not (list? body))
+          1
+          (let ((head (car body))
+                (tail (cdr body)))
+            (+ (estimate-size head) (estimate-size tail))))))
 
 (define (build-answer-table context-branches)
   (let ((min #f) (max #f) (key #f) (done #f) (action #f) (place #f)
@@ -3010,7 +3036,11 @@
        (let ((symbol (car elem))
              (value (cadr elem)))
          (emit (format "~a = $~x" (normalize-name symbol) value))))
-  (emit ""))
+  (emit "")
+  (when (not *user-specified-org*)
+    ; TODO: output default iNES header
+    (emit ".org $c000")
+    (emit "")))
 
 (define *has-generated-suffix* #f)
 
@@ -3151,7 +3181,10 @@
 (define *res-out-file* #f)
 
 (define (assign-include-base! filename)
-  (set! *include-base* (path->string (path-only filename))))
+  (let ((p (path-only filename)))
+    (if p
+        (set! *include-base* (path->string p))
+        (set! *include-base* ""))))
 
 (define (compile-co2 fname out-filename)
   (set-optimization! #t)

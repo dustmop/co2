@@ -64,9 +64,7 @@
 
 (check-equal? (compile-code-with-optimizations '(if n 1 2))
               '("  lda n"
-                "  bne _truth_case_0001"
-                "_long_jump_0004:"
-                "  jmp _false_case_0002"
+                "  beq _false_case_0002"
                 "_truth_case_0001:"
                 "  lda #$1"
                 "  jmp _if_done_0003"
@@ -95,9 +93,7 @@
 (check-equal? (compile-code-with-optimizations '(if (< n 10) 1 2))
               '("  lda n"
                 "  cmp #$a"
-                "  bcc _truth_case_0001"
-                "_long_jump_0004:"
-                "  jmp _false_case_0002"
+                "  bcs _false_case_0002"
                 "_truth_case_0001:"
                 "  lda #$1"
                 "  jmp _if_done_0003"
@@ -126,9 +122,7 @@
 (check-equal? (compile-code-with-optimizations '(if (>= n 10) 1 2))
               '("  lda n"
                 "  cmp #$a"
-                "  bcs _truth_case_0001"
-                "_long_jump_0004:"
-                "  jmp _false_case_0002"
+                "  bcc _false_case_0002"
                 "_truth_case_0001:"
                 "  lda #$1"
                 "  jmp _if_done_0003"
@@ -157,9 +151,7 @@
 (check-equal? (compile-code-with-optimizations '(if (eq? n 10) 1 2))
               '("  lda n"
                 "  cmp #$a"
-                "  beq _truth_case_0001"
-                "_long_jump_0004:"
-                "  jmp _false_case_0002"
+                "  bne _false_case_0002"
                 "_truth_case_0001:"
                 "  lda #$1"
                 "  jmp _if_done_0003"
@@ -182,16 +174,13 @@
 (check-equal? (compile-code-with-optimizations '(if (and n m) 1 2))
               '("  lda n"
                 "  and m"
-                "  bne _truth_case_0001"
-                "_long_jump_0004:"
-                "  jmp _false_case_0002"
+                "  beq _false_case_0002"
                 "_truth_case_0001:"
                 "  lda #$1"
                 "  jmp _if_done_0003"
                 "_false_case_0002:"
                 "  lda #$2"
-                "_if_done_0003:"
-                ))
+                "_if_done_0003:"))
 
 (check-equal? (compile-code '(if (and (< n m) p) 1 2))
               '("  lda n"
@@ -226,9 +215,7 @@
                 "  lda #$ff"
                 "_done_lt_0006:"
                 "  and p"
-                "  bne _truth_case_0001"
-                "_long_jump_0004:"
-                "  jmp _false_case_0002"
+                "  beq _false_case_0002"
                 "_truth_case_0001:"
                 "  lda #$1"
                 "  jmp _if_done_0003"
@@ -325,9 +312,7 @@
               '("  lda n"
                 "  and m"
                 "  and p"
-                "  bne _truth_case_0001"
-                "_long_jump_0004:"
-                "  jmp _false_case_0002"
+                "  beq _false_case_0002"
                 "_truth_case_0001:"
                 "  lda #$1"
                 "  jmp _if_done_0003"
@@ -413,6 +398,31 @@
                 "  sta _tmp"
                 "  pla"
                 "  and _tmp"
+                "  beq _false_case_0002"
+                "_truth_case_0001:"
+                "  lda #$1"
+                "  jmp _if_done_0003"
+                "_false_case_0002:"
+                "  lda #$2"
+                "_if_done_0003:"))
+
+(check-equal? (compile-code '(if n (do (do (do (do (do (do (do 1))))))) 2))
+              '("  lda n"
+                "  bne _truth_case_0001"
+                "  jmp _false_case_0002"
+                "_truth_case_0001:"
+                "  lda #$1"
+                "  jmp _if_done_0003"
+                "_false_case_0002:"
+                "  lda #$2"
+                "_if_done_0003:"))
+
+; If truth case has deep enough nesting, assume that it will generate too much
+; code to allow for a short relative branch. Instead, use the always safe
+; technique of branching to truth, then long jumping to false.
+(check-equal? (compile-code-with-optimizations
+               '(if n (do (do (do (do (do (do (do 1))))))) 2))
+              '("  lda n"
                 "  bne _truth_case_0001"
                 "_long_jump_0004:"
                 "  jmp _false_case_0002"
@@ -727,8 +737,7 @@
 (check-equal? (compile-code-with-optimizations '(if (or n m) 1 2))
               '("  lda n"
                 "  ora m"
-                "  bne _truth_case_0001"
-                "  jmp _false_case_0002"
+                "  beq _false_case_0002"
                 "_truth_case_0001:"
                 "  lda #$1"
                 "  jmp _if_done_0003"
@@ -787,8 +796,7 @@
                 "  sta _tmp"
                 "  pla"
                 "  ora _tmp"
-                "  bne _truth_case_0001"
-                "  jmp _false_case_0002"
+                "  beq _false_case_0002"
                 "_truth_case_0001:"
                 "  lda #$1"
                 "  jmp _if_done_0003"
@@ -820,9 +828,7 @@
 (check-equal? (compile-code-with-optimizations '(if (not (< n 10)) 1 2))
               '("  lda n"
                 "  cmp #$a"
-                "  bcs _truth_case_0001"
-                "_long_jump_0004:"
-                "  jmp _false_case_0002"
+                "  bcc _false_case_0002"
                 "_truth_case_0001:"
                 "  lda #$1"
                 "  jmp _if_done_0003"
@@ -854,9 +860,7 @@
 (check-equal? (compile-code-with-optimizations '(if (not (>= n 10)) 1 2))
               '("  lda n"
                 "  cmp #$a"
-                "  bcc _truth_case_0001"
-                "_long_jump_0004:"
-                "  jmp _false_case_0002"
+                "  bcs _false_case_0002"
                 "_truth_case_0001:"
                 "  lda #$1"
                 "  jmp _if_done_0003"
@@ -888,9 +892,7 @@
 (check-equal? (compile-code-with-optimizations '(if (not (eq? n 10)) 1 2))
               '("  lda n"
                 "  cmp #$a"
-                "  bne _truth_case_0001"
-                "_long_jump_0004:"
-                "  jmp _false_case_0002"
+                "  beq _false_case_0002"
                 "_truth_case_0001:"
                 "  lda #$1"
                 "  jmp _if_done_0003"
@@ -1040,9 +1042,7 @@
                                                     (< m 20) (< p 30)))
               '("  lda n"
                 "  cmp #$a"
-                "  beq _truth_case_0001"
-                "_long_jump_0004:"
-                "  jmp _false_case_0002"
+                "  bne _false_case_0002"
                 "_truth_case_0001:"
                 "  lda m"
                 "  cmp #$14"
@@ -1084,9 +1084,7 @@
 
 (check-equal? (compile-code-with-optimizations '(if (< n #x80) 1 2))
               '("  lda n"
-                "  bpl _truth_case_0001"
-                "_long_jump_0004:"
-                "  jmp _false_case_0002"
+                "  bmi _false_case_0002"
                 "_truth_case_0001:"
                 "  lda #$1"
                 "  jmp _if_done_0003"
@@ -1114,9 +1112,7 @@
 
 (check-equal? (compile-code-with-optimizations '(if (>= n #x80) 1 2))
               '("  lda n"
-                "  bmi _truth_case_0001"
-                "_long_jump_0004:"
-                "  jmp _false_case_0002"
+                "  bpl _false_case_0002"
                 "_truth_case_0001:"
                 "  lda #$1"
                 "  jmp _if_done_0003"
