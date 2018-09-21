@@ -1299,6 +1299,13 @@
     (emit (format "res_~a = $~x" (normalize-name name) (count-resources)))
     (add-resource (syntax->datum resource-filename) (normalize-name name))))
 
+(define (process-resource-access context-name)
+  (let* ((name (syntax->datum context-name))
+         (label (normalize-name name)))
+    (emit 'lda (format "#~a__attr__bank" label))
+    (emit 'ldx (format "#~a__attr__low"  label))
+    (emit 'ldy (format "#~a__attr__high" label))))
+
 (define (process-program-begin context-address)
   (let* ((address (syntax->datum context-address)))
     (emit (format ".org $~x" address))))
@@ -2766,6 +2773,7 @@
             [(deflabel) (process-deflabel (car rest))]
             [(defbuffer) (apply process-defbuffer (unwrap-args rest 2 0))]
             [(defresource) (process-defresource (car rest) (cadr rest))]
+            [(resource-access) (process-resource-access (car rest))]
             [(program-begin) (process-program-begin (lref rest 0))]
             [(program-complete) (process-program-complete)]
             [(push pull) (process-stack symbol (unwrap-args rest 0 3))]
@@ -3154,7 +3162,8 @@
         (res-label #f)
         (res-filename #f)
         (bytes #f)
-        (bank-data (make-vector 0)))
+        (bank-data (make-vector 0))
+        (bank-addr #f))
     (emit "resource_segment:")
     (for [(res resources)]
          (set! res-filename (car res))
@@ -3166,9 +3175,13 @@
                (set! bank-num (+ bank-num 1))
                (set! bank-data (make-vector 0))
                (set! avail #x4000))
+         (set! bank-addr (+ #x8000 (vector-length bank-data)))
          (emit (format "~a:" res-label))
          (emit (format ".byte ~a" bank-num))
-         (emit (format ".word $~x" (+ #x8000 (vector-length bank-data))))
+         (emit (format ".word $~x" bank-addr))
+         (emit (format "res_~a__attr__bank = ~a" res-label bank-num))
+         (emit (format "res_~a__attr__low  = <~a" res-label bank-addr))
+         (emit (format "res_~a__attr__high = >~a" res-label bank-addr))
          (emit "")
          (set! bank-data (vector-append bank-data bytes))
          (set! avail (- avail (vector-length bytes))))
