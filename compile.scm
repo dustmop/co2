@@ -1687,6 +1687,19 @@
       (hash-union! *result-bank-depend-sym* depend
                    #:combine/key (lambda (k v1 v2) v1)))))
 
+(define (process-words args)
+  (let ((build (make-gvector)))
+    (define (add-elem-to-vector elem)
+      (cond
+       [(number? elem)
+          (gvector-add! build (format "$~x" (modulo elem #x100)))
+          (gvector-add! build (format "$~x" (quotient elem #x100)))]
+       [else (add-error "Cannot output words" elem)]))
+    (for [(context-elem args)]
+         (let ((elem (syntax->datum context-elem)))
+           (add-elem-to-vector elem)))
+    (emit (string-append ".byte " (string-join (gvector->list build) ",")))))
+
 (define (process-include context-filename)
   (when (not *include-base*)
         (error "ERROR: Include base not assigned"))
@@ -2829,6 +2842,7 @@
             [(set-pointer!) (process-set-pointer! (lref rest 0) (lref rest 1))]
             [(block) (process-block (car rest) (cdr rest))]
             [(bytes) (process-bytes rest)]
+            [(words) (process-words rest)]
             [(include) (process-include (lref rest 0))]
             [(include-binary) (process-include-binary (lref rest 0)
                                                       (lref rest 1)
