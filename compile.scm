@@ -2097,6 +2097,11 @@
                    (set! this-action (unpack-cond-body body 0 'lda))
                    (set! this-place (unpack-cond-body body 1 #f))
                    (set! this-val (unpack-cond-body body 2 'immed))
+                   ; Action 'resource-access only takes 1 argument, not 2, so
+                   ; we need to move the `place` to `val`, and nullify `place`.
+                   (when (eq? this-action 'resource-access)
+                         (set! this-val this-place)
+                         (set! this-place #t))
                    (cond
                     [(null? action) (set! action this-action)
                                     (set! place this-place)]
@@ -2110,7 +2115,7 @@
                  (set! unit (list #f #f context-condition context-body))
                  (set! branches (append branches (list unit)))))))
     ; Only allowed actions.
-    (when (not (member action '(lda set! set-pointer!)))
+    (when (not (member action '(lda set! set-pointer! resource-access)))
           (set! action #f))
     ; Determine if a jump table should be used.
     (if (and min (>= (- (+ max 1) min) 3))
@@ -2208,14 +2213,17 @@
     (process-cond-as-ifs context-cond cases)
     (emit-label done-label)))
 
+; Instead of a table that contains pointers to code, here we have a table
+; that contains direct values. Load those values into the relevant places.
 (define (process-cond-lookup-table context-cond table cases min max
                                    source action place)
   (let ((lookup-label (generate-label "cond_lookup_val"))
+        (lookup-low-label #f)
         (lookup-hi-label #f)
         (cases-label (generate-label "cond_cases"))
         (done-label (generate-label "cond_done"))
-        (word-size #f))
-    ; Check if index is in range of jump table.
+        (num-bytes 1))
+    ; Check if index is in range of lookup table.
     (emit-context)
     (emit 'ldy (arg->str source))
     (when (not (eq? min 0))
@@ -2223,44 +2231,82 @@
           (emit 'bcc cases-label))
     (emit 'cpy (arg->str (+ max 1)))
     (emit 'bcs cases-label)
-    ; Load jump address from table, push to the stack.
+    ; Index is in range. Load value from the table.
     (emit 'lda (format "~a,y" lookup-label))
+    ; Determine where to store the value based upon the action type.
     (cond
      [(eq? action 'lda)
+        ; Value stored in A, already true.
         #f]
      [(eq? action 'set!)
+        ; Value stored in some place.
         (emit 'sta (arg->str place))]
      [(eq? action 'set-pointer!)
-        (set! word-size #t)
+        ; Value stored in a pointer. Load additional high byte.
+        (set! num-bytes 2)
         (set! lookup-hi-label (generate-label "cond_lookup_hi_val"))
         (emit 'sta (arg->str place))
         (emit 'lda (format "~a,y" lookup-hi-label))
         (emit 'sta (format "~a+1" (arg->str place)))]
+     [(eq? action 'resource-access)
+        ; Value is a resource triple, store in A:X:Y. Load two more bytes.
+        (set! num-bytes 3)
+        (set! lookup-low-label (generate-label "cond_lookup_low_val"))
+        (set! lookup-hi-label  (generate-label "cond_lookup_hi_val"))
+        (emit 'pha)
+        (emit 'lda (format "~a,y" lookup-low-label))
+        (emit 'tax)
+        (emit 'lda (format "~a,y" lookup-hi-label))
+        (emit 'tay)
+        (emit 'pla)]
      [else
         (error (format "Unknown lookup table action ~a" action))])
+    ; Jump past the data table(s).
     (emit 'jmp done-label)
-    ; Jumps to branches reachable by jump table.
+    ; Convert branches into a vector, then iterate the vector, outputing data.
     (let ((data-table (make-gvector)))
       (for [(value-branch table)]
            (gvector-add! data-table value-branch))
-      ; Actual lookup table.
+      ; Actual lookup table. For single byte values, this is the only table.
       (let ((lookup-data (format "~a_data" lookup-label)))
         ; Value bytes.
         (emit-label lookup-data)
         (for [(dat data-table)]
-             (if (not word-size)
-                 (emit (format ".byte ~a" (resolve-arg dat)))
-                 (emit (format ".byte <~a" (resolve-arg dat)))))
+             (cond
+              ((eq? num-bytes 1)
+                 (emit (format ".byte ~a" (resolve-arg dat))))
+              ((eq? num-bytes 2)
+                 (emit (format ".byte <~a" (resolve-arg dat))))
+              ((eq? num-bytes 3)
+                 (emit (format ".byte ~a__attr__bank"
+                               (normalize-name dat))))))
+        ; Size of the lookup table.
         (emit (format "~a = ~a - ~a" lookup-label lookup-data min)))
+      ; Low bytes, if it exists. Only used by `resource-access`.
+      (when lookup-low-label
+        (let ((lookup-low-data (format "~a_data" lookup-low-label)))
+          ; Value bytes.
+          (emit-label lookup-low-data)
+          (for [(dat data-table)]
+               (if (eq? num-bytes 3)
+                   (emit (format ".byte ~a__attr__low"
+                                 (normalize-name dat)))
+                   (emit (format ".byte >~a" (resolve-arg dat)))))
+          ; Size of the lookup table.
+          (emit (format "~a = ~a - ~a" lookup-low-label lookup-low-data min))))
       ; High bytes, if it exists.
       (when lookup-hi-label
         (let ((lookup-hi-data (format "~a_data" lookup-hi-label)))
           ; Value bytes.
           (emit-label lookup-hi-data)
           (for [(dat data-table)]
-               (emit (format ".byte >~a" (resolve-arg dat))))
+               (if (eq? num-bytes 3)
+                   (emit (format ".byte ~a__attr__high"
+                                 (normalize-name dat)))
+                   (emit (format ".byte >~a" (resolve-arg dat)))))
+          ; Size of the lookup table.
           (emit (format "~a = ~a - ~a" lookup-hi-label lookup-hi-data min)))))
-    ; Other cases not handled by jump table.
+    ; Other cases not handled by lookup table.
     (emit-label cases-label)
     (process-cond-as-ifs context-cond cases)
     (emit-label done-label)))

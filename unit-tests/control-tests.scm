@@ -722,6 +722,46 @@
                 "_if_done_0006:"
                 "_cond_done_0003:"))
 
+(check-equal? (compile-code '(cond
+                              ((eq? n 2) (resource-access res2))
+                              ((eq? n 3) (resource-access res3))
+                              ((eq? n 4) (resource-access res4))
+                              ((eq? n 5) (resource-access res5))))
+              '("  ldy n"
+                "  cpy #$2"
+                "  bcc _cond_cases_0002"
+                "  cpy #$6"
+                "  bcs _cond_cases_0002"
+                "  lda _cond_lookup_val_0001,y"
+                "  pha"
+                "  lda _cond_lookup_low_val_0004,y"
+                "  tax"
+                "  lda _cond_lookup_hi_val_0005,y"
+                "  tay"
+                "  pla"
+                "  jmp _cond_done_0003"
+                "_cond_lookup_val_0001_data:"
+                ".byte res2__attr__bank"
+                ".byte res3__attr__bank"
+                ".byte res4__attr__bank"
+                ".byte res5__attr__bank"
+                "_cond_lookup_val_0001 = _cond_lookup_val_0001_data - 2"
+                "_cond_lookup_low_val_0004_data:"
+                ".byte res2__attr__low"
+                ".byte res3__attr__low"
+                ".byte res4__attr__low"
+                ".byte res5__attr__low"
+                "_cond_lookup_low_val_0004 = _cond_lookup_low_val_0004_data - 2"
+                "_cond_lookup_hi_val_0005_data:"
+                ".byte res2__attr__high"
+                ".byte res3__attr__high"
+                ".byte res4__attr__high"
+                ".byte res5__attr__high"
+                "_cond_lookup_hi_val_0005 = _cond_lookup_hi_val_0005_data - 2"
+                "_cond_cases_0002:"
+                "  lda #$0"
+                "_cond_done_0003:"))
+
 (check-equal? (compile-code '(if (or n m) 1 2))
               '("  lda n"
                 "  ora m"
