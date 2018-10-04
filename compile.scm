@@ -124,11 +124,11 @@
 
 (define *resource-bank* (make-gvector))
 
-(define (add-resource filename label)
+(define (add-resource filename label table-entry)
   (let ((id #f))
     (set! id (format "_imported_resource_~x"
                      (gvector-count *resource-bank*)))
-    (gvector-add! *resource-bank* (list filename label))
+    (gvector-add! *resource-bank* (list filename label table-entry))
     id))
 
 (define (count-resources)
@@ -1293,11 +1293,18 @@
     (emit-context)
     (emit (format "~a = $~a" def (left-pad (number->string addr 16) #\0 2)))))
 
-(define (process-defresource context-name resource-filename)
-  (let ((name (syntax->datum context-name)))
+(define (process-defresource context-name resource-filename context-flag
+                             context-option)
+  (let ((name (syntax->datum context-name))
+        (table-entry #f)
+        (flag (if context-flag (syntax->datum context-flag) #f))
+        (option (if context-option (syntax->datum context-option) #f)))
     (make-const! (string->symbol (format "res-~a" name)) (count-resources))
     (emit (format "res_~a = $~x" (normalize-name name) (count-resources)))
-    (add-resource (syntax->datum resource-filename) (normalize-name name))))
+    (when (or (not flag) (not (eq? flag '#:table-entry)))
+          (add-error "Error: defresource needs #:table-entry flag"))
+    (add-resource (syntax->datum resource-filename) (normalize-name name)
+                  option)))
 
 (define (process-resource-access context-name)
   (let* ((name (syntax->datum context-name))
@@ -2831,7 +2838,8 @@
             [(defvector) (process-proc 'vector (car rest) (cdr rest))]
             [(deflabel) (process-deflabel (car rest))]
             [(defbuffer) (apply process-defbuffer (unwrap-args rest 2 0))]
-            [(defresource) (process-defresource (car rest) (cadr rest))]
+            [(defresource) (process-defresource (lref rest 0) (lref rest 1)
+                                                (lref rest 2) (lref rest 3))]
             [(resource-access) (process-resource-access (car rest))]
             [(program-begin) (process-program-begin (lref rest 0))]
             [(program-complete) (process-program-complete)]
@@ -3221,6 +3229,7 @@
         (avail #x4000)
         (res-label #f)
         (res-filename #f)
+        (res-table-entry #f)
         (bytes #f)
         (bank-data (make-vector 0))
         (bank-addr #f))
@@ -3228,6 +3237,7 @@
     (for [(res resources)]
          (set! res-filename (car res))
          (set! res-label (cadr res))
+         (set! res-table-entry (caddr res))
          (set! bytes (read-resource-bytes res-filename))
          (when (> (vector-length bytes) avail)
                ; Flush the current bank.
@@ -3236,9 +3246,10 @@
                (set! bank-data (make-vector 0))
                (set! avail #x4000))
          (set! bank-addr (+ #x8000 (vector-length bank-data)))
-         (emit (format "~a:" res-label))
-         (emit (format ".byte ~a" bank-num))
-         (emit (format ".word $~x" bank-addr))
+         (when res-table-entry
+           (emit (format "~a:" res-label))
+           (emit (format ".byte ~a" bank-num))
+           (emit (format ".word $~x" bank-addr)))
          (emit (format "res_~a__attr__bank = ~a" res-label bank-num))
          (emit (format "res_~a__attr__low  = <~a" res-label bank-addr))
          (emit (format "res_~a__attr__high = >~a" res-label bank-addr))
