@@ -81,6 +81,7 @@
     (-loop                       #x05)
     (-pointer                    #x06)
     (-pointer-1                  #x07)
+    (-co2-internal--yield        #x08)
     (-aux                        #x08)
     (-aux-1                      #x09)))
 
@@ -2376,6 +2377,36 @@
         (process-argument context-one))
   (emit 'rts))
 
+(define (process-catch context-param context-body context-handler)
+  (let ((body (syntax-e context-body))
+        (handler (syntax-e context-handler))
+        (setup-label   (generate-label "yield_setup"))
+        (body-label    (generate-label "yield_body"))
+        (handler-label (generate-label "yield_handler"))
+        (done-label    (generate-label "yield_done")))
+    (emit 'jsr setup-label)
+    (emit 'jmp handler-label)
+    (emit-label setup-label)
+    (emit 'tsx)
+    (emit 'stx "_co2_internal__yield")
+    (emit "; catch : body")
+    (emit-label body-label)
+    (process-body-statements (list context-body))
+    (emit 'pla)
+    (emit 'pla)
+    (emit 'jmp done-label)
+    (emit "; catch : handler")
+    (emit-label handler-label)
+    (process-body-statements (list context-handler))
+    (emit-label done-label)))
+
+(define (process-yield context-arg)
+  (emit "; catch : yield")
+  (emit 'ldx "_co2_internal__yield")
+  (emit 'txs)
+  (emit 'clc)
+  (emit 'rts))
+
 (define (process-arithmetic operator context-args)
   (let* ((context-left (car context-args))
          (bit-16 #f)
@@ -2875,6 +2906,8 @@
             [(do) (process-body-statements rest)]
             [(return) (process-return (lref rest 0) (lref rest 1)
                                       (lref rest 2))]
+            [(catch) (process-catch (lref rest 0) (lref rest 1) (lref rest 2))]
+            [(yield) (process-yield (lref rest 0))]
             [(peek) (process-peek (lref rest 0) (lref rest 1))]
             [(poke!) (process-poke! (lref rest 0) (lref rest 1) (lref rest 2))]
             [(ppu-load) (process-ppu-load (lref rest 0) (lref rest 1)
