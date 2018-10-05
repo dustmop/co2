@@ -2384,6 +2384,7 @@
         (body-label    (generate-label "yield_body"))
         (handler-label (generate-label "yield_handler"))
         (done-label    (generate-label "yield_done")))
+    (emit-context)
     (emit 'jsr setup-label)
     (emit 'jmp handler-label)
     (emit-label setup-label)
@@ -2401,10 +2402,9 @@
     (emit-label done-label)))
 
 (define (process-yield context-arg)
-  (emit "; catch : yield")
+  (emit-context)
   (emit 'ldx "_co2_internal__yield")
   (emit 'txs)
-  (emit 'clc)
   (emit 'rts))
 
 (define (process-arithmetic operator context-args)
