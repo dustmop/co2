@@ -1309,10 +1309,13 @@
 
 (define (process-resource-access context-name)
   (let* ((name (syntax->datum context-name))
-         (label (normalize-name name)))
-    (emit 'lda (format "#~a__attr__bank" label))
-    (emit 'ldx (format "#~a__attr__low"  label))
-    (emit 'ldy (format "#~a__attr__high" label))))
+         (label (normalize-name name))
+         (res-label label))
+    (when (not (string=? (substring res-label 0 4) "res_"))
+          (set! res-label (string-append "res_" res-label)))
+    (emit 'lda (format "#~a__attr__bank" res-label))
+    (emit 'ldx (format "#~a__attr__low"  res-label))
+    (emit 'ldy (format "#~a__attr__high" res-label))))
 
 (define (process-program-begin context-address)
   (let* ((address (syntax->datum context-address)))
@@ -2299,7 +2302,7 @@
               ((eq? num-bytes 2)
                  (emit (format ".byte <~a" (resolve-arg dat))))
               ((eq? num-bytes 3)
-                 (emit (format ".byte ~a__attr__bank"
+                 (emit (format ".byte res_~a__attr__bank"
                                (normalize-name dat))))))
         ; Size of the lookup table.
         (emit (format "~a = ~a - ~a" lookup-label lookup-data min)))
@@ -2310,7 +2313,7 @@
           (emit-label lookup-low-data)
           (for [(dat data-table)]
                (if (eq? num-bytes 3)
-                   (emit (format ".byte ~a__attr__low"
+                   (emit (format ".byte res_~a__attr__low"
                                  (normalize-name dat)))
                    (emit (format ".byte >~a" (resolve-arg dat)))))
           ; Size of the lookup table.
@@ -2322,7 +2325,7 @@
           (emit-label lookup-hi-data)
           (for [(dat data-table)]
                (if (eq? num-bytes 3)
-                   (emit (format ".byte ~a__attr__high"
+                   (emit (format ".byte res_~a__attr__high"
                                  (normalize-name dat)))
                    (emit (format ".byte >~a" (resolve-arg dat)))))
           ; Size of the lookup table.
