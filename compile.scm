@@ -1677,17 +1677,27 @@
           (hash-set! depend elem #t)
           (cond
            [(const? elem) (gvector-add! build normal)]
-           [(metavar? elem) (gvector-add! build
-                                          (format "$~x" (resolve-arg elem)))]
-           [(address? elem) (begin
-                              (gvector-add! build (format "<~a" normal))
-                              (gvector-add! build (format ">~a" normal)))]
-           [(function? elem) (begin
-                               (gvector-add! build (format "<~a" normal))
-                               (gvector-add! build (format ">~a" normal)))]
+           [(metavar? elem)
+              (gvector-add! build (format "$~x" (resolve-arg elem)))]
+           [(address? elem)
+              (begin
+                (gvector-add! build (format "<~a" normal))
+                (gvector-add! build (format ">~a" normal)))]
+           [(function? elem)
+              (begin
+                (gvector-add! build (format "<~a" normal))
+                (gvector-add! build (format ">~a" normal)))]
            [else (add-error "Cannot output bytes" elem)]))]
-       [(list? elem) (for [(item elem)]
-                          (add-elem-to-vector item))]
+       [(list? elem)
+          (if (eq? (car elem) 'resource-access)
+              ; If a call to `resource-access`
+              (let ((param (normalize-name (cadr elem))))
+                (gvector-add! build (format "res_~a__attr__bank" param))
+                (gvector-add! build (format "res_~a__attr__low"  param))
+                (gvector-add! build (format "res_~a__attr__high" param)))
+              ; If list of data... (this seems like a hack)
+              (for [(item elem)]
+                   (add-elem-to-vector item)))]
        [else (add-error "Cannot output bytes" elem)]))
     (for [(context-elem args)]
          (let ((elem (syntax->datum context-elem)))
