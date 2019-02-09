@@ -849,10 +849,15 @@
     (emit 'clc)
     (cond
      [(symbol? base)
-        (emit 'adc (format "#<~a" (normalize-name base)))
-        (emit 'tay)
-        (emit 'lda "_tmp")
-        (emit 'adc (format "#>~a" (normalize-name base)))]
+        (if (pointer? base)
+            (begin (emit 'adc (format "~a+0" (normalize-name base)))
+                   (emit 'tay)
+                   (emit 'lda "_tmp")
+                   (emit 'adc (format "~a+1" (normalize-name base))))
+            (begin (emit 'adc (format "#<~a" (normalize-name base)))
+                   (emit 'tay)
+                   (emit 'lda "_tmp")
+                   (emit 'adc (format "#>~a" (normalize-name base)))))]
      [(and (list? base) (eq? (car base) 'resource-address))
         (emit 'adc (format "~a+1" (normalize-name (cadr base))))
         (emit 'tay)
