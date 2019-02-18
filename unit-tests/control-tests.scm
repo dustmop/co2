@@ -495,6 +495,17 @@
                           (5 55 (eq? n 5) (do (func m 55))))
                 (key . n)))
 
+(check-equal? (compile-answer-table '(((eq? n 2) (resource-access res2))
+                                      ((eq? n 3) (resource-access res3))
+                                      ((eq? n 4) (resource-access res4))
+                                      ((eq? n 5) (resource-access res5))))
+              '((min . 2) (max . 5) (action . resource-access) (place . #t)
+                (branches (2 res2 (eq? n 2) (do (resource-access res2)))
+                          (3 res3 (eq? n 3) (do (resource-access res3)))
+                          (4 res4 (eq? n 4) (do (resource-access res4)))
+                          (5 res5 (eq? n 5) (do (resource-access res5))))
+                (key . n)))
+
 (check-equal? (compile-answer-table
                '([(and (>= val lower-a) (<= val upper-a)) 2]
                  [(and (>= val lower-b) (<= val lower-b)) 4]))
@@ -734,8 +745,7 @@
                 "  bcs _cond_cases_0002"
                 "  lda _cond_lookup_val_0001,y"
                 "  pha"
-                "  lda _cond_lookup_low_val_0004,y"
-                "  tax"
+                "  ldx _cond_lookup_low_val_0004,y"
                 "  lda _cond_lookup_hi_val_0005,y"
                 "  tay"
                 "  pla"

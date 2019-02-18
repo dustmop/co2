@@ -2293,8 +2293,7 @@
         (set! lookup-low-label (generate-label "cond_lookup_low_val"))
         (set! lookup-hi-label  (generate-label "cond_lookup_hi_val"))
         (emit 'pha)
-        (emit 'lda (format "~a,y" lookup-low-label))
-        (emit 'tax)
+        (emit 'ldx (format "~a,y" lookup-low-label))
         (emit 'lda (format "~a,y" lookup-hi-label))
         (emit 'tay)
         (emit 'pla)]
