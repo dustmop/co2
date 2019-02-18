@@ -81,7 +81,7 @@
     (-loop                       #x05)
     (-pointer                    #x06)
     (-pointer-1                  #x07)
-    (-co2-internal--yield        #x08)
+    (-co2-internal--unwind       #x08)
     (-aux                        #x08)
     (-aux-1                      #x09)))
 
@@ -2395,16 +2395,16 @@
 (define (process-catch context-param context-body context-handler)
   (let ((body (syntax-e context-body))
         (handler (syntax-e context-handler))
-        (setup-label   (generate-label "yield_setup"))
-        (body-label    (generate-label "yield_body"))
-        (handler-label (generate-label "yield_handler"))
-        (done-label    (generate-label "yield_done")))
+        (setup-label   (generate-label "unwind_setup"))
+        (body-label    (generate-label "unwind_body"))
+        (handler-label (generate-label "unwind_handler"))
+        (done-label    (generate-label "unwind_done")))
     (emit-context)
     (emit 'jsr setup-label)
     (emit 'jmp handler-label)
     (emit-label setup-label)
     (emit 'tsx)
-    (emit 'stx "_co2_internal__yield")
+    (emit 'stx "_co2_internal__unwind")
     (emit "; catch : body")
     (emit-label body-label)
     (process-body-statements (list context-body))
@@ -2416,9 +2416,9 @@
     (process-body-statements (list context-handler))
     (emit-label done-label)))
 
-(define (process-yield context-arg)
+(define (process-unwind context-arg)
   (emit-context)
-  (emit 'ldx "_co2_internal__yield")
+  (emit 'ldx "_co2_internal__unwind")
   (emit 'txs)
   (emit 'rts))
 
@@ -2922,7 +2922,7 @@
             [(return) (process-return (lref rest 0) (lref rest 1)
                                       (lref rest 2))]
             [(catch) (process-catch (lref rest 0) (lref rest 1) (lref rest 2))]
-            [(yield) (process-yield (lref rest 0))]
+            [(unwind yield) (process-unwind (lref rest 0))]
             [(peek) (process-peek (lref rest 0) (lref rest 1))]
             [(poke!) (process-poke! (lref rest 0) (lref rest 1) (lref rest 2))]
             [(ppu-load) (process-ppu-load (lref rest 0) (lref rest 1)
