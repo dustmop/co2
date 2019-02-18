@@ -1307,8 +1307,6 @@
         (option (if context-option (syntax->datum context-option) #f)))
     (make-const! (string->symbol (format "res-~a" name)) (count-resources))
     (emit (format "res_~a = $~x" (normalize-name name) (count-resources)))
-    (when (or (not flag) (not (eq? flag '#:table-entry)))
-          (add-error "Error: defresource needs #:table-entry flag"))
     (add-resource (syntax->datum resource-filename) (normalize-name name)
                   option)))
 
