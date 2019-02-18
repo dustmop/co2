@@ -1142,7 +1142,7 @@
   (and *opt-enabled* (eq? kind 'if)))
 
 (define (is-optimizable? symbol)
-  (member symbol '(< >= eq? not and)))
+  (member symbol '(< >= eq? not and or)))
 
 (define (can-optimize-tree? tree)
   (every-first-in-tree? is-optimizable? tree))
@@ -1459,6 +1459,25 @@
                       (set! fail-instr (invert-condition branch-instr))
                       (emit fail-instr any-false-label))))
             (set-optimize! 'branch-instr 'fall-through-to-true))]
+       [(eq? instr 'ora)
+          (let ((optimizer #f)
+                (any-truth-label (opt-codegen-truth-case (*opt-mode*)))
+                (all-false-label (opt-codegen-false-case (*opt-mode*)))
+                (branch-instr #f)
+                (fail-instr #f))
+            (for [(context-test args)]
+                 (set! optimizer (opt-codegen 'if
+                                              any-truth-label
+                                              all-false-label
+                                              'beq))
+                 (parameterize [(*opt-mode* optimizer)]
+                   (process-argument context-test)
+                   ; OR - if any test is true, go to truth-case
+                   (set! branch-instr (opt-codegen-branch-instr (*opt-mode*)))
+                   (when (not (eq? branch-instr 'fall-through-to-false))
+                      (set! fail-instr branch-instr)
+                      (emit fail-instr all-false-label))))
+            (set-optimize! 'branch-instr 'fall-through-to-false))]
        [else (parameterize [(*opt-mode* #f)]
                (process-instruction-transitive instr args))])))
 
