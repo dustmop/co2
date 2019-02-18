@@ -2399,28 +2399,44 @@
         (body-label    (generate-label "unwind_body"))
         (handler-label (generate-label "unwind_handler"))
         (done-label    (generate-label "unwind_done")))
+    ; Preserve the old unwind value, to allow for reentrancy.
     (emit-context)
+    (emit 'lda "_co2_internal__unwind")
+    (emit 'pha)
+    ; Setup the unwind handler.
     (emit 'jsr setup-label)
+    ; This line will only be called if the inner function uses (unwind).
     (emit 'jmp handler-label)
+    ; This is the body fo the unwind handler.
     (emit-label setup-label)
+    ; Preserve the stack address.
     (emit 'tsx)
     (emit 'stx "_co2_internal__unwind")
     (emit "; catch : body")
+    ; Body
     (emit-label body-label)
     (process-body-statements (list context-body))
+    ; Remove the unused return address from the stack.
     (emit 'pla)
     (emit 'pla)
     (emit 'jmp done-label)
     (emit "; catch : handler")
+    ; Handler
     (emit-label handler-label)
     (process-body-statements (list context-handler))
-    (emit-label done-label)))
+    (emit-label done-label)
+    ; Restore the old unwind value.
+    (emit 'pla)
+    (emit 'sta "_co2_internal__unwind")))
 
 (define (process-unwind context-arg)
   (emit-context)
-  (emit 'ldx "_co2_internal__unwind")
-  (emit 'txs)
-  (emit 'rts))
+  (let ((label (generate-label "unwind")))
+    (emit 'ldx "_co2_internal__unwind")
+    (emit 'beq label)
+    (emit 'txs)
+    (emit-label label)
+    (emit 'rts)))
 
 (define (process-arithmetic operator context-args)
   (let* ((context-left (car context-args))
