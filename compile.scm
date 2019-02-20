@@ -1150,13 +1150,13 @@
 (struct opt-codegen (oper [truth-case #:mutable] [false-case #:mutable]
                           [branch-instr #:mutable]))
 
-; TODO: Change this, name is too similar to set-optimization.
-(define (set-optimize! key value)
+(define (poke-optimize-fact! key value)
   (when (*opt-mode*)
         (cond
          [(eq? key 'branch-instr)
             (set-opt-codegen-branch-instr! (*opt-mode*) value)]
-         [else (error (format "Don't know how to set-optimize! ~a" key))])))
+         [else (error
+                 (format "Don't know how to poke-optimize-fact! ~a" key))])))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Main processor.
@@ -1458,7 +1458,7 @@
                    (when (not (eq? branch-instr 'fall-through-to-true))
                       (set! fail-instr (invert-condition branch-instr))
                       (emit fail-instr any-false-label))))
-            (set-optimize! 'branch-instr 'fall-through-to-true))]
+            (poke-optimize-fact! 'branch-instr 'fall-through-to-true))]
        [(eq? instr 'ora)
           (let ((optimizer #f)
                 (any-truth-label (opt-codegen-truth-case (*opt-mode*)))
@@ -1477,7 +1477,7 @@
                    (when (not (eq? branch-instr 'fall-through-to-false))
                       (set! fail-instr branch-instr)
                       (emit fail-instr all-false-label))))
-            (set-optimize! 'branch-instr 'fall-through-to-false))]
+            (poke-optimize-fact! 'branch-instr 'fall-through-to-false))]
        [else (parameterize [(*opt-mode* #f)]
                (process-instruction-transitive instr args))])))
 
@@ -2524,7 +2524,7 @@
     (case operator
       [(eq?) (emit 'cmp (arg->str rhs))
              (if (*opt-mode*)
-                 (set-optimize! 'branch-instr 'beq)
+                 (poke-optimize-fact! 'branch-instr 'beq)
                  (let ((is-label (generate-label "is_eq"))
                        (done-label (generate-label "done_eq")))
                    (emit 'beq is-label)
@@ -2550,10 +2550,10 @@
              (emit 'lda "#$ff")
              (emit-label done-label))]
       [(<) (if (and (*opt-mode*) (eq? right #x80))
-               (set-optimize! 'branch-instr 'bpl)
+               (poke-optimize-fact! 'branch-instr 'bpl)
                (begin (emit 'cmp (arg->str rhs))
                       (if (*opt-mode*)
-                          (set-optimize! 'branch-instr 'bcc)
+                          (poke-optimize-fact! 'branch-instr 'bcc)
                           (let ((is-label (generate-label "is_lt"))
                                 (done-label (generate-label "done_lt")))
                             (emit 'bcc is-label)
@@ -2590,10 +2590,10 @@
               (emit 'lda "#$ff")
               (emit-label done-label))]
       [(>=) (if (and (*opt-mode*) (eq? right #x80))
-                (set-optimize! 'branch-instr 'bmi)
+                (poke-optimize-fact! 'branch-instr 'bmi)
                 (begin (emit 'cmp (arg->str rhs))
                        (if (*opt-mode*)
-                           (set-optimize! 'branch-instr 'bcs)
+                           (poke-optimize-fact! 'branch-instr 'bcs)
                            (let ((is-label (generate-label "is_gt"))
                                  (done-label (generate-label "done_gt")))
                              (emit 'bcs is-label)
@@ -2638,10 +2638,10 @@
                    (fail-instr #f))
                (set! branch-instr (opt-codegen-branch-instr (*opt-mode*)))
                (if (eq? branch-instr 'fall-through-to-true)
-                   (set-optimize! 'branch-instr 'fall-through-to-false)
+                   (poke-optimize-fact! 'branch-instr 'fall-through-to-false)
                    (begin
                      (set! fail-instr (invert-condition branch-instr))
-                     (set-optimize! 'branch-instr fail-instr)))))
+                     (poke-optimize-fact! 'branch-instr fail-instr)))))
       (begin (process-argument context-arg)
              (emit 'cmp "#1")
              (emit 'lda "#$ff")
