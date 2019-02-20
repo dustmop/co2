@@ -53,7 +53,8 @@
                   ""
                   "_a__s = $13"
                   "_c__u = $12"
-                  "_b__t = $12")))
+                  "_b__t = $12"
+                  "; max allocation = $13")))
 
 (define (compile-code code)
   (clear-result)

@@ -3143,16 +3143,22 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (define (generate-func-memory-addresses results)
-  (emit "")
-  (emit "")
-  (for [(elem results)]
-       (let* ((name (list-ref elem 0))
-              (param (list-ref elem 1))
-              (addr (list-ref elem 2)))
-         (if (list? param)
-             (emit (format "~a = $~x" (cadr param) (+ addr var-allocation)))
-             (emit (format "_~a__~a = $~x" (normalize-name name)
-                           (normalize-name param) (+ addr var-allocation)))))))
+  (let ((max-alloc 0))
+    (emit "")
+    (emit "")
+    (for [(elem results)]
+         (let* ((name (list-ref elem 0))
+                (param (list-ref elem 1))
+                (addr (list-ref elem 2))
+                (alloc 0))
+           (set! alloc (+ addr var-allocation))
+           (if (list? param)
+               (emit (format "~a = $~x" (cadr param) alloc))
+               (emit (format "_~a__~a = $~x" (normalize-name name)
+                             (normalize-name param) alloc)))
+           (when (> alloc max-alloc)
+                 (set! max-alloc alloc))))
+    (emit (format "; max allocation = $~x" max-alloc))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Entry point

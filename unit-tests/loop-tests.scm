@@ -101,7 +101,8 @@
                 '(""
                   ""
                   "_func___gen_0001 = $11"
-                  "_func___gen_0003 = $12")))
+                  "_func___gen_0003 = $12"
+                  "; max allocation = $12")))
 
 (check-equal? (compile-code '(defsub (func)
                                (loop m 0 8
@@ -142,7 +143,8 @@
                   "_func___gen_0001 = $11"
                   "_func__m = $12"
                   "_func___gen_0003 = $13"
-                  "_func__n = $14")))
+                  "_func__n = $14"
+                  "; max allocation = $14")))
 
 (check-equal? (compile-code '(repeat (i 8)
                                      (set! b i)))
