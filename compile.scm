@@ -2911,6 +2911,19 @@
       #t))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(define *need-farcall-wrapper* #f)
+
+(define (process-farcall context-fname context-args)
+  (emit-context)
+  (set! *need-farcall-wrapper* #t)
+  (let ((fname (normalize-name (syntax->datum context-fname))))
+    (emit 'lda (format "#~a__attr_bank" fname))
+    (emit 'ldx (format "#<~a" fname))
+    (emit 'ldy (format "#>~a" fname))
+    (emit 'jsr "_farcall__wrapper")))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Syntax tree walker
 
 (define (process-keys args allowed-keywords)
@@ -3066,6 +3079,7 @@
             [(-16!)
              (process-sub16 (lref rest 0) (lref rest 1) (lref rest 2))]
             [(not) (process-not symbol (lref rest 0))]
+            [(farcall) (process-farcall (lref rest 0) (cdr rest))]
             [else (add-error "Not defined" symbol)
                   (format ";Unknown: ~a ~a" symbol rest)])))))
 
@@ -3161,6 +3175,9 @@
 (define (analyze-program-begin)
   #f)
 
+(define (analyze-farcall)
+  (set! *need-farcall-wrapper* #t))
+
 (define (analyze-form form)
   (assert form syntax?)
   (let* ((inner (syntax-e form))
@@ -3188,6 +3205,7 @@
             [(include-binary) (analyze-deflabel (car rest))]
             [(nes-header) (analyze-nes-header)]
             [(program-bank) (analyze-program-bank)]
+            [(farcall) (analyze-farcall)]
             ; DEPRECATED
             [(program-begin) (analyze-program-begin)]
             [(do) (for [(elem rest)]
@@ -3290,7 +3308,31 @@
       (emit 'dex)
       (emit 'bne "_ppu_load_by_val")
       (emit 'rts)
-      (emit ""))
+      (emit-blank))
+    ;; Farcall wrapper
+    ; TODO: Actually detect when this is needed.
+    (set! *need-farcall-wrapper* #t)
+    (when *need-farcall-wrapper*
+      (emit "_farcall__wrapper:")
+      (emit 'stx "_ptr+0")
+      (emit 'sty "_ptr+1")
+      ; TODO: Don't assume this variable
+      (emit 'ldy "_mmc1_prg_bank__num")
+      ; TODO: Don't assume this function
+      (emit 'jsr "mmc1_prg_bank")
+      (emit 'tya)
+      (emit 'pha)
+      ; TODO: Load parameters.
+      ;(emit 'lda "param0")
+      (emit 'jsr "_farcall__invoke")
+      (emit 'tay)
+      (emit 'pla)
+      (emit 'jsr "mmc1_prg_bank")
+      (emit 'tya)
+      (emit 'rts)
+      (emit "_farcall__invoke:")
+      (emit 'jmp "(_ptr)")
+      (emit-blank))
     ;; Data segment
     (let ((data (get-data-segment)))
       (for/list [(elem data)]
