@@ -3317,7 +3317,7 @@
       (emit 'stx "_ptr+0")
       (emit 'sty "_ptr+1")
       ; TODO: Don't assume this variable
-      (emit 'ldy "_mmc1_prg_bank__num")
+      (emit 'ldy "curr_prg_bank")
       ; TODO: Don't assume this function
       (emit 'jsr "mmc1_prg_bank")
       (emit 'tya)
