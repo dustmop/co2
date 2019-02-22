@@ -295,7 +295,7 @@
 (define *result-target-bank* #f)
 (define *result-seen-banks* #f)
 
-(define *result-bank-base-addr* 0)
+(define *result-bank-base-addr* #f)
 (define *result-bank-depend-sym* #f)
 (define *result-bank-defined-here* #f)
 
@@ -1317,12 +1317,30 @@
     (emit 'ldx (format "#~a__attr__low"  res-label))
     (emit 'ldy (format "#~a__attr__high" res-label))))
 
+(define *current-bank-num* #f)
+(define *current-bank-base-addr* #f)
+
+(define (process-program-bank context-address context-key context-bank-num)
+  (let ((address (syntax->datum context-address)))
+    (when *current-bank-base-addr*
+      ; Flush previous. TODO: Don't assume bank size.
+      (emit (format ".pad $~x" (+ *current-bank-base-addr* #x4000))))
+    ; Body
+    (emit (format ".base $~x" address))
+    (emit (format ".org $~x" address))
+    (set! *current-bank-base-addr* address)
+    (when (and context-key context-bank-num)
+      (let ((bank-num (syntax->datum context-bank-num)))
+        (set! *current-bank-num* bank-num)))))
+
+; DEPRECATED
 (define (process-program-begin context-address)
   (let* ((address (syntax->datum context-address)))
     (emit (format ".org $~x" address))))
 
 (define (process-program-complete)
-  (generate-suffix))
+  (generate-suffix)
+  (set! *current-bank-base-addr* #f))
 
 (define (process-proc type context-decl body)
   (assert type symbol?)
@@ -1337,10 +1355,15 @@
     (parameterize [(*invocations* (make-gvector)) (*local-vars* (make-gvector))]
       (emit-blank)
       (emit-context)
+      ; If using banking, output the current bank as an attribute of this func.
+      (when *current-bank-num*
+        (emit (format "~a__attr_bank = ~a" (normalize-name name)
+                      *current-bank-num*)))
+      ; Function name.
       (emit-label (normalize-name name))
       ; Push scope for local variables.
       (sym-label-push-scope)
-      ; Fastcall parameters
+      ; Fastcall parameters.
       (for [(sym args) (i (in-naturals))]
            (make-local! sym name)
            (cond
@@ -1761,10 +1784,18 @@
         (emit (format ".incbin \"~a\",0,$~x" path size))
         (emit (format ".incbin \"~a\"" path)))))
 
-(define (process-resource-bank context-resource)
-  (let ((res (syntax->datum context-resource)))
-    (emit 'lda (format "~a+0" (normalize-name res)))))
+(define (process-resource-bank context-address context-key context-bank)
+  (when (not (eq? *result-bank-base-addr* #f))
+    (process-resource-bank-complete))
+  (gvector-add! *result-stack* *result*)
+  (set! *result* (make-gvector))
+  (set! *result-bank-base-addr* #f)
+  (set! *result-bank-depend-sym* (make-hash))
+  (set! *result-bank-defined-here* (make-hash))
+  (set! *result-target-bank* (syntax->datum context-bank))
+  (set! *result-bank-base-addr* (syntax->datum context-address)))
 
+; DEPRECATED
 (define (process-resource-bank-begin context-target-bank)
   (gvector-add! *result-stack* *result*)
   (set! *result* (make-gvector))
@@ -1874,6 +1905,7 @@
     (set! *result-bank-depend-sym* #f)
     (set! *result-bank-defined-here* #f)))
 
+; DEPRECATED
 (define (process-resource-base-address addr)
   (set! *result-bank-base-addr* (syntax->datum addr)))
 
@@ -2919,6 +2951,9 @@
             [(defresource) (process-defresource (lref rest 0) (lref rest 1)
                                                 (lref rest 2) (lref rest 3))]
             [(resource-access) (process-resource-access (car rest))]
+            [(program-bank) (process-program-bank (lref rest 0) (lref rest 1)
+                                                  (lref rest 2))]
+            ; DEPRECATED
             [(program-begin) (process-program-begin (lref rest 0))]
             [(program-complete) (process-program-complete)]
             [(push pull) (process-stack symbol (unwrap-args rest 0 3))]
@@ -2934,9 +2969,13 @@
                                                       (lref rest 1)
                                                       (lref rest 2)
                                                       (lref rest 3))]
-            [(resource-bank) (process-resource-bank (lref rest 0))]
+            [(resource-bank) (process-resource-bank (lref rest 0) (lref rest 1)
+                                                    (lref rest 2))]
+            ; DEPRECATED
             [(resource-bank-begin) (process-resource-bank-begin (lref rest 0))]
+            ; DEPRECATED
             [(resource-bank-complete) (process-resource-bank-complete)]
+            ; DEPRECATED
             [(resource-base-address) (process-resource-base-address
                                        (lref rest 0))]
             [(loop-down-from) (process-loop-down (car rest) (cadr rest)
@@ -3032,7 +3071,7 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(define *user-specified-org* #f)
+(define *user-specified-org* 'none)
 
 (define (analyze-proc context-decl body)
   (assert context-decl syntax?)
@@ -3108,8 +3147,19 @@
     (set! filename (string-append *include-base* filename))
     (analyze-file filename)))
 
+(define (analyze-nes-header)
+  (if (eq? *user-specified-org* 'none)
+      (set! *user-specified-org* 'header-only)
+      (set! *user-specified-org* 'all)))
+
+(define (analyze-program-bank)
+  (if (eq? *user-specified-org* 'none)
+      (set! *user-specified-org* 'program-only)
+      (set! *user-specified-org* 'all)))
+
+; DEPRECATED
 (define (analyze-program-begin)
-  (set! *user-specified-org* #t))
+  #f)
 
 (define (analyze-form form)
   (assert form syntax?)
@@ -3136,6 +3186,9 @@
             [(defresource) (analyze-defresource (car rest) (cadr rest))]
             [(include) (analyze-include (car rest))]
             [(include-binary) (analyze-deflabel (car rest))]
+            [(nes-header) (analyze-nes-header)]
+            [(program-bank) (analyze-program-bank)]
+            ; DEPRECATED
             [(program-begin) (analyze-program-begin)]
             [(do) (for [(elem rest)]
                        (analyze-form elem))])))))
@@ -3199,10 +3252,18 @@
              (value (cadr elem)))
          (emit (format "~a = $~x" (normalize-name symbol) value))))
   (emit "")
-  (when (not *user-specified-org*)
-    ; TODO: output default iNES header
-    (emit ".org $c000")
-    (emit "")))
+  ;; Output start of assembly, NES header and intial .org directive.
+  (cond
+   [(eq? *user-specified-org* 'none)
+      (built-in-nes-header 1 0 0 0)
+      (emit ".org $c000")]
+   [(eq? *user-specified-org* 'header-only)
+      (emit ".org $c000")]
+   [(eq? *user-specified-org* 'program-only)
+      (built-in-nes-header 1 0 0 0)]
+   [(eq? *user-specified-org* 'all)
+      #f])
+  (emit ""))
 
 (define *has-generated-suffix* #f)
 
