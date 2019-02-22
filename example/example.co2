@@ -16,13 +16,7 @@
 
 (do
 
- ;; NES header follows
- (asm
-  ".byte \"NES\",$1a" ;; number of prg-rom blocks
-  ".byte $01" ;; number of chr-rom blocks
-  ".byte $01" ;; rom control bytes: horizontal mirroring, no sram or trainer, mapper #0
-  ".byte $00,$00" ;; filler
-  ".byte $00,$00,$00,$00,$00,$00,$00,$00")
+ (nes-header #:num-prg 1 #:num-chr 1 #:mapper 0)
 
  (defaddr sprite-data #x200) ;; where the sprite control data is
  (defconst sprite-dma 2) ;; dma address is 100X this = $200

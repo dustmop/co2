@@ -1074,14 +1074,21 @@
                  (begin (add-error "Unknown mirroring" mirroring) 0)]))
          (third-byte (+ (* mapper #x10) mbit)))
     (set! *num-prg-banks* num-prg)
-    (emit-context)
+    (when (*co2-source-context*)
+      (emit-context))
     (emit ".byte \"NES\",$1a")
     (emit (format ".byte $~x" (or num-prg 1)))
     (emit (format ".byte $~x" (or num-chr 0)))
     (emit (format ".byte $~x" third-byte))
     (emit (format ".byte ~a"
                   (string-join (build-list 9 (lambda (x) "$0")) ",")))
-    (emit "")))
+    (emit "")
+    ; If the nes-header directive is used, but no program-bank statements,
+    ; output the .org after the header is done.
+    ; TODO: Analyze the header, don't assume $c000 starting address.
+    (when (eq? *user-specified-org* 'header-only)
+       (emit ".base $c000")
+       (emit ".org $c000"))))
 
 (define (built-in-init-system)
   ;; disable interrupts while we set stuff up
@@ -3166,10 +3173,14 @@
       (set! *user-specified-org* 'header-only)
       (set! *user-specified-org* 'all)))
 
-(define (analyze-program-bank)
+(define (analyze-program-bank arg-0 arg-1 arg-2)
   (if (eq? *user-specified-org* 'none)
       (set! *user-specified-org* 'program-only)
-      (set! *user-specified-org* 'all)))
+      (set! *user-specified-org* 'all))
+  ; Somewhat of a hack. Assume if there is a bank number included in the
+  ; program-bank directive, we'll be using farcalls.
+  (when arg-2
+    (set! *need-farcall-wrapper* #t)))
 
 ; DEPRECATED
 (define (analyze-program-begin)
@@ -3204,7 +3215,8 @@
             [(include) (analyze-include (car rest))]
             [(include-binary) (analyze-deflabel (car rest))]
             [(nes-header) (analyze-nes-header)]
-            [(program-bank) (analyze-program-bank)]
+            [(program-bank) (analyze-program-bank (lref rest 0) (lref rest 1)
+                                                  (lref rest 2))]
             [(farcall) (analyze-farcall)]
             ; DEPRECATED
             [(program-begin) (analyze-program-begin)]
@@ -3273,11 +3285,17 @@
   ;; Output start of assembly, NES header and intial .org directive.
   (cond
    [(eq? *user-specified-org* 'none)
-      (built-in-nes-header 1 0 0 0)
+      (emit ".base $0")
+      (emit ".org $0")
+      (built-in-nes-header 1 0 0 'vertical)
+      (emit ".base $c000")
       (emit ".org $c000")]
    [(eq? *user-specified-org* 'header-only)
-      (emit ".org $c000")]
+      (emit ".base $0")
+      (emit ".org $0")]
    [(eq? *user-specified-org* 'program-only)
+      (emit ".base $0")
+      (emit ".org $0")
       (built-in-nes-header 1 0 0 0)]
    [(eq? *user-specified-org* 'all)
       #f])
@@ -3311,7 +3329,7 @@
       (emit-blank))
     ;; Farcall wrapper
     ; TODO: Actually detect when this is needed.
-    (set! *need-farcall-wrapper* #t)
+    ;(set! *need-farcall-wrapper* #t)
     (when *need-farcall-wrapper*
       (emit "_farcall__wrapper:")
       (emit 'stx "_ptr+0")
