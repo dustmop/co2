@@ -2924,11 +2924,14 @@
 (define (process-farcall context-fname context-args)
   (emit-context)
   (set! *need-farcall-wrapper* #t)
-  (let ((fname (normalize-name (syntax->datum context-fname))))
+  (let* ((fname-sym (syntax->datum context-fname))
+         (fname (normalize-name fname-sym)))
     (emit 'lda (format "#~a__attr_bank" fname))
     (emit 'ldx (format "#<~a" fname))
     (emit 'ldy (format "#>~a" fname))
-    (emit 'jsr "_farcall__wrapper")))
+    (emit 'jsr "_farcall__wrapper")
+    (when (*invocations*)
+          (gvector-add! (*invocations*) fname-sym))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Syntax tree walker

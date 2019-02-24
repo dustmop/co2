@@ -56,6 +56,57 @@
                   "_b__t = $12"
                   "; max allocation = $13")))
 
+(let* ((test-code '(do (defsub (a)
+                         (b 1))
+                       (defsub (b p)
+                         (farcall c))
+                       (defsub (c)
+                         (d 2))
+                       (defsub (d q)
+                         #f)))
+       (test-form (datum->syntax #f test-code)))
+  (clear-result)
+  (clear-var-allocation)
+  (make-variable! 'm)
+  (make-variable! 'n)
+  (analyze-form test-form)
+  (process-form test-form)
+  (check-equal? (fetch-result)
+                '(""
+                  "a:"
+                  "  lda #$1"
+                  "  jsr b"
+                  "  rts"
+                  ""
+                  "b:"
+                  "  sta _b__p"
+                  "  lda #c__attr_bank"
+                  "  ldx #<c"
+                  "  ldy #>c"
+                  "  jsr _farcall__wrapper"
+                  "  rts"
+                  ""
+                  "c:"
+                  "  lda #$2"
+                  "  jsr d"
+                  "  rts"
+                  ""
+                  "d:"
+                  "  sta _d__q"
+                  "  lda #$00"
+                  "  rts"))
+  (check-equal? (casla->allocations)
+                '((d q 0)
+                  (b p 1)))
+  (clear-result)
+  (generate-func-memory-addresses (casla->allocations))
+  (check-equal? (fetch-result)
+                '(""
+                  ""
+                  "_d__q = $12"
+                  "_b__p = $13"
+                  "; max allocation = $13")))
+
 (define (compile-code code)
   (clear-result)
   (clear-label-id)
