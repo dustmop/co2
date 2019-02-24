@@ -80,7 +80,9 @@
     (-count                      #x04)
     (-tmp                        #x05)
     (-ptr                        #x04)
-    (-ptr-1                      #x05)))
+    (-ptr-1                      #x05)
+    (-farcall--param-0           #x06)
+    (-farcall--param-1           #x07)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Label generation
@@ -1817,7 +1819,7 @@
   (let ((result (make-gvector))
         (lines #f) (address #f) (label #f) (m #f))
     (set! lines (file->lines filename))
-    (for ([line lines])
+    (for [(line lines)]
          (set! address #f)
          (set! label #f)
          (if (has-label? line)
@@ -2924,6 +2926,11 @@
 (define (process-farcall context-fname context-args)
   (emit-context)
   (set! *need-farcall-wrapper* #t)
+  ; Load arguments to the target function
+  (for [(elem context-args) (i (in-naturals))]
+       (process-argument elem #:skip-context #t)
+       (emit 'sta (format "_farcall__param_~a" i)))
+  ; Load far pointer, call the invocation wrapper
   (let* ((fname-sym (syntax->datum context-fname))
          (fname (normalize-name fname-sym)))
     (emit 'lda (format "#~a__attr_bank" fname))
@@ -3343,8 +3350,10 @@
       (emit 'jsr "mmc1_prg_bank")
       (emit 'tya)
       (emit 'pha)
-      ; TODO: Load parameters.
-      ;(emit 'lda "param0")
+      ; Load parameters
+      (emit 'lda "_farcall__param_0")
+      (emit 'ldx "_farcall__param_1")
+      ; Invoke the inner function
       (emit 'jsr "_farcall__invoke")
       (emit 'tay)
       (emit 'pla)
