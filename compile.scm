@@ -301,6 +301,13 @@
                                  (length args) (length params))
                          fname)))))))
 
+(define (get-func-bank-num fname)
+  (let ((lookup (hash-ref *function-defs* fname #f)))
+    (if (not lookup)
+        0
+        (let ((bank-num (caddr lookup)))
+          bank-num))))
+
 (define (macro? name)
   (member name '(when load-pointer
                  set-sprite-y! set-sprite-id! set-sprite-attr!
@@ -2884,14 +2891,29 @@
      [(eq? symbol 'text) (emit (format ".byte \"~a\"" value))])))
 
 (define (process-jump-subroutine fname params)
-  (let* ((pop-count 0) (param-types #f))
+  (let* ((pop-count 0) (param-types #f) (target-bank #f))
     (emit-context)
     (set! param-types (validate-func-params fname params))
+    (set! target-bank (get-func-bank-num fname))
+    ; Check if function call is between available banks.
+    ; TODO: Don't hardcode #x1f
+    (cond
+     [(eq? target-bank #x1f) #f]
+     [(eq? *current-bank-num* target-bank) #f]
+     [(eq? *current-bank-num* #x1f)
+       ; TODO: Should verify that mem-config includes the `target-bank`
+       #f]
+     [else
+       (add-error (format "Function call out of bank. From ~a to ~a:"
+                          *current-bank-num* target-bank)
+                  fname)])
+    ; Push parameters beyond 3
     (when (> (length params) 3)
           (for [(elem (reverse (cdddr params)))]
                (set! pop-count (+ 1 pop-count))
                (process-argument elem #:skip-context #t)
                (emit 'pha)))
+    ; Fastcall first 3 parameters
     (for [(elem params) (i (in-naturals))]
          (cond
           [(= i 0)
