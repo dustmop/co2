@@ -1,0 +1,75 @@
+;; -*- mode: lisp; -*-
+
+(nes-header #:num-prg 1 #:mapper 0)
+
+(defsub (clear-nametables)
+  (bit REG-PPU-STATUS)
+  (set! REG-PPU-ADDR #x20)
+  (set! REG-PPU-ADDR 0)
+  (loop-down-from y 8
+    (loop-down-from x #x100
+      (sta REG-PPU-DATA))))
+
+(defsub (clear-chr-ram)
+  (bit REG-PPU-STATUS)
+  (set! REG-PPU-ADDR (set! REG-PPU-ADDR 0))
+  (loop-down-from y #x20
+    (loop-down-from x #x100
+      (sta REG-PPU-DATA))))
+
+(defsub (enable-nmi)
+  (set! ppu-ctrl (ora ppu-ctrl PPU-CTRL-NMI)) ; #x80
+  (sta REG-PPU-CTRL))
+
+(defsub (enable-rendering)
+  (set! ppu-mask (ora ppu-mask PPU-MASK-SHOW-SPR PPU-MASK-SHOW-BG)) ; #x10 #x08
+  (sta REG-PPU-MASK))
+
+(defsub (set-some-palette)
+  (bit REG-PPU-STATUS)
+  (set! REG-PPU-ADDR #x3f)
+  (set! REG-PPU-ADDR #x00)
+  (let ((palette-bytes '(#x0f #x30 #x02 #x03)))
+    (loop-up-to x 0 (length palette-bytes)
+      (set! REG-PPU-DATA (lda palette-bytes x)))))
+
+(defsub (wait-frame)
+  (lda frame-num)
+  (block WaitLoop
+    (cmp frame-num)
+    (beq WaitLoop)))
+
+(defsub (f a b [c optional])
+  #f)
+
+;(defsub (g [value word] param)
+;  #f)
+
+(defword w)
+
+(defsub (do-math)
+  (f 1 2)
+  (f 1 2 3))
+
+
+(defvector (reset)
+  (init-system)
+  (clear-nametables)
+  (clear-chr-ram)
+  (set-some-palette)
+  (enable-nmi)
+  (wait-frame)
+  (enable-rendering)
+  (block ForeverLoop
+    (wait-frame)
+    (jmp ForeverLoop)))
+
+(defvector (nmi)
+  (push a x y)
+  (set! REG-OAM-ADDR 0)
+  (set! REG-OAM-DMA 2)
+  (inc frame-num)
+  (set! REG-PPU-ADDR (set! REG-PPU-ADDR 0))
+  (set! REG-PPU-SCROLL 0)
+  (set! REG-PPU-SCROLL 0)
+  (pull a x y))

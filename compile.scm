@@ -271,13 +271,18 @@
 
 (define *function-defs* (make-hash))
 
-(define (make-function! sym args #:ignore-redefine [ignore #f])
-  (let* ((name (normalize-name sym))
-         (n (hash-count *function-defs*)))
+(define (is-optional-arg? arg)
+  (and (list? arg) (eq? (second arg) 'optional)))
+
+(define (make-function! sym args bank-num #:ignore-redefine [ignore #f])
+  (let* ((name (normalize-name sym)) (num-optional 0))
     (when (hash-has-key? *function-defs* sym)
       (when (not ignore)
         (add-error "Function already defined" sym)))
-    (hash-set! *function-defs* sym (list n name args))
+    (for [(a args)]
+         (when (is-optional-arg? a)
+               (set! num-optional (+ num-optional 1))))
+    (hash-set! *function-defs* sym (list name args bank-num num-optional))
     (hash-ref *function-defs* sym)))
 
 (define (function? name)
@@ -287,11 +292,14 @@
   (let ((lookup (hash-ref *function-defs* fname #f)))
     (if (not lookup)
         (add-error "Function not found" fname)
-        (let ((args (caddr lookup)))
-          (when (not (eq? (length args) (length params)))
-            (add-error (format "Func takes: ~a, got: ~a"
-                               (length args) (length params))
-                       fname))))))
+        (let ((args (cadr lookup))
+              (num-optional (cadddr lookup))
+              (diff 0))
+          (when (eq? num-optional 0)
+            (when (not (eq? (length args) (length params)))
+              (add-error (format "Func takes: ~a, got: ~a"
+                                 (length args) (length params))
+                         fname)))))))
 
 (define (macro? name)
   (member name '(when load-pointer
@@ -1363,13 +1371,23 @@
   (generate-suffix)
   (set! *current-bank-base-addr* #f))
 
+(define (derive-argument-names args)
+  (let ((result (make-gvector)))
+    (for [(a args)]
+         (if (symbol? a)
+             (gvector-add! result a)
+             ; Assume we have [symbol 'optional]
+             (let ((sym (car a)))
+               (gvector-add! result sym))))
+    (gvector->list result)))
+
 (define (process-proc type context-decl body)
   (assert type symbol?)
   (assert context-decl syntax?)
   (assert body list?)
   (let* ((decl (syntax->datum context-decl))
          (name (car decl))
-         (args (cdr decl)))
+         (args (derive-argument-names (cdr decl))))
     ; Add vector entry points.
     (when (eq? type 'vector)
           (set! *entry-points* (cons name *entry-points*)))
@@ -3123,7 +3141,7 @@
   (let* ((decl (syntax->datum context-decl))
          (name (car decl))
          (args (cdr decl)))
-    (make-function! name args)))
+    (make-function! name args *current-bank-num*)))
 
 (define (analyze-deflabel context-name)
   (assert context-name syntax?)
@@ -3199,6 +3217,7 @@
   (if (eq? *user-specified-org* 'none)
       (set! *user-specified-org* 'program-only)
       (set! *user-specified-org* 'all))
+  (set! *current-bank-num* (syntax->datum arg-2))
   ; Somewhat of a hack. Assume if there is a bank number included in the
   ; program-bank directive, we'll be using farcalls.
   (when arg-2

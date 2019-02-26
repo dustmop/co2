@@ -4,7 +4,7 @@
 
 (define (compile-code code)
   (clear-result)
-  (make-function! 'f '() #:ignore-redefine #t)
+  (make-function! 'f '() 0 #:ignore-redefine #t)
   (make-variable! 'n)
   (make-variable! 'm)
   (make-variable! 'p)
