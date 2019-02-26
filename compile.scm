@@ -269,17 +269,29 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Function definition
 
-(define function-defs (make-hash))
+(define *function-defs* (make-hash))
 
-(define (make-function! sym)
+(define (make-function! sym args #:ignore-redefine [ignore #f])
   (let* ((name (normalize-name sym))
-         (n (hash-count function-defs)))
-    (when (not (hash-has-key? function-defs name))
-          (hash-set! function-defs name n))
-    (hash-ref function-defs name)))
+         (n (hash-count *function-defs*)))
+    (when (hash-has-key? *function-defs* sym)
+      (when (not ignore)
+        (add-error "Function already defined" sym)))
+    (hash-set! *function-defs* sym (list n name args))
+    (hash-ref *function-defs* sym)))
 
 (define (function? name)
-  (hash-has-key? function-defs (normalize-name name)))
+  (hash-has-key? *function-defs* name))
+
+(define (validate-func-params fname params)
+  (let ((lookup (hash-ref *function-defs* fname #f)))
+    (if (not lookup)
+        (add-error "Function not found" fname)
+        (let ((args (caddr lookup)))
+          (when (not (eq? (length args) (length params)))
+            (add-error (format "Func takes: ~a, got: ~a"
+                               (length args) (length params))
+                       fname))))))
 
 (define (macro? name)
   (member name '(when load-pointer
@@ -1038,7 +1050,7 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Source file context information for debugging / compiler metadata
 
-(define *co2-source-context* (make-parameter #f))
+(define *co2-source-context* (make-parameter (vector (datum->syntax #f #f) #f)))
 
 (define (co2-source-context)
   (let* ((form (vector-ref (*co2-source-context*) 0))
@@ -2854,8 +2866,9 @@
      [(eq? symbol 'text) (emit (format ".byte \"~a\"" value))])))
 
 (define (process-jump-subroutine fname params)
-  (let* ((pop-count 0))
+  (let* ((pop-count 0) (param-types #f))
     (emit-context)
+    (set! param-types (validate-func-params fname params))
     (when (> (length params) 3)
           (for [(elem (reverse (cdddr params)))]
                (set! pop-count (+ 1 pop-count))
@@ -3110,8 +3123,7 @@
   (let* ((decl (syntax->datum context-decl))
          (name (car decl))
          (args (cdr decl)))
-    ; TODO: Add number of parameters to table, to check when called.
-    (make-function! name)))
+    (make-function! name args)))
 
 (define (analyze-deflabel context-name)
   (assert context-name syntax?)

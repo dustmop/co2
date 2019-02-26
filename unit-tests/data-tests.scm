@@ -9,7 +9,7 @@
   (clear-data-segment)
   (make-address! 'out #x8000)
   (make-address! 'data 0)
-  (make-function! 'f)
+  (make-function! 'f '() #:ignore-redefine #t)
   (make-const! 'd 10)
   (analyze-form (datum->syntax #f code))
   (process-form (datum->syntax #f code))
@@ -88,33 +88,33 @@
 (check-equal? (get-data-segment)
               '(("some_bytes" (16 34 63))))
 
-(check-equal? (compile-code '(defsub (func m)
+(check-equal? (compile-code '(defsub (func1 m)
                                (let ((n 0) (q))
                                  (set! n 1)
                                  (set! q 2)
                                  (set! out (+ (+ m n) q)))))
               '(""
-                "func:"
-                "  sta _func__m"
+                "func1:"
+                "  sta _func1__m"
                 "  lda #$0"
-                "  sta _func__n"
+                "  sta _func1__n"
                 "  lda #$1"
-                "  sta _func__n"
+                "  sta _func1__n"
                 "  lda #$2"
-                "  sta _func__q"
-                "  lda _func__m"
+                "  sta _func1__q"
+                "  lda _func1__m"
                 "  clc"
-                "  adc _func__n"
+                "  adc _func1__n"
                 "  clc"
-                "  adc _func__q"
+                "  adc _func1__q"
                 "  sta out"
                 "  rts"))
 (check-equal? (casla->allocations)
-              '((func m 0)
-                (func n 1)
-                (func q 2)))
+              '((func1 m 0)
+                (func1 n 1)
+                (func1 q 2)))
 
-(check-equal? (compile-code-first-error '(defsub (func m)
+(check-equal? (compile-code-first-error '(defsub (func2 m)
                                            (let ((n 0) (q))
                                              (set! n 1)
                                              (set! q 2))
