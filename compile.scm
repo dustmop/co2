@@ -1697,23 +1697,43 @@
           (emit 'lda ret))
     ret))
 
-(define (process-operand context-operand)
+(define (process-operand operand)
   (emit-context)
-  (let ((operand (syntax->datum context-operand)))
-    (cond
-     [(and (list? operand) (eq? (car operand) 'high))
-        ; TODO: Check type of operand, make sure it's a pointer.
-        (format "~a+1" (arg->str (cadr operand)))]
-     [(symbol? operand)
-        (arg->str operand)]
-     [else
-        (add-error "ERROR NOT IMPLEMENTED:" operand)])))
+  (cond
+   [(and (list? operand) (eq? (car operand) 'high))
+      ; TODO: Check type of operand, make sure it's a pointer.
+      (format "~a+1" (arg->str (cadr operand)))]
+   [(symbol? operand)
+      (arg->str operand)]
+   [else
+      (add-error "ERROR NOT IMPLEMENTED: process-operand" operand)
+      ""]))
 
-(define (process-instruction-standalone instr operand)
+(define (process-instruction-standalone instr context-operand)
   (assert instr symbol?)
-  (assert operand syntax?)
-  (let ((val (process-operand operand)))
-    (emit instr val)))
+  (assert context-operand syntax?)
+  (let ((operand (syntax->datum context-operand)))
+    (if (and (list? operand) (eq? (car operand) 'make-word))
+        ; 16-bit
+        (let ((low  (process-operand (second operand)))
+              (high (process-operand (third operand)))
+              (lbl  (generate-label "done")))
+          (cond
+           [(eq? instr 'inc)
+              (emit instr low)
+              (emit 'bne lbl)
+              (emit instr high)
+              (emit-label lbl)]
+           [(eq? instr 'dec)
+              (emit instr low)
+              (emit 'lda low)
+              (emit 'cmp "#$ff")
+              (emit 'bne lbl)
+              (emit instr high)
+              (emit-label lbl)]))
+        ; 8-bit
+        (let ((val (process-operand operand)))
+          (emit instr val)))))
 
 (define (process-instruction-branch instr target)
   (assert instr symbol?)
