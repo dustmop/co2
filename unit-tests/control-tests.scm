@@ -1157,3 +1157,80 @@
                 "_false_case_0002:"
                 "  lda #$2"
                 "_if_done_0003:"))
+
+; when condition for simple var
+(check-equal? (compile-code '(when n (ldx 1)))
+              '("  lda n"
+                "  bne _truth_case_0001"
+                "  jmp _false_case_0002"
+                "_truth_case_0001:"
+                "  ldx #$1"
+                "  jmp _if_done_0003"
+                "_false_case_0002:"
+                "  lda #$0"
+                "_if_done_0003:"))
+
+; optimizing when condition for simple var
+(check-equal? (compile-code-with-optimizations '(when n (ldx 1)))
+              '("  lda n"
+                "  beq _false_case_0002"
+                "_truth_case_0001:"
+                "  ldx #$1"
+                "  jmp _if_done_0003"
+                "_false_case_0002:"
+                "  lda #$0"
+                "_if_done_0003:"))
+
+; unless condition for simple var
+(check-equal? (compile-code '(when (not n) (ldx 1)))
+              '("  lda n"
+                "  cmp #1"
+                "  lda #$ff"
+                "  adc #0"
+                "  bne _truth_case_0001"
+                "  jmp _false_case_0002"
+                "_truth_case_0001:"
+                "  ldx #$1"
+                "  jmp _if_done_0003"
+                "_false_case_0002:"
+                "  lda #$0"
+                "_if_done_0003:"))
+
+; optimizing unless condition for simple var
+(check-equal? (compile-code-with-optimizations '(when (not n) (ldx 1)))
+
+              '("  lda n"
+                "  bne _false_case_0002"
+                "_truth_case_0001:"
+                "  ldx #$1"
+                "  jmp _if_done_0003"
+                "_false_case_0002:"
+                "  lda #$0"
+                "_if_done_0003:"))
+
+; optimizing when condition for pointer value
+(check-equal? (compile-code-with-optimizations '(when q (ldx 1)))
+              '("  lda q"
+                "  bne _truth_case_0001"
+                "  lda q+1"
+                "  bne _truth_case_0001"
+                "  jmp _false_case_0002"
+                "_truth_case_0001:"
+                "  ldx #$1"
+                "  jmp _if_done_0003"
+                "_false_case_0002:"
+                "  lda #$0"
+                "_if_done_0003:"))
+
+; optimizing unless condition for pointer value
+(check-equal? (compile-code-with-optimizations '(when (not q) (ldx 1)))
+              '("  lda q"
+                "  bne _false_case_0002"
+                "  lda q+1"
+                "  bne _false_case_0002"
+                "_truth_case_0001:"
+                "  ldx #$1"
+                "  jmp _if_done_0003"
+                "_false_case_0002:"
+                "  lda #$0"
+                "_if_done_0003:"))

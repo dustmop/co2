@@ -528,6 +528,24 @@
        (emit 'sta (format "~a+0" (normalize-name place)))
        (emit 'lda (format "#$~x" (quotient (resolve-arg ptr-name) #x100)))
        (emit 'sta (format "~a+1" (normalize-name place)))]
+    [(and (list? value) (eq? (car value) '+))
+       ; Sort of a hack, should be generalized.
+       (let ((lhs #f) (rhs #f))
+         (set! lhs (cadr value))
+         (set! rhs (caddr value))
+         (when (not (pointer? lhs))
+            (error (format "lhs ~s needs to be a pointer" lhs)))
+         (when (not (variable? rhs))
+            (error (format "rhs ~s needs to be a var" rhs)))
+         (emit 'clc)
+         ; Low byte
+         (emit 'lda (format "~a+0" (normalize-name lhs)))
+         (emit 'adc (format "~a"   (arg->str rhs)))
+         (emit 'sta (format "~a+0" (normalize-name place)))
+         ; High byte
+         (emit 'lda (format "~a+1" (normalize-name lhs)))
+         (emit 'adc "#0")
+         (emit 'sta (format "~a+1" (normalize-name place))))]
     [(number? value)
        (add-error "set-pointer! needs (addr ...)" value)]
     [else
@@ -2146,6 +2164,22 @@
          (set! long-label  (opt-codegen-false-case (*opt-mode*)))
          (set! branch-instr (opt-codegen-branch-instr (*opt-mode*))))
       (cond
+       [(condition-is-pointer? context-condition #f)
+          ; This case is used for checking a pointer is non-null, such as:
+          ; (when my-pointer ...)
+          (let ((value (syntax->datum context-condition)))
+            (emit 'bne truth-label)
+            (emit 'lda (format "~a+1" (normalize-name value)))
+            (emit 'bne truth-label)
+            (emit 'jmp false-label))]
+       [(condition-is-pointer? context-condition #t)
+          ; This case is used for checking a pointer is null, such as:
+          ; (when (not my-pointer) ...)
+          (let* ((expr (syntax->datum context-condition))
+                 (value (second expr)))
+            (emit 'bne false-label)
+            (emit 'lda (format "~a+1" (normalize-name value)))
+            (emit 'bne false-label))]
        ; TODO: An intelligent assembly could "know" the length of jumps, and
        ; emit proper control instructions to both be efficient and avoid
        ; branch overflows.
@@ -2208,6 +2242,14 @@
         (let ((size (estimate-size body)))
           (< size 5)))
       #f))
+
+(define (condition-is-pointer? context-cond has-not)
+  (let ((c (syntax->datum context-cond)))
+    (if (not has-not)
+        (pointer? c)
+        (and (list? c)
+             (eq? (first c) 'not)
+             (pointer? (second c))))))
 
 (define (estimate-size body)
   (if (null? body)
