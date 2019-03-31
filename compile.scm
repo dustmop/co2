@@ -3081,6 +3081,7 @@
             [(nes-header) (apply built-in-nes-header
                                  (process-keys rest '(#:num-prg #:num-chr
                                                       #:mapper #:mirroring)))]
+            [(memory-map-global-state) #f]
             [(init-system) (built-in-init-system)]
             [(defconst) (apply process-defconst (unwrap-args rest 2 0))]
             [(defenum) (process-defenum (car rest) (cdr rest))]
@@ -3340,6 +3341,7 @@
             [(include) (analyze-include (car rest))]
             [(include-binary) (analyze-deflabel (car rest))]
             [(nes-header) (analyze-nes-header)]
+            [(memory-map-global-state) #f]
             [(program-bank) (analyze-program-bank (lref rest 0) (lref rest 1)
                                                   (lref rest 2))]
             [(farcall) (analyze-farcall)]
