@@ -279,6 +279,8 @@
     (when (hash-has-key? *function-defs* sym)
       (when (not ignore)
         (add-error "Function already defined" sym)))
+    (when (hash-has-key? *macro-defs* sym)
+      (add-error "Function name already defined as a macro" sym))
     (for [(a args)]
          (when (is-optional-arg? a)
                (set! num-optional (+ num-optional 1))))
@@ -287,6 +289,22 @@
 
 (define (function? name)
   (hash-has-key? *function-defs* name))
+
+(define *macro-defs* (make-hash))
+
+(define (make-macro! sym args body)
+  (let* ((name (normalize-name sym)))
+    (when (hash-has-key? *function-defs* sym)
+      (add-error "Macro name already defined as a function" sym))
+    (when (hash-has-key? *macro-defs* sym)
+      (add-error "Macro already defined" sym))
+    (hash-set! *macro-defs* sym (list name args body))))
+
+(define (macro? name)
+  (hash-has-key? *macro-defs* name))
+
+(define (lookup-macro sym)
+  (hash-ref *macro-defs* sym))
 
 (define (validate-func-params fname params)
   (let ((lookup (hash-ref *function-defs* fname #f)))
@@ -308,7 +326,7 @@
         (let ((bank-num (caddr lookup)))
           bank-num))))
 
-(define (macro? name)
+(define (old-style-macro? name)
   (member name '(when load-pointer
                  set-sprite-y! set-sprite-id! set-sprite-attr!
                  set-sprite-x! get-sprite-y get-sprite-id
@@ -3002,15 +3020,38 @@
    [(not symbol) (process-argument context-original)]
    [(not (symbol? symbol)) (add-error "Invalid function or macro name" symbol)]
    [(function? symbol) (process-jump-subroutine symbol rest)]
-   [(macro? symbol) (let* ((forms (list (syntax->datum context-original)))
-                           (expanded (car (macro-expand forms)))
-                           (wrapped (datum->syntax context-original
-                                                   expanded
-                                                   context-original)))
-                      (if (eq? (*opt-no-retval-form*) context-original)
-                          (parameterize [(*opt-no-retval-form* wrapped)]
-                                        (process-form wrapped))
-                          (process-form wrapped)))]))
+   [(old-style-macro? symbol)
+      (let* ((forms (list (syntax->datum context-original)))
+             (expanded (car (macro-expand forms)))
+             (wrapped (datum->syntax context-original
+                                     expanded
+                                     context-original)))
+        (if (eq? (*opt-no-retval-form*) context-original)
+            (parameterize [(*opt-no-retval-form* wrapped)]
+                          (process-form wrapped))
+            (process-form wrapped)))]
+   [(macro? symbol)
+      (process-macro-call symbol rest context-original)]))
+
+(define (process-macro-call symbol args context-call-site)
+  (let* ((lookup (lookup-macro symbol))
+         (params (cadr lookup))
+         (body   (caddr lookup))
+         (result #f)
+         (namespace #f))
+    (set! namespace (make-base-namespace))
+    (for [(i (in-range (length params)))]
+         (let ((p (list-ref params i))
+               (a (list-ref args i))
+               (v #f))
+           (set! v (syntax->datum a))
+           (namespace-set-variable-value! p v #f namespace)))
+    (for [(context-line body)]
+         (let ((line (syntax->datum context-line)))
+           (set! result (eval line namespace))))
+    (parameterize [(*co2-source-context* (vector context-call-site #t))]
+      (emit-context)
+      (process-form (datum->syntax context-call-site result)))))
 
 (define (process-body-statements body)
   (let ((final (if (null? body) #f (last body))))
@@ -3074,7 +3115,7 @@
          (symbol (if first (syntax->datum first) #f)))
     (parameterize [(*co2-source-context* (vector form #t))]
       (if (or (not symbol) (not (symbol? symbol))
-              (function? symbol) (macro? symbol))
+              (function? symbol) (old-style-macro? symbol) (macro? symbol))
           (process-invocation form symbol rest)
           (case symbol
             ; Main expression walker.
@@ -3092,6 +3133,7 @@
             [(defpointer) (apply process-defpointer (unwrap-args rest 1 0))]
             [(defsub) (process-proc 'sub (car rest) (cdr rest))]
             [(defvector) (process-proc 'vector (car rest) (cdr rest))]
+            [(defmacro) #f]
             [(deflabel) (process-deflabel (car rest))]
             [(defbuffer) (apply process-defbuffer (unwrap-args rest 2 0))]
             [(defresource) (process-defresource (lref rest 0) (lref rest 1)
@@ -3228,6 +3270,14 @@
          (args (cdr decl)))
     (make-function! name args *current-bank-num*)))
 
+(define (analyze-macro context-decl body)
+  (assert context-decl syntax?)
+  (assert body list?)
+  (let* ((decl (syntax->datum context-decl))
+         (name (car decl))
+         (args (cdr decl)))
+    (make-macro! name args body)))
+
 (define (analyze-deflabel context-name)
   (assert context-name syntax?)
   (let* ((name (syntax->datum context-name)))
@@ -3322,12 +3372,14 @@
          (rest (if (list? inner) (cdr inner) #f))
          (symbol (if first (syntax->datum first) #f)))
     (parameterize [(*co2-source-context* (vector form #t))]
-      (if (or (not symbol) (function? symbol) (macro? symbol))
+      (if (or (not symbol) (function? symbol)
+              (old-style-macro? symbol) (macro? symbol))
           #f
           (case symbol
             ; Main expression walker.
             [(defsub) (analyze-proc (car rest) (cdr rest))]
             [(defvector) (analyze-proc (car rest) (cdr rest))]
+            [(defmacro) (analyze-macro (car rest) (cdr rest))]
             [(defvar) (analyze-defvar (car rest))]
             [(defvarmem) (analyze-defvarmem (car rest) (cadr rest))]
             [(defpointer) (analyze-defpointer (car rest))]
