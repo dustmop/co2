@@ -93,7 +93,7 @@
                   ""
                   "d:"
                   "  sta _d__q"
-                  "  lda #$00"
+                  "  lda #$0"
                   "  rts"))
   (check-equal? (casla->allocations)
                 '((d q 0)

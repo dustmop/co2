@@ -17,4 +17,4 @@
 
 (check-equal? (compile-code '(+ 1 #f)) '("  lda #$1"
                                          "  clc"
-                                         "  adc #$00"))
+                                         "  adc #$0"))

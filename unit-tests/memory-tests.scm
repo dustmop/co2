@@ -67,14 +67,14 @@
 
 (check-equal? (compile-code '(memset sprites #xff))
               '("  lda #$ff"
-                "  ldy #$00"
+                "  ldy #$0"
                 "-  sta sprites,y"
                 "  iny"
                 "  bne -"))
 
 (check-equal? (compile-code '(memset render-buffer #x00 #x40))
               '("  lda #$0"
-                "  ldy #$00"
+                "  ldy #$0"
                 "-  sta render_buffer,y"
                 "  iny"
                 "  cpy #$40"
@@ -85,7 +85,7 @@
                 "  lda #>data"
                 "  sty _ptr"
                 "  sta _ptr+1"
-                "  ldy #$00"
+                "  ldy #$0"
                 "-  lda (_ptr),y"
                 "  sta render_buffer,y"
                 "  iny"
@@ -113,7 +113,7 @@
                 "  adc #>data"
                 "  sty _ptr"
                 "  sta _ptr+1"
-                "  ldy #$00"
+                "  ldy #$0"
                 "-  lda (_ptr),y"
                 "  sta render_buffer,y"
                 "  iny"
@@ -135,9 +135,9 @@
                 "  iny"
                 "  cpy #$20"
                 "  bne -"
-                "  lda #$00"
+                "  lda #$0"
                 "  sta REG_PPU_ADDR"
-                "  lda #$00"
+                "  lda #$0"
                 "  sta REG_PPU_ADDR"))
 
 (check-equal? (compile-code '(ppu-load #x2000 data #x800))

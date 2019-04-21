@@ -349,10 +349,11 @@
 (define *result-curr-areg* #f)
 (define *result-curr-xreg* #f)
 (define *result-curr-yreg* #f)
+(define *result-curr-tail-call* #f)
 
 (define (clear-result)
   (set! *result* (make-gvector))
-  (clear-curr-register-state))
+  (clear-peephole-state))
 
 (define (fetch-result)
   (gvector->list *result*))
@@ -374,34 +375,54 @@
     ; Peephole optimizier
     (when *opt-peephole-enabled*
       (let ((opcode #f))
-        ; A label, or raw bytes, will clear register state
+        ; A label, or raw bytes, will clear peephole state
         (when (and (null? args) (not (string=? build "")))
-              (clear-curr-register-state))
-        ; Load or store of register will keep track of register state
+              (clear-peephole-state))
+        ; Load or store of register will keep track of peephole state
         (when (not (null? args))
           (set! opcode (car args))
           (cond
            [(eq? opcode 'lda)
               (if (and *result-curr-areg* (string=? build *result-curr-areg*))
                   (set! build (format "; AReg:omit ~a" build))
-                  (set! *result-curr-areg* build))]
+                  (set! *result-curr-areg* build))
+              (set! *result-curr-tail-call* #f)]
            [(eq? opcode 'ldx)
               (if (and *result-curr-xreg* (string=? build *result-curr-xreg*))
                   (set! build (format "; XReg:omit ~a" build))
-                  (set! *result-curr-xreg* build))]
+                  (set! *result-curr-xreg* build))
+              (set! *result-curr-tail-call* #f)]
            [(eq? opcode 'ldy)
               (if (and *result-curr-yreg* (string=? build *result-curr-yreg*))
                   (set! build (format "; YReg:omit ~a" build))
-                  (set! *result-curr-yreg* build))]
+                  (set! *result-curr-yreg* build))
+              (set! *result-curr-tail-call* #f)]
            [(eq? opcode 'sta)
-              #f]
+              (set! *result-curr-tail-call* #f)]
            [(eq? opcode 'stx)
-              #f]
+              (set! *result-curr-tail-call* #f)]
            [(eq? opcode 'sty)
-              #f]
+              (set! *result-curr-tail-call* #f)]
+           [(eq? opcode 'jsr)
+              (clear-peephole-state)
+              (set! *result-curr-tail-call* #t)]
+           [(eq? opcode 'rts)
+              ; Very basic tail-call optimization, turn jsr+rts -> jmp
+              (when *result-curr-tail-call*
+                (let ((found #f) (prev #f) (new #f) (j #f))
+                  (for [(i (in-range 3))]
+                       (when (not found)
+                         (set! j (- (gvector-count *result*) 1 i))
+                         (set! prev (gvector-ref *result* j))
+                         (when (string-startswith prev "  jsr ")
+                               (set! found #t)
+                               (set! new (string-replace prev " jsr " " jmp "))
+                               (gvector-set! *result* j new)
+                               (set! build (format "; rts:omit:tail-call")))))))
+              (clear-peephole-state)]
            [else
-              ; Anything else at all will clear register state
-              (clear-curr-register-state)]))))
+              ; Anything else at all will clear peephole state
+              (clear-peephole-state)]))))
     ; Actually output the code.
     (gvector-add! *result* build)))
 
@@ -413,13 +434,14 @@
     (when c (gvector-add! *result* c))))
 
 (define (emit-label label)
-  (clear-curr-register-state)
+  (clear-peephole-state)
   (gvector-add! *result* (format "~a:" label)))
 
-(define (clear-curr-register-state)
+(define (clear-peephole-state)
   (set! *result-curr-areg* #f)
   (set! *result-curr-xreg* #f)
-  (set! *result-curr-yreg* #f))
+  (set! *result-curr-yreg* #f)
+  (set! *result-curr-tail-call* #f))
 
 (define *errors* (make-gvector))
 
