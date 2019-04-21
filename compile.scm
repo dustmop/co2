@@ -1746,9 +1746,10 @@
 
 (define (process-instruction-accumulator instr context-arg)
   (assert instr symbol?)
-  (assert context-arg syntax?)
-  (let ((arg (syntax->datum context-arg)))
-    (if (eq? arg 'a)
+  (let ((arg #f))
+    (when context-arg
+          (set! arg (syntax->datum context-arg)))
+    (if (or (not arg) (eq? arg 'a))
         (emit instr "a")
         (let ((value (process-argument context-arg #:as 'rhs)))
           (emit instr value)))))
