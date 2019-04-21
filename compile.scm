@@ -3110,6 +3110,13 @@
     (when (and (list? form) (not (null? form)))
       (let ((sym (syntax->datum (car form)))
             (args (cdr form)))
+        ; Recursively handle the arguments
+        (set! args (map (lambda (context-arg)
+                                (recursive-macro-expand context-arg)) args))
+        ; Rebuild the main form
+        (set! context-form (datum->syntax context-form
+                                          (cons (car form) args)))
+        ; Expand the top-level form
         (when (macro? sym)
           (set! context-form (macro-expand-once sym args context-form)))))
     context-form))
