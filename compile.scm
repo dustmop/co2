@@ -1053,7 +1053,7 @@
   (append (list 'peek) (cdr x)))
 
 ;; basically diy-macro from the main tinyscheme stuff
-(define (macro-expand s)
+(define (old-style-macro-expand s)
   (cond
    [(null? s) s]
    [(list? s)
@@ -1077,8 +1077,8 @@
             [(eq? (car i) 'set-sprite-x!) (m-expand-set-sprite! i 3)]
             [(eq? (car i) 'set-sprite-x!) (m-expand-set-sprite! i 3)]
             [(eq? (car i) 'load-pointer) (m-expand-load-pointer i)]
-            [else (macro-expand i)])
-           (macro-expand i)))
+            [else (old-style-macro-expand i)])
+           (old-style-macro-expand i)))
      s)]
    [else s]))
 
@@ -2239,6 +2239,8 @@
         (branch-instr 'bne)
         (optimizer #f))
     (emit-context)
+    ; Expand any macros in the if-cond
+    (set! if-cond (syntax->datum (recursive-macro-expand context-condition)))
     ; Enable optimizer, if possible.
     (when (and (optimization-enabled? 'if) (can-optimize-tree? if-cond))
       (set! long-label (generate-label "long_jump"))
@@ -3092,7 +3094,7 @@
    [(function? symbol) (process-jump-subroutine symbol rest)]
    [(old-style-macro? symbol)
       (let* ((forms (list (syntax->datum context-original)))
-             (expanded (car (macro-expand forms)))
+             (expanded (car (old-style-macro-expand forms)))
              (wrapped (datum->syntax context-original
                                      expanded
                                      context-original)))
@@ -3103,7 +3105,17 @@
    [(macro? symbol)
       (process-macro-call symbol rest context-original)]))
 
+(define (recursive-macro-expand context-form)
+  (let ((form (syntax-e context-form)))
+    (when (and (list? form) (not (null? form)))
+      (let ((sym (syntax->datum (car form)))
+            (args (cdr form)))
+        (when (macro? sym)
+          (set! context-form (macro-expand-once sym args context-form)))))
+    context-form))
+
 (define (process-macro-call symbol args context-call-site)
+  ; TODO: Refactor with `macro-expand-once`
   (let* ((lookup (lookup-macro symbol))
          (params (cadr lookup))
          (body   (caddr lookup))
@@ -3122,6 +3134,24 @@
     (parameterize [(*co2-source-context* (vector context-call-site #t))]
       (emit-context)
       (process-form (datum->syntax context-call-site result)))))
+
+(define (macro-expand-once symbol args context-call-site)
+  (let* ((lookup (lookup-macro symbol))
+         (params (cadr lookup))
+         (body   (caddr lookup))
+         (result #f)
+         (namespace #f))
+    (set! namespace (make-base-namespace))
+    (for [(i (in-range (length params)))]
+         (let ((p (list-ref params i))
+               (a (list-ref args i))
+               (v #f))
+           (set! v (syntax->datum a))
+           (namespace-set-variable-value! p v #f namespace)))
+    (for [(context-line body)]
+         (let ((line (syntax->datum context-line)))
+           (set! result (eval line namespace))))
+    (datum->syntax context-call-site result)))
 
 (define (process-body-statements body)
   (let ((final (if (null? body) #f (last body))))

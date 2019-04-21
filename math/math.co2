@@ -51,6 +51,29 @@
   (f 1 2)
   (f 1 2 3))
 
+(defmacro (is-five n)
+  `(eq? ,n 5))
+
+(defsub (check-if-five val)
+  (if (is-five val)
+      #t
+    #f))
+
+(defsub (check-if-five-no-macro val)
+  (if (eq? val 5)
+      #t
+    #f))
+
+(defsub (check-if-valid arg val)
+  (if (and (>= arg #x80) (is-five val))
+      #t
+    #f))
+
+(defsub (check-if-valid-no-macro arg val)
+  (if (and (>= arg #x80) (eq? val 5))
+      #t
+    #f))
+
 
 (defvector (reset)
   (init-system)
