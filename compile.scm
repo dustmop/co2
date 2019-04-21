@@ -346,8 +346,13 @@
 (define *result-bank-depend-sym* #f)
 (define *result-bank-defined-here* #f)
 
+(define *result-curr-areg* #f)
+(define *result-curr-xreg* #f)
+(define *result-curr-yreg* #f)
+
 (define (clear-result)
-  (set! *result* (make-gvector)))
+  (set! *result* (make-gvector))
+  (clear-curr-register-state))
 
 (define (fetch-result)
   (gvector->list *result*))
@@ -366,6 +371,38 @@
                 (if (string=? build "")
                     (set! build (cadr args))
                     (set! build (string-append build " " (cadr args))))))
+    ; Peephole optimizier
+    (when *opt-peephole-enabled*
+      (let ((opcode #f))
+        ; A label, or raw bytes, will clear register state
+        (when (and (null? args) (not (string=? build "")))
+              (clear-curr-register-state))
+        ; Load or store of register will keep track of register state
+        (when (not (null? args))
+          (set! opcode (car args))
+          (cond
+           [(eq? opcode 'lda)
+              (if (and *result-curr-areg* (string=? build *result-curr-areg*))
+                  (set! build (format "; AReg:omit ~a" build))
+                  (set! *result-curr-areg* build))]
+           [(eq? opcode 'ldx)
+              (if (and *result-curr-xreg* (string=? build *result-curr-xreg*))
+                  (set! build (format "; XReg:omit ~a" build))
+                  (set! *result-curr-xreg* build))]
+           [(eq? opcode 'ldy)
+              (if (and *result-curr-yreg* (string=? build *result-curr-yreg*))
+                  (set! build (format "; YReg:omit ~a" build))
+                  (set! *result-curr-yreg* build))]
+           [(eq? opcode 'sta)
+              #f]
+           [(eq? opcode 'stx)
+              #f]
+           [(eq? opcode 'sty)
+              #f]
+           [else
+              ; Anything else at all will clear register state
+              (clear-curr-register-state)]))))
+    ; Actually output the code.
     (gvector-add! *result* build)))
 
 (define (emit-blank)
@@ -376,7 +413,13 @@
     (when c (gvector-add! *result* c))))
 
 (define (emit-label label)
+  (clear-curr-register-state)
   (gvector-add! *result* (format "~a:" label)))
+
+(define (clear-curr-register-state)
+  (set! *result-curr-areg* #f)
+  (set! *result-curr-xreg* #f)
+  (set! *result-curr-yreg* #f))
 
 (define *errors* (make-gvector))
 
@@ -472,7 +515,7 @@
           (begin (add-error "Overflow " arg)
                  (format ";overflow ~s" arg)))]
    [(char? arg) (format "#$~x" (->unsigned (char->integer arg)))]
-   [(eq? arg #f) "#$00"]
+   [(eq? arg #f) "#$0"]
    [(eq? arg #t) "#$ff"]
    [(literal-address? arg) (format "$~x" (literal-address-number arg))]
    [else (error (format "ERROR arg->str: ~a" arg))]))
@@ -584,7 +627,7 @@
         (limit (if optional-limit
                    (syntax->datum optional-limit) #f)))
    (process-argument context-value)
-   (emit 'ldy "#$00")
+   (emit 'ldy "#$0")
    (emit "-" 'sta (format "~a,y" (normalize-name address)))
    (emit 'iny)
    (when limit
@@ -600,7 +643,7 @@
     (process-argument context-source #:as 16)
     (emit 'sty "_ptr")
     (emit 'sta "_ptr+1")
-    (emit 'ldy "#$00")
+    (emit 'ldy "#$0")
     (emit "-" 'lda "(_ptr),y")
     (emit 'sta (format "~a,y" (normalize-name address)))
     (emit 'iny)
@@ -682,9 +725,9 @@
    (emit 'dex)
    (emit 'bne "-")
    ;; reset ppu addr
-   (emit 'lda "#$00")
+   (emit 'lda "#$0")
    (emit 'sta "REG_PPU_ADDR")
-   (emit 'lda "#$00")
+   (emit 'lda "#$0")
    (emit 'sta "REG_PPU_ADDR")))
 
 (define (process-ppu-memcpy context-ppu-base context-dest-high
@@ -710,9 +753,9 @@
    (emit 'cpy (arg->str end-index))
    (emit 'bne "-")
    ;; reset ppu addr
-   (emit 'lda "#$00")
+   (emit 'lda "#$0")
    (emit 'sta "REG_PPU_ADDR")
-   (emit 'lda "#$00")
+   (emit 'lda "#$0")
    (emit 'sta "REG_PPU_ADDR")))
 
 (define (process-ppu-memcpy16 context-ppu-base context-dest-high
@@ -737,9 +780,9 @@
    (emit 'cpy (arg->str length))
    (emit 'bne "-")
    ;; reset ppu addr
-   (emit 'lda "#$00")
+   (emit 'lda "#$0")
    (emit 'sta "REG_PPU_ADDR")
-   (emit 'lda "#$00")
+   (emit 'lda "#$0")
    (emit 'sta "REG_PPU_ADDR")))
 
 (define (process-set-sprite! context-sprite-id context-value context-field)
@@ -1166,8 +1209,8 @@
   (emit "-" 'lda "$2002")
   (emit 'bpl "-")
   ;; clear out all ram
-  (emit 'ldx "#$00")
-  (emit "-" 'lda "#$00")
+  (emit 'ldx "#$0")
+  (emit "-" 'lda "#$0")
   (emit 'sta "$000,x")
   (emit 'sta "$100,x")
   (emit 'sta "$300,x")
@@ -1229,6 +1272,11 @@
             (set-opt-codegen-branch-instr! (*opt-mode*) value)]
          [else (error
                  (format "Don't know how to poke-optimize-fact! ~a" key))])))
+
+(define *opt-peephole-enabled* #f)
+
+(define (set-peephole-optimization! opt)
+  (set! *opt-peephole-enabled* opt))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Main processor.
@@ -3660,6 +3708,7 @@
 
 (define (compile-co2 fname out-filename)
   (set-optimization! #t)
+  (set-peephole-optimization! #t)
   (set! *res-out-file* (string-replace out-filename ".asm" ".res"))
   (assign-include-base! (string->path fname))
   (analyze-file fname)
