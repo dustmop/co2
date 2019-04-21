@@ -403,6 +403,16 @@
               (set! *result-curr-tail-call* #f)]
            [(eq? opcode 'sty)
               (set! *result-curr-tail-call* #f)]
+           [(eq? opcode 'bcc)
+              (set! *result-curr-tail-call* #t)]
+           [(eq? opcode 'bcs)
+              (set! *result-curr-tail-call* #t)]
+           [(eq? opcode 'beq)
+              (set! *result-curr-tail-call* #t)]
+           [(eq? opcode 'bne)
+              (set! *result-curr-tail-call* #t)]
+           [(eq? opcode 'cmp)
+              (set! *result-curr-tail-call* #t)]
            [(eq? opcode 'jsr)
               (clear-peephole-state)
               (set! *result-curr-tail-call* #t)]
