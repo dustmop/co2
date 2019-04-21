@@ -1485,11 +1485,6 @@
       (let ((bank-num (syntax->datum context-bank-num)))
         (set! *current-bank-num* bank-num)))))
 
-; DEPRECATED
-(define (process-program-begin context-address)
-  (let* ((address (syntax->datum context-address)))
-    (emit (format ".org $~x" address))))
-
 (define (process-program-complete)
   (generate-suffix)
   (set! *current-bank-base-addr* #f))
@@ -1978,15 +1973,6 @@
   (set! *result-target-bank* (syntax->datum context-bank))
   (set! *result-bank-base-addr* (syntax->datum context-address)))
 
-; DEPRECATED
-(define (process-resource-bank-begin context-target-bank)
-  (gvector-add! *result-stack* *result*)
-  (set! *result* (make-gvector))
-  (set! *result-bank-base-addr* #f)
-  (set! *result-bank-depend-sym* (make-hash))
-  (set! *result-bank-defined-here* (make-hash))
-  (set! *result-target-bank* (syntax->datum context-target-bank)))
-
 (require "assemble.scm")
 
 (define (read-listing-file filename)
@@ -2087,10 +2073,6 @@
     (set! *result-bank-base-addr* #f)
     (set! *result-bank-depend-sym* #f)
     (set! *result-bank-defined-here* #f)))
-
-; DEPRECATED
-(define (process-resource-base-address addr)
-  (set! *result-bank-base-addr* (syntax->datum addr)))
 
 (define (has-label? line)
   (and (> (string-length line) 32)
@@ -3259,8 +3241,6 @@
             [(resource-access) (process-resource-access (car rest))]
             [(program-bank) (process-program-bank (lref rest 0) (lref rest 1)
                                                   (lref rest 2))]
-            ; DEPRECATED
-            [(program-begin) (process-program-begin (lref rest 0))]
             [(program-complete) (process-program-complete)]
             [(push pull) (process-stack symbol (unwrap-args rest 0 3))]
             [(set!) (process-with-args process-set-bang rest 2)]
@@ -3277,13 +3257,7 @@
                                                       (lref rest 3))]
             [(resource-bank) (process-resource-bank (lref rest 0) (lref rest 1)
                                                     (lref rest 2))]
-            ; DEPRECATED
-            [(resource-bank-begin) (process-resource-bank-begin (lref rest 0))]
-            ; DEPRECATED
             [(resource-bank-complete) (process-resource-bank-complete)]
-            ; DEPRECATED
-            [(resource-base-address) (process-resource-base-address
-                                       (lref rest 0))]
             [(loop-down-from) (process-loop-down (car rest) (cadr rest)
                                                  (cddr rest))]
             [(loop-up-to loop) (process-loop-up (car rest) (cadr rest)
@@ -3476,10 +3450,6 @@
   (when arg-2
     (set! *need-farcall-wrapper* #t)))
 
-; DEPRECATED
-(define (analyze-program-begin)
-  #f)
-
 (define (analyze-farcall)
   (set! *need-farcall-wrapper* #t))
 
@@ -3515,8 +3485,6 @@
             [(program-bank) (analyze-program-bank (lref rest 0) (lref rest 1)
                                                   (lref rest 2))]
             [(farcall) (analyze-farcall)]
-            ; DEPRECATED
-            [(program-begin) (analyze-program-begin)]
             [(do) (for [(elem rest)]
                        (analyze-form elem))])))))
 
@@ -3625,8 +3593,6 @@
       (emit 'rts)
       (emit-blank))
     ;; Farcall wrapper
-    ; TODO: Actually detect when this is needed.
-    ;(set! *need-farcall-wrapper* #t)
     (when *need-farcall-wrapper*
       (emit "_farcall__wrapper:")
       (emit 'stx "_ptr+0")
