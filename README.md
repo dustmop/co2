@@ -55,6 +55,14 @@ Resources provide a simple mechanism to include binary data, such that it's chea
 
 When using fceux, CO2 produces *.nl files that easily enable source level debugging of the original high-level co2 files within the debugger window.
 
+### efficient cond
+
+The `cond` form can compile properly structured conditionals into lookup tables and jump tables, while still looking like high-level conditionals.
+
+### optimizations
+
+A very simple peephole optimizer and tail call optimizer help squeek out ROM bytes and CPU cycles without any extra work.
+
 ## Partially working features
 
 ### macros
@@ -64,6 +72,10 @@ Macros are available, but lack many features, as they were implemented late in d
 ### 16-bit math
 
 Some 16-bit math exists, but support is lacking. Ideally, types would automatically promote and demote, which proper errors from the compiler when the user is doing something wrong.
+
+### cond
+
+Though `cond` will sometimes compile to efficient tables, it could use more work. Ideally, it would always use binary search over sorted values, and tables with small gaps whereever possible.
 
 ## Future features
 
