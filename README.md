@@ -1,555 +1,341 @@
 # CO2
 
-A Lisp-like language for creating NES / Famicom software. Based upon original work by [Dave Griffiths](https://gitlab.com/nebogeo/co2).
+A lispy language for creating NES / Famicom software. Based upon original work by [Dave Griffiths](https://gitlab.com/nebogeo/co2).
 
 ![](shot.png)
 
-CO2 takes Lispy source files and compiles them into 6502 ROMs meant to run in an NES emulator. High-level control structures like subroutines, loop, and conditionals are provided, as are low-level access to direct memory and individual 6502 CPU instructions. Minimal support for 16-bit math exists, and more will be added in the future.
+CO2 takes Lispy source files and compiles them into 6502 ROMs meant to run in an NES emulator. It includes high-level control structures like subroutines, loops, and conditionals, as well as low-level access to memory and individual 6502 CPU instructions.
 
-Small example code, for reading the joypad button state:
+Though it was used for (and developed along with) the game What Remians, CO2 should be considered highly experimental. It is lacking many features, has poor errors, may rarely generate invalid code, lacks many standard language abstractions, and in general is somewhat unstable. Nevertheless, it still has some real benefits if you are willing to deal with its rough spots.
 
-    (defun (read-joypad)
-      ;; Strobe the controller.
-      (set! REG-JOYPAD-0 1)
-      (set! reg-JOYPAD-0 0)
-      ;; Read controller 8 times, rotate each bit into `joypad-data`.
-      (loop-down-from x 8
-        (lsr (lda REG-JOYPAD-0))
-        (rol joypad-data)))
+Example:
 
-See example/example.co2 for full program.
+```
+  (defun (read-joypad)
+    ; Latch the controller
+    (set! REG-JOYPAD-0 1)
+    (set! REG-JOYPAD-0 0)
+    ;; Read controller 8 times, put each bit into `joypad-data`.
+    (loop-down-from x 8
+      (lsr (lda REG-JOYPAD-0))
+      (rol joypad-data)))
+```
 
 ## Quick start
 
-Requires racket and asm6
+Requires `racket` and `asm6`
 
     $ racket co2.scm -o rom.nes example/example.co2
 
-## Memory use
+## Philosophy
 
-    $000 - $00f : used internally
-    $010 - $03f : defvar reserves it's addresses here
-    $040 - $0fb : function parameters
-    $0fc        : random state register
-    $100 - $1ff : stack
-    $200 - $2ff : sprite control data
-    $300 - ...  : free
+CO2 is meant to enable high-level structured programming, while still providing access to low level facilities. It maintains some useful knowledge of ROM banks, in order to make it easier to develope large scale games. It emphasizes writing fairly performant code, at the expense of some safety. In some cases, it has slightly leaky abstractions (such as putting state into the X and Y registers) that the compiler does not insulate you from. Basically: "you have to know what you're doing".
 
-## Fundamental stuff
+The goal is to allow development of software that doens't absolutely require the performance of raw assembly, in a manner that's convenient for experimentation, and understanding.
 
-General purpose 6502 code. All numbers
-follow racket conventions in terms of representation: `38` is decimal,
-`#xff` is hex, `#b11011011` is binary.
+## Features and benefits
 
-### (defvar name value)
+### local var allocation
 
-define and initialise a variable:
+Variables declared as subroutine parameters or by using `let` are statically allocated using a "compiled stack", calculated by analyzing the program's entire call graph. This means scopes will not use memory locations used by any inner scopes, but are free to use them from sibling scopes. This ensures efficient variables lookups, while also not wasting RAM. However, it does mean that recursion is not supported.
 
-    (defvar num-poodles 45)
+### farcall
 
-### (defsub (name args ...) code)
+Functions "know" what bank they exist in. This enables conveniently calling functions in other banks, though of course this much less efficient than a normal function call.
 
-defines a subroutine:
+### cross bank safety
 
-    (defsub (square x) (* x x))
+Similarily, it is an error to call a function in a non-accessible bank, detected statically by the compiler. This saves deleopment time by catching errors early.
 
-### (defvector (name) code)
+### resources
 
-defines a system entry point (ends with "rti" opcode)
+Resources provide a simple mechanism to include binary data, such that it's cheap and efficient to load a pointer and bank number to that data using a zero-cost (compile-time only) handle. No need to manually keep track of where data is stored in ROM.
 
-    (defvector (nmi)
-        (do-game-things))
+### source-level debugging
 
-### (defconst name value)
+When using fceux, CO2 produces *.nl files that easily enable source level debugging of the original high-level co2 files within the debugger window.
 
-defines a constant for use as an immediate value
+## Partially working features
 
-     (defconst num-players 2)
+### macros
 
-### (defaddr name address)
+Macros are available, but lack many features, as they were implemented late in development. They take advantage of racket's `namespaces` and `eval`, yielding a very simple implementation.
 
-defines a label for a specific memory location
+### 16-bit math
 
-     (defconst sprite-data #x200) ;; where the sprite control data is
+Some 16-bit math exists, but support is lacking. Ideally, types would automatically promote and demote, which proper errors from the compiler when the user is doing something wrong.
 
-### (if expr true-expr false-expr)
+## Future features
 
-if this then that else the other
+### timing aware code blocks
 
-    (if (pressed joypad-up)
-        (set! up 1)
-        (set! up 0))
+Similar to the [Dollhouse Demo](https://ahefner.livejournal.com/20528.html), it would be nice to have a construct that declares blocks which are aware of their own timing. 
 
-as a proper scheme it returns it's expression result, so you can also do this:
+### pluggable modules
 
-    (set! up (if (pressed joypad-up) 1 0))
+Would be beneficial to have an easier way to include third-party code, like Famitracker's NSF Driver, or the TV Detection Code.
 
-### (when expr true-expr-list)
+# Memory usage
 
-if this then that
+```
+  $000 - $007 : used internally
+  $010 - $0ff : defvar, function parameters, local vars
+  $100 - $1ff : stack
+  $200 - $2ff : sprite data
+  $300 - ...  : available
+```
 
-    (when (pressed joypad-up)
-        (go-up))
+# Documentation
 
-### (cond ((expr then-expr-list) ... (else else-expr-list)))
+TODO(dustmop): Fill the rest of this documentation out.
 
-helper to concatenate ifs (implemented as a macro)
+## Defining functions & data
 
-    (cond
-      ((pressed joypad-up) (go-up)
-      ((pressed joypad-down) (go-down))
-      ((pressed joypad-left) (go-left))
-      ((pressed joypad-right) (go-right))
-      (else 0))
+### defsub
 
-also returns the expression result so:
+```
+(defsub (my-func param-a param-b)
+  ; body goes here
+  )
+```
 
-    (set! direction
-        (cond
-          ((pressed joypad-up) 1)
-          ((pressed joypad-down) 2)
-          ((pressed joypad-left) 3)
-          ((pressed joypad-right) 4)
-          (else 0))
+Defines a subroutine. Can be called with `(my-func val-a val-b)`
 
-works...
+### defvector
 
-### (eq? a b)
+Same as `defsub`, but for defining `reset` and `nmi`.
 
-returns true (1) if two bytes are equal otherwise returns false (0):
+### deflabel
 
-    (when (eq? (sprite-x player-sprite) 100)
-        (do-something))
+```
+(deflabel my-table)
+```
 
-### (< a b)
+Define a label, such as a data table in ROM.
 
-returns true (1) if a byte is less than another otherwise returns false
-(0):
+### bytes
 
-    (when (< (sprite-x player-sprite) 100)
-        (do-something))
+```
+(bytes 1 2 3)
+```
 
-### (> a b)
+Define raw bytes in ROM.
 
-returns true (1) if a byte is greater than another otherwise returns
-false (0):
+### words
 
-    (when (> (sprite-x player-sprite) 100)
-        (do-something))
+```
+(words 6502 1234)
+```
 
-### (not a)
+Define word sized (16-bit) values in ROM.
 
-returns true if given false or vice versa
+### defconst
 
-    (when (not (> (sprite-x player-sprite) 100))
-        (do-something))
+```
+(defconst starting-health 30)
+```
 
-### (loop index-variable start end expr-list)
+Define a constant.
 
-a fairly optimal loop construct for ranges (much faster than while)
+### defenum
 
-    (defvar n 0)
-    (loop n 0 10
-        (set-sprite-x! n 100))
+```
+(defenum 'days-of-week monday tuesday wednesday)
+```
 
-### (while expr expr-list)
+Define constants that increase monotomically in representation.
 
-general purpose looping
+### defmacro
 
-    (defvar n 0)
-    (while (< n 10)
-        (set-sprite-x! n (* n 10))
-        (inc n))
+TODO
 
-### (do expr-list)
+## Memory definitions
 
-collect a bunch of expression together, returns result of the last one
+### defvar
 
-    (do
-      (something)
-      (something-else))
+```
+(defvar my-var)
+```
 
-### (asm assembly-string)
+Define a byte sized var. Defaults to zeropage.
 
-insert raw assembly code
+### defvarmem
 
-    (asm
-      ".byte \"NES\",$1a" ;; number of prg-rom blocks
-      ".byte $01" ;; number of chr-rom blocks
-      ".byte $01" ;; rom control bytes: horizontal mirroring, no sram or trainer, mapper #0
-      ".byte $00,$00" ;; filler
-      ".byte $00,$00,$00,$00,$00,$00,$00,$00")
+```
+(defvarmem another-var #x310)
+```
 
-### (deflabel palette)
+Define a byte sized var at an arbitrary memory location.
 
-define a label, visible to co2 code and in generated assembly
+### defword
 
-### (bytes 1 2 3 "more")
+```
+(defword my-word)
+```
 
-insert bytes into the PRG-ROM
+Define a word sized (16-bit) var.
 
-     (deflabel palette)
-     (bytes #x0d #x00 #x0f)
+### defpointer
 
-     (deflabel message)
-     (bytes "THIS IS A MESSAGE")
+```
+(defpointer my-pointer)
+```
 
-### (set! variable value)
+Define a pointer. Must be used in zeropage. See `set-pointer!` and `peek`.
 
-assignments
+### defbuffer
+### defaddr
 
-    (defvar num-poodles 0)
-    (set! num-poodles 100)
+## NES specific directives
 
-### (poke! base-addr [offset] value)
+### nes-header
+### memory-map-global-state
+### init-system
 
-write to memory. base address can be a const or register 16bit address,
-offset and value are normal 8 bit expressions. offset is optional,
-reduces instruction count if you don't need it.
+## Resources and banks
 
-     ;; store button status
-     (loop n 0 8
-         (poke! pad-data n (and (peek reg-joypad-0) #x1))
+### defresource
+### resource-access
+### program-bank
+### program-complete
+### resource-bank
+### resource-bank-complete
 
-### (peek base-addr [offset])
+## Assignments
 
-returns the contents of memory at the specified address. offset is optional, reduces instruction count if you don't need it.
+### let
 
-     ;; store button status
-     (loop n 0 8
-         (poke! pad-data n (and (peek reg-joypad-0) #x1))
+```
+(let ((n) (m))
+  ; body ...
+  )
+```
 
-### (+ a b)
+Define local variables that are only visible in this scope. Initial values are undefined.
 
-8 bit addition with carry
+### set!
 
-    (+ (- 1 2) (* 2 3) 8)
+```
+(set! n 7)
+```
 
-### (- a b)
+Assign a value to a variable.
 
-8 bit subtraction
+### set-multiple!
 
-    (+ (- 1 2) (* 2 3) 8)
+```
+(set-multiple! n m p (func-with-multiple-returns))
+```
 
-### (* a b)
+Assigns values from a multiple-return-value function to multiple variables. See `return`.
 
-8 bit multiplication
+### set-pointer!
+### push
+### pull
 
-    (+ (- 1 2) (* 2 3) 8)
+## Control structures
 
-### (and a b)
+### if
+### when
+### cond
+### while
+### do
+### block
+### loop
+### loop-down-from
+### loop-up-to
+### repeat
+### return
 
-8 bit and - can be used for masking or logical operations.
+```
+(return 3)
+```
 
-    (when (and (peek reg-joypad-0) #x1)
-        (do-something))
+Return from the current subroutine. The argument will be used as the return value from this subroutine. Up to three values can be returned at a time, these should be handled by the caller by using `set-multiple!`.
 
-### (or a b)
+```
+(defsub (func-with-multiple-returns)
+  (return 23 45 67))
+```
 
-8 bit or - can be used for masking or logical operations.
+### catch
+### unwind
+### farcall
 
-    (when (or (pressed joypad-a) (pressed joypad-b))
-        (do-something))
+## Low level memory
 
-### (xor a b)
+### peek
+### poke
+### high
+### low
 
-8 bit xor (eor in asm) - can be used for bit flipping, eg:
+## Math
 
-    (define (toggle-bit-zero a)
-        (xor a #b00000001))
+### +
+### -
+### <<
+### >>
+### eq?
+### >
+### <
+### >=
+### <=
+### *
+### /
+### mod
+### not
 
-### (inc a)
+## Includes
 
-increment a variable by one - maps to a single instruction
+### include
+### include-binary
 
-    (defvar n 0)
-    (while (< n 10)
-        (set-sprite-x! n (* n 10))
-        (inc n))
+## PPU utilities
 
-## (dec a)
+### ppu-load
+### ppu-memset
+### ppu-memcpy
+### ppu-memcpy16
 
-decrement a variable by one - maps to a single instruction
+## Sprite utilities
 
-    (defvar n 20)
-    (while (> n 10)
-        (set-sprite-x! n (* n 10))
-        (dec n))
+### set-sprite!
+### get-sprite
 
-## (<< a num-bits)
+## Memory helpers    
 
-8 bit left shift
+### memset
+### memcpy
+### scale16
 
-    (defvar num-poodles 10)
-    (set! num-poodles (<< num-poodles 2)) ;; 40 = 10*4
+## Raw assembly
 
-## (>> a num-bits)
+### asm
 
-8 bit right shift
+```
+(asm "lda #1")
+```
 
-    (defvar num-poodles 10)
-    (set! num-poodles (>> num-poodles 1)) ;; 5 = 10/2
+Emit raw assembly.
+                        
+# 6502 Instructions
 
-# 16 bit commands
+```
+adc cmp cpx cpy eor sbc and ora xor
+lda ldx ldy sta stx sty asl lsr rol ror
+bit beq bcc bcs bne bmi bpl bvc bvs jmp
+clc cld cli clv dex dey inx iny nop pha
+pla rts sec tax tay tsx txa txs tya jsr
+```
 
-some stuff to simplify 16bit operations - very unpolished
+All standard 6502 instructions can be used directly. Expressions are not allowed for these usages.
 
-### (set-pointer! variable value)
+## Addressing modes:
 
-create a pointer a 16bit address label
-
-    ;; must be contiguous
-    (defvar addr-l 0)
-    (defvar addr-h 0)
-
-    (set-pointer! addr-l mydata)
-
-    ...
-
-    (asm "mydata:")
-    (bytes "0,1,2,3,4,5")
-
-### (load-pointer addr-l offset)
-
-returns memory at address specified by a pointer
-
-    (defvar addr-l 0)
-    (defvar addr-h 0)
-    (set-pointer! addr-l mydata)
-
-    (load-pointer addr-l 4) ;; returns 4
-
-    ...
-
-    (asm "mydata:")
-    (bytes "0,1,2,3,4,5")
-
-### (high label)
-
-returns the high byte of an address
-
-    (set! addr-h (high mydata))
-
-    ...
-
-    (asm "mydata:")
-    (bytes "0,1,2,3,4,5")
-
-### (low label)
-
-returns the low byte of an address
-
-    (set! addr-l (low mydata))
-
-    ...
-
-    (asm "mydata:")
-    (bytes "0,1,2,3,4,5")
-
-### (+16! val-h h l)
-
-two byte in-place addition for 16bit maths
-
-    (defvar h 0)
-    (defvar l 255)
-    (+16! h 0 1)
-    ;; h is now 1, l is 0
-
-### (-16! val-h h l)
-
-two byte in-place subtraction for 16bit maths
-
-    (defvar h 1)
-    (defvar l 9)
-    (-16! h 0 10)
-    ;; h is now 0, l is 255
-
-# Experimental
-
-NES/Famicom specific commands. These are subject to much change, while
-we figure out how the architecture works and the best approach to game
-programming.
-
-## (init-system)
-
-clears memory, resets stack pointer and stack frame, initialises
-random number generator etc. needs to be called at the start of
-your reset interrupt.
-
-## (program-begin #x8000)
-
-starts PRG-ROM, assigning addresses starting at the given 16bit value
-
-## (program-end)
-
-end PRG-ROM, anything after will be CHR-ROM, if used
-
-## (memset address value)
-
-block writes an entire page of PRG-RAM - 256 bytes to a 16bit address
-
-    ;; clear sprite data
-    (memset sprite-data 0)
-
-## PPU DMA commands
-
-## (ppu-memset base-ppuaddr ppu-offset-h ppu-offset-l length value)
-
-block writes a single value into ppu memory
-
-    ;; write a load of tile ids to background memory
-    (ppu-memset ppu-name-table-1 0 0 #x2f tile-id 0)
-
-note: should only be called when the ppu is disabled or at the start
-of vblank.
-
-## (ppu-memcpy base-ppuaddr ppu-offset-h ppu-offset-l prg-end-offset prg-addr prg-start-offset)
-
-copy a load of prg bytes to the ppu. dst and src addresses need to be 16bit constants/registers.
-
-    ;; load a palette
-    (asm "palette: .incbin \"example.pal\"")
-    ...
-    ;; copy all 32bytes of bg/sprite palette into the ppu
-    (ppu-memcpy ppu-palette 0 0 #x20 palette 0))
-
-## OAM commands
-
-these commands write into sprite shadow ram, which is dma-ed to the
-PPU every frame
-
-### (set-sprite-x! sprite-id val)
-### (set-sprite-y! sprite-id val)
-### (set-sprite-id! sprite-id val)
-### (set-sprite-attr! sprite-id val)
-
-sets sprite values for the specified sprite
-
-### (get-sprite-x sprite-id)
-### (get-sprite-y sprite-id)
-### (get-sprite-id sprite-id)
-### (get-sprite-attr sprite-id)
-
-gets sprite values for the specified sprite
-
-### (get-sprite-vflip sprite-id)
-### (get-sprite-hflip sprite-id)
-### (set-sprite-vflip sprite-id value)
-### (set-sprite-hflip sprite-id value)
-
-macros for setting v/hflip on a sprite
-
-## multiple sprite handling
-
-often we are dealing with large collections of sprites, or metasprites.
-these commands optimise for quickly dealing with contiguous groups of
-sprites (see below for 2x2 metasprite commands)
-
-### (add-sprites-x! sprite-id sprite-count value)
-### (add-sprites-y! sprite-id sprite-count value)
-### (sub-sprites-x! sprite-id sprite-count value)
-### (sub-sprites-y! sprite-id sprite-count value)
-
-add or subtract from the current sprite location
-
-### (or-sprites-attr sprite-id sprite-count value)
-
-binary or-s the value to the current set of sprites
-
-## 2x2 metasprite handling
-
-the most common size of sprites are 2x2 square, these commands produce
-code optimised for this type of metasprite
-
-# registers
-
-these are defined as constants for your convenience and enjoyment.
-
-## ppu/oam registers
-
-- REG-PPU-CTRL
-- REG-PPU-MASK
-- REG-PPU-STATUS
-- REG-OAM-ADDR
-- REG-OAM-DATA
-- REG-PPU-SCROLL
-- REG-PPU-ADDR
-- REG-PPU-DATA
-- REG-OAM-DMA
-
-### apu registers
-
-- REG-APU-PULSE1-CONTROL
-- REG-APU-PULSE1-RAMP
-- REG-APU-PULSE1-FT
-- REG-APU-PULSE1-CT
-- REG-APU-PULSE2-CONTROL
-- REG-APU-PULSE2-RAMP
-- REG-APU-PULSE2-FT
-- REG-APU-PULSE2-CT
-- REG-APU-TRI-CONTROL
-- REG-APU-TRI-FT
-- REG-APU-TRI-CT
-- REG-APU-NOISE-ENV
-- REG-APU-NOISE-FT
-- REG-APU-NOISE-CT
-- REG-APU-DMC-CONTROL
-- REG-APU-DMC-DAC
-- REG-APU-DMC-ADDR
-- REG-APU-DMC-SIZE
-- REG-APU-CHANNEL
-
-### input
-
-- REG-JOYPAD-0
-- REG-JOYPAD-1
-
-- JOYPAD-A
-- JOYPAD-B
-- JOYPAD-SELECT
-- JOYPAD-START
-- JOYPAD-UP
-- JOYPAD-DOWN
-- JOYPAD-LEFT
-- JOYPAD-RIGHT
-
-### ppu vram addresses
-
-- PPU-NAME-TABLE-0
-- PPU-ATTR-TABLE-0
-- PPU-NAME-TABLE-1
-- PPU-ATTR-TABLE-1
-- PPU-NAME-TABLE-2
-- PPU-ATTR-TABLE-2
-- PPU-NAME-TABLE-3
-- PPU-ATTR-TABLE-3
-- PPU-PALETTE
-- PPU-BG-PALETTE
-- PPU-SPRITE-PALETTE
-
-# program structure
-
-follows normal NES/Famicom behaviour
-
-    (do
-      (nes-header ...)
-      (program-begin #xc000)
-      (defsub ...)
-      (defsub ...)
-      ...
-      (defvector (nmi) ...)
-      (defvector (reset)
-         (init-system)
-         ...)
-      (defvector (irq) ...)
-      (program-end)
-      chr-data
-      )
-
-# Version 2.0
-
-The rewrite is mostly backwards-compatible with Version 1.0, with a few superficial changes: `defconst` takes integers to define immediate values, `defaddr` is used for addresses, built-in NES registers are capitalized, `defsub` is used for subroutines and `defvector` is used for `reset` / `nmi` / `irq`. `loop` is no longer inclusive by default. Finally, many sprite manipulation functions were moved out of core, and rewritten in the projets that used them.
-
-For semantics, CO2 treats the `A` register as the "current value" being operated on, whether it's a value to be set! into a RAM location, the conditional for an if statement, the return value from a subroutine, or the evaluation of an expression to be passed to a function call. Parameters passed to functions used fastcall, A for the 0th arg, X for the 1st, Y for the 2nd, and the system stack for more (evaluated and pushed in reverse order). There is also the option to directly manipulation X and Y with raw 6502 instructions, in which case it is up to the programmer to not evaluate any instrucitons that could clobber these registers.
-
-Recursion is not supported. Functions store their parameter into statically determined memory addresses (calculated by looking at the total program call tree). Because these addresses are not stack based, recursion won't work.
+```
+(lsr a)
+(lda 7)
+(lda n)
+(lda (addr #x421))
+(lda (addr #x421) x)
+```
