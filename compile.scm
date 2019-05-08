@@ -411,6 +411,28 @@
               (set! *result-curr-tail-call* #t)]
            [(eq? opcode 'bne)
               (set! *result-curr-tail-call* #t)]
+           [(eq? opcode 'bmi)
+              (when *result-curr-areg*
+                (let ((found #f) (prev #f) (new #f) (j #f))
+                  (for [(i (in-range 3))]
+                       (when (not found)
+                         (set! j (- (gvector-count *result*) 1 i))
+                         (set! prev (gvector-ref *result* j))
+                         (when (string-startswith prev "; AReg:omit")
+                               (set! found #t)
+                               (set! new (string-replace prev "; AReg:omit" ""))
+                               (gvector-set! *result* j new))))))]
+           [(eq? opcode 'bpl)
+              (when *result-curr-areg*
+                (let ((found #f) (prev #f) (new #f) (j #f))
+                  (for [(i (in-range 3))]
+                       (when (not found)
+                         (set! j (- (gvector-count *result*) 1 i))
+                         (set! prev (gvector-ref *result* j))
+                         (when (string-startswith prev "; AReg:omit")
+                               (set! found #t)
+                               (set! new (string-replace prev "; AReg:omit" ""))
+                               (gvector-set! *result* j new))))))]
            [(eq? opcode 'cmp)
               (set! *result-curr-tail-call* #t)]
            [(eq? opcode 'jsr)
@@ -3779,6 +3801,7 @@
 (provide first-error)
 (provide clear-errors)
 (provide set-optimization!)
+(provide set-peephole-optimization!)
 (provide generate-func-memory-addresses)
 (provide get-data-segment)
 (provide build-answer-table)

@@ -12,6 +12,7 @@ racket unit-tests/math-tests.scm
 racket unit-tests/memory-tests.scm
 racket unit-tests/mutator-tests.scm
 racket unit-tests/opcode-tests.scm
+racket unit-tests/peephole-tests.scm
 racket unit-tests/proc-tests.scm
 racket unit-tests/simple-tests.scm
 racket unit-tests/word-tests.scm
