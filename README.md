@@ -1,12 +1,14 @@
 # CO2
 
+__WARNING, THIS CODE IS EXPERIMENTAL AND UNSTABLE. USE WITH CAUTION__
+
 A lispy language for creating NES / Famicom software. Based upon original work by [Dave Griffiths](https://gitlab.com/nebogeo/co2).
 
 ![](shot.png)
 
 CO2 takes Lispy source files and compiles them into 6502 ROMs meant to run in an NES emulator. It includes high-level control structures like subroutines, loops, and conditionals, as well as low-level access to memory and individual 6502 CPU instructions.
 
-Though it was used for (and developed along with) the game What Remians, CO2 should be considered highly experimental. It is lacking many features, has poor errors, may rarely generate invalid code, lacks many standard language abstractions, and in general is somewhat unstable. Nevertheless, it still has some real benefits if you are willing to deal with its rough spots.
+Though it was used for (and developed along with) the game What Remians, CO2 should be considered __highly experimental__. It is lacking many features, has poor errors, may rarely generate invalid code, lacks many standard language abstractions, and in general is somewhat unstable. Nevertheless, it still has some real benefits if you are willing to deal with its rough spots.
 
 Example:
 
