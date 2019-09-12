@@ -1507,6 +1507,11 @@
       (let ((bank-num (syntax->datum context-bank-num)))
         (set! *current-bank-num* bank-num)))))
 
+; DEPRECATED
+(define (process-program-begin context-address)
+  (let* ((address (syntax->datum context-address)))
+    (emit (format ".org $~x" address))))
+
 (define (process-program-complete)
   (generate-suffix)
   (set! *current-bank-base-addr* #f))
@@ -3263,6 +3268,8 @@
             [(resource-access) (process-resource-access (car rest))]
             [(program-bank) (process-program-bank (lref rest 0) (lref rest 1)
                                                   (lref rest 2))]
+            ; DEPRECATED
+            [(program-begin) (process-program-begin (lref rest 0))]
             [(program-complete) (process-program-complete)]
             [(push pull) (process-stack symbol (unwrap-args rest 0 3))]
             [(set!) (process-with-args process-set-bang rest 2)]
@@ -3472,6 +3479,11 @@
   (when arg-2
     (set! *need-farcall-wrapper* #t)))
 
+(define (analyze-program-begin)
+  (if (eq? *user-specified-org* 'none)
+      (set! *user-specified-org* 'program-only)
+      (set! *user-specified-org* 'all)))
+
 (define (analyze-farcall)
   (set! *need-farcall-wrapper* #t))
 
@@ -3507,6 +3519,7 @@
             [(program-bank) (analyze-program-bank (lref rest 0) (lref rest 1)
                                                   (lref rest 2))]
             [(farcall) (analyze-farcall)]
+            [(program-begin) (analyze-program-begin)]
             [(do) (for [(elem rest)]
                        (analyze-form elem))])))))
 
@@ -3615,6 +3628,8 @@
       (emit 'rts)
       (emit-blank))
     ;; Farcall wrapper
+    ; TODO: Actually detect when this is needed.
+    ;(set! *need-farcall-wrapper* #t)
     (when *need-farcall-wrapper*
       (emit "_farcall__wrapper:")
       (emit 'stx "_ptr+0")
