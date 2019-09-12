@@ -8,7 +8,7 @@ A lispy language for creating NES / Famicom software. Based upon original work b
 
 CO2 takes Lispy source files and compiles them into 6502 ROMs meant to run in an NES emulator. It includes high-level control structures like subroutines, loops, and conditionals, as well as low-level access to memory and individual 6502 CPU instructions.
 
-Though it was used for (and developed along with) the game What Remians, CO2 should be considered __highly experimental__. It is lacking many features, has poor errors, may rarely generate invalid code, lacks many standard language abstractions, and in general is somewhat unstable. Nevertheless, it still has some real benefits if you are willing to deal with its rough spots.
+Though it was used for (and developed along with) the game What Remains, CO2 should be considered __highly experimental__. It is lacking many features, has poor errors, may rarely generate invalid code, lacks many standard language abstractions, and in general is somewhat unstable. Nevertheless, it still has some real benefits if you are willing to deal with its rough spots.
 
 Example:
 
@@ -31,9 +31,9 @@ Requires `racket` and `asm6`
 
 ## Philosophy
 
-CO2 is meant to enable high-level structured programming, while still providing access to low level facilities. It maintains some useful knowledge of ROM banks, in order to make it easier to develope large scale games. It emphasizes writing fairly performant code, at the expense of some safety. In some cases, it has slightly leaky abstractions (such as putting state into the X and Y registers) that the compiler does not insulate you from. Basically: "you have to know what you're doing".
+CO2 is meant to enable high-level structured programming while still providing access to low level facilities. It maintains some useful knowledge of ROM banks in order to make it easier to develop large scale games. It emphasizes writing fairly performant code, at the expense of some safety. In some cases, it has slightly leaky abstractions (such as putting state into the X and Y registers) that the compiler does not insulate you from. Basically: "you have to know what you're doing".
 
-The goal is to allow development of software that doens't absolutely require the performance of raw assembly, in a manner that's convenient for experimentation, and understanding.
+The goal is to allow development of software that doens't absolutely require the performance of raw assembly, in a manner that's convenient for experimentation and understanding.
 
 ## Features and benefits
 
@@ -47,11 +47,11 @@ Functions "know" what bank they exist in. This enables conveniently calling func
 
 ### cross bank safety
 
-Similarily, it is an error to call a function in a non-accessible bank, detected statically by the compiler. This saves deleopment time by catching errors early.
+Similarly, it is an error to call a function in a non-accessible bank, detected statically by the compiler. This saves development time by catching errors early.
 
 ### resources
 
-Resources provide a simple mechanism to include binary data, such that it's cheap and efficient to load a pointer and bank number to that data using a zero-cost (compile-time only) handle. No need to manually keep track of where data is stored in ROM.
+Resources provide a simple mechanism to include binary data such that it's cheap and efficient to load a pointer and bank number to that data using a zero-cost (compile-time only) handle. No need to manually keep track of where data is stored in ROM.
 
 ### source-level debugging
 
@@ -171,7 +171,7 @@ TODO
 (defvar my-var)
 ```
 
-Define a byte sized var. Defaults to zeropage.
+Define a byte-sized var. Defaults to zeropage.
 
 ### defvarmem
 
@@ -179,7 +179,7 @@ Define a byte sized var. Defaults to zeropage.
 (defvarmem another-var #x310)
 ```
 
-Define a byte sized var at an arbitrary memory location.
+Define a byte-sized var at an arbitrary memory location.
 
 ### defword
 
@@ -187,7 +187,7 @@ Define a byte sized var at an arbitrary memory location.
 (defword my-word)
 ```
 
-Define a word sized (16-bit) var.
+Define a word-sized (16-bit) var.
 
 ### defpointer
 
@@ -265,7 +265,7 @@ Assigns values from a multiple-return-value function to multiple variables. See 
 (return 3)
 ```
 
-Return from the current subroutine. The argument will be used as the return value from this subroutine. Up to three values can be returned at a time, these should be handled by the caller by using `set-multiple!`.
+Return from the current subroutine. The argument will be used as the return value from this subroutine. Up to three values can be returned at a time. These should be handled by the caller by using `set-multiple!`.
 
 ```
 (defsub (func-with-multiple-returns)
@@ -330,7 +330,7 @@ Return from the current subroutine. The argument will be used as the return valu
 (asm "lda #1")
 ```
 
-Emit raw assembly.
+Emit raw Assembly.
                         
 # 6502 Instructions
 
