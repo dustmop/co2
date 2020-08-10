@@ -319,6 +319,13 @@ Return from the current subroutine. The argument will be used as the return valu
 ## Memory helpers    
 
 ### memset
+
+```
+(memset start value limit?)
+```
+
+Sets bytes from `start`, counting through `limit`, to `value`. `limit` is inclusive, so `(memset #x20 0 1)` sets #x20 and #x21 to 0. if `limit` is omitted, defaults to 255 (convenient for clearing a "page" of memory; for example, `(memset sprite-data 0)` clears the 256 bytes of sprite memory to all zeroes).  
+
 ### memcpy
 ### scale16
 
